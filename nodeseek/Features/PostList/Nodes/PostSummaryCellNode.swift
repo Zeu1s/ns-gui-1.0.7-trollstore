@@ -220,12 +220,28 @@ final class PostSummaryCellNode: ASCellNode, ThemeRefreshableNode {
             attributes: attributes
         ))
 
+        if let createdAt = post.createdAtText.flatMap(Self.formattedCreatedTime) {
+            appendSeparatorIfNeeded()
+            metadata.append(NSAttributedString(string: createdAt, attributes: attributes))
+        }
+
         if let lastActivity = lastActivityText(for: post) {
             appendSeparatorIfNeeded()
             metadata.append(NSAttributedString(string: lastActivity, attributes: attributes))
         }
 
         return metadata
+    }
+
+    static func formattedCreatedTime(_ raw: String) -> String? {
+        let parts = raw.split(separator: " ")
+        guard parts.count >= 2 else { return nil }
+        let dateParts = parts[0].split(separator: "-")
+        guard dateParts.count == 3 else { return nil }
+        let timeParts = parts[1].split(separator: ":")
+        guard timeParts.count >= 2 else { return nil }
+        guard let month = Int(dateParts[1]), let day = Int(dateParts[2]) else { return nil }
+        return "\(month)-\(day) \(timeParts[0]):\(timeParts[1])"
     }
 
     private static func authorBadgeAttributedText(_ rawText: String) -> NSAttributedString {

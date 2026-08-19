@@ -45,6 +45,7 @@ nonisolated struct PostSummary: Equatable, Sendable {
     let nodeName: String?
     let replyCount: Int
     let viewCount: Int
+    let createdAtText: String?
     let lastActivityText: String?
     let isPinned: Bool
     let isLocked: Bool
@@ -61,6 +62,7 @@ nonisolated struct PostSummary: Equatable, Sendable {
         nodeName: String?,
         replyCount: Int,
         viewCount: Int = 0,
+        createdAtText: String? = nil,
         lastActivityText: String?,
         isPinned: Bool = false,
         isLocked: Bool = false,
@@ -76,6 +78,7 @@ nonisolated struct PostSummary: Equatable, Sendable {
         self.nodeName = nodeName
         self.replyCount = replyCount
         self.viewCount = viewCount
+        self.createdAtText = createdAtText
         self.lastActivityText = lastActivityText
         self.isPinned = isPinned
         self.isLocked = isLocked

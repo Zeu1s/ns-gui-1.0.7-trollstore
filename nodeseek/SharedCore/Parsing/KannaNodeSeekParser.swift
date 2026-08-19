@@ -261,6 +261,7 @@ struct KannaNodeSeekParser: NodeSeekParser {
             ],
             attribute: "href"
         ).flatMap { URL(string: $0, relativeTo: baseURL)?.absoluteURL }
+            ?? userProfileURLFromAvatarDataUID(in: item, baseURL: baseURL)
         let authorName = firstText(in: item, xpaths: [XPathRules.postAuthor, XPathRules.fallbackAuthor]) ?? ""
         let nodeName = firstText(in: item, xpaths: [XPathRules.postNode, XPathRules.fallbackNode])
         let viewNode = item.at_xpath(XPathRules.viewCount)
@@ -269,6 +270,16 @@ struct KannaNodeSeekParser: NodeSeekParser {
         let replyText = item.at_xpath(XPathRules.replyCount)?.text ?? item.text ?? ""
         let replyCount = Self.replyCount(in: replyText) ?? 0
         let lastActivityText = firstText(in: item, xpaths: [XPathRules.lastActive, XPathRules.fallbackLastActive])
+        let timeNodes = item.xpath(".//time")
+        let parsedCreatedAtText: String?
+        let resolvedLastActivityText: String?
+        if timeNodes.count >= 2 {
+            parsedCreatedAtText = timeNodes.first?["title"]?.trimmedNonEmpty ?? timeNodes.first?.text?.trimmedNonEmpty
+            resolvedLastActivityText = timeNodes.last?["title"]?.trimmedNonEmpty ?? timeNodes.last?.text?.trimmedNonEmpty
+        } else {
+            parsedCreatedAtText = nil
+            resolvedLastActivityText = lastActivityText
+        }
         let isPinned = item.at_xpath(XPathRules.postPinned) != nil
         let isLocked = item.at_xpath(XPathRules.postLocked) != nil
         let requiredReadingLevel = requiredReadingLevelFromPostListLockBadge(in: item)
@@ -281,7 +292,8 @@ struct KannaNodeSeekParser: NodeSeekParser {
             nodeName: nodeName,
             replyCount: replyCount,
             viewCount: viewCount,
-            lastActivityText: lastActivityText,
+            createdAtText: parsedCreatedAtText,
+            lastActivityText: resolvedLastActivityText,
             isPinned: isPinned,
             isLocked: isLocked,
             requiredReadingLevel: requiredReadingLevel,
@@ -291,6 +303,13 @@ struct KannaNodeSeekParser: NodeSeekParser {
         )
     }
 
+    private func userProfileURLFromAvatarDataUID(in item: Kanna.XMLElement, baseURL: URL) -> URL? {
+        guard let uid = item.at_xpath(".//img[contains(@class, 'avatar')]")?["data-uid"]?.trimmedNonEmpty,
+              Self.firstInteger(in: uid) != nil else {
+            return nil
+        }
+        return URL(string: "/space/\(uid)", relativeTo: baseURL)?.absoluteURL
+    }
     private func parsePostListAuthorBadgeTexts(in item: Kanna.XMLElement) -> [String] {
         var seen = Set<String>()
         return item.xpath(XPathRules.postAuthorBadges).compactMap { node in

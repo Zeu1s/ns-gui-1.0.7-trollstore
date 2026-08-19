@@ -186,7 +186,7 @@ final class PrivateMessageWebViewController: BaseWebViewController {
                 button.setAttribute('aria-label', '通过图床发送图片');
                 button.title = '通过图床发送图片';
                 button.textContent = '📷';
-                button.style.cssText = 'position:fixed;right:max(16px, env(safe-area-inset-right));bottom:max(120px, calc(env(safe-area-inset-bottom) + 96px));width:56px;height:56px;border-radius:28px;border:none;background:#1677ff;color:#fff;font-size:26px;line-height:56px;text-align:center;box-shadow:0 4px 12px rgba(0,0,0,0.25);z-index:2147483647;touch-action:manipulation';
+                button.style.cssText = 'position:fixed;right:max(16px, env(safe-area-inset-right));bottom:max(120px, calc(env(safe-area-inset-bottom) + 96px));width:56px;height:56px;border-radius:28px;border:none;background:#1677ff;color:#fff;font-size:26px;display:flex;align-items:center;justify-content:center;line-height:1;box-shadow:0 4px 12px rgba(0,0,0,0.25);z-index:2147483647;touch-action:manipulation';
                 button.addEventListener('click', () => {
                   if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.nodeSeekUploadImage) {
                     window.webkit.messageHandlers.nodeSeekUploadImage.postMessage({});

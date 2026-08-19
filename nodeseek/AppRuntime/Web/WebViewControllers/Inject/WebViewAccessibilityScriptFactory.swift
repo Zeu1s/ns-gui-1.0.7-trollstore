@@ -92,38 +92,48 @@ enum WebViewAccessibilityScriptFactory {
             badge.textContent = text;
             container.appendChild(badge);
           };
+          const fetchUserBadge = (userId, anchor) => {
+            if (userBadgeState[userId]) {
+              appendUserBadge(anchor, userBadgeState[userId]);
+              return;
+            }
+            fetch('/api/account/getInfo/' + userId, { credentials: 'include' })
+              .then((response) => response.ok ? response.json() : null)
+              .then((payload) => {
+                const detail = payload && payload.success ? payload.detail : null;
+                if (!detail) return;
+                const createdAt = detail.created_at ? new Date(detail.created_at).getTime() : NaN;
+                const joinDays = Number.isFinite(createdAt) ? Math.max(1, Math.ceil((Date.now() - createdAt) / 86400000)) : 0;
+                const coin = Number(detail.coin) || 0;
+                const level = Number(detail.rank) || Math.min(6, Math.floor(Math.sqrt(coin) / 10));
+                const badgeText = 'Lv ' + level + (joinDays > 0 ? ' · ' + joinDays + '天' : '');
+                userBadgeState[userId] = badgeText;
+                appendUserBadge(anchor, badgeText);
+              })
+              .catch(() => {});
+          };
           const applyUserInfoBadges = () => {
             ensureUserBadgeStyle();
             const anchors = Array.from(document.querySelectorAll('a.author-name[href*="/space/"], .info-author a[href*="/space/"]'))
               .filter((anchor) => !anchor.dataset.nodeseekUserInfoHandled);
-            if (anchors.length === 0) return;
             anchors.forEach((anchor) => {
               anchor.dataset.nodeseekUserInfoHandled = '1';
               const match = (anchor.getAttribute('href') || '').match(/\\/space\\/(\\d+)/);
               if (!match) return;
-              const userId = match[1];
-              if (userBadgeState[userId]) {
-                appendUserBadge(anchor, userBadgeState[userId]);
-                return;
-              }
-              fetch('/api/account/getInfo/' + userId, { credentials: 'include' })
-                .then((response) => response.ok ? response.json() : null)
-                .then((payload) => {
-                  const detail = payload && payload.success ? payload.detail : null;
-                  if (!detail) return;
-                  const createdAt = detail.created_at ? new Date(detail.created_at).getTime() : NaN;
-                  const joinDays = Number.isFinite(createdAt) ? Math.max(1, Math.ceil((Date.now() - createdAt) / 86400000)) : 0;
-                  const coin = Number(detail.coin) || 0;
-                  const level = Number(detail.rank) || Math.min(6, Math.floor(Math.sqrt(coin) / 10));
-                  const badgeText = 'Lv ' + level + (joinDays > 0 ? ' · ' + joinDays + '天' : '');
-                  userBadgeState[userId] = badgeText;
-                  appendUserBadge(anchor, badgeText);
-                })
-                .catch(() => {});
+              fetchUserBadge(match[1], anchor);
             });
-          };
-
-          let mobilePageRefreshScheduled = false;
+            Array.from(document.querySelectorAll('.post-list-item')).forEach((item) => {
+              const authorLink = item.querySelector('.info-author a, .post-author a');
+              if (!authorLink || authorLink.dataset.nodeseekUserInfoHandled) return;
+              const href = authorLink.getAttribute('href') || '';
+              if (href.includes('/space/')) return;
+              const avatar = item.querySelector('img[data-uid]');
+              const userId = avatar && avatar.getAttribute('data-uid');
+              if (!userId) return;
+              authorLink.dataset.nodeseekUserInfoHandled = '1';
+              fetchUserBadge(userId, authorLink);
+            });
+          };          let mobilePageRefreshScheduled = false;
           const scheduleMobilePageRefresh = () => {
             if (mobilePageRefreshScheduled) return;
             mobilePageRefreshScheduled = true;
@@ -356,6 +366,15 @@ enum WebViewAccessibilityScriptFactory {
               html.nodeseek-profile-page #nsk-body-left * {
                 max-width: 100% !important;
                 box-sizing: border-box !important;
+              }              html.nodeseek-private-message-page footer,
+              html.nodeseek-profile-page footer,
+              html.nodeseek-private-message-page #fast-nav-button-group,
+              html.nodeseek-profile-page #fast-nav-button-group {
+                display: none !important;
+              }
+              html.nodeseek-private-message-page #nsk-body-left,
+              html.nodeseek-profile-page #nsk-body-left {
+                min-height: 100vh !important;
               }              html.nodeseek-private-message-page table,
               html.nodeseek-profile-page table {
                 width: 100% !important;
