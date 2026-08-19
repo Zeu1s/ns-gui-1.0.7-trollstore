@@ -29,6 +29,7 @@ protocol PostTextureListHostPresenterDelegate: AnyObject {
 protocol PostTextureListHostPresenterProtocol: AnyObject {
     var delegate: PostTextureListHostPresenterDelegate? { get set }
     var currentSortMode: PostListSortMode { get }
+    var isReadyForDisplay: Bool { get }
 
     func setView(_ view: PostTextureListHostViewProtocol)
     func viewDidLoad()
