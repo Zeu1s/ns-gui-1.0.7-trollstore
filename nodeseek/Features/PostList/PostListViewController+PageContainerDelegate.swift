@@ -32,6 +32,8 @@ extension PostListViewController: PostPageContainerViewControllerDelegate {
         syncSelectedCategoryFromPageContainerIfNeeded(category)
         renderSortMode(containerView.sortMode(for: category))
         if categoryChanged {
+            // 切换板块后从该板块顶部开始浏览；保留旧内容直到新请求完成，避免闪屏。
+            containerView.scrollToTop(for: category, animated: false)
             containerView.refreshFirstPageKeepingContent(for: category)
         }
     }
