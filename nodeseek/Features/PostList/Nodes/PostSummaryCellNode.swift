@@ -86,6 +86,7 @@ final class PostSummaryCellNode: ASCellNode, ThemeRefreshableNode {
         super.didLoad()
         themeTraitObserver.install(on: self)
         requestAvatarIfNeeded()
+        NodeSeekUserInfoStore.shared.requestBadge(for: post.authorProfileURL)
     }
 
     override func didEnterDisplayState() {

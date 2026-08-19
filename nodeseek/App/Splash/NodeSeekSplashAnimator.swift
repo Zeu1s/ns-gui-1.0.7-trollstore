@@ -130,7 +130,7 @@ private extension NodeSeekSplashAnimator {
         nodeCoreLayer.path = UIBezierPath(ovalIn: coreFrame).cgPath
         nodeCoreLayer.contentsScale = UIScreen.main.scale
 
-        let brandSide = glyphWidth * 0.72
+        let brandSide = glyphWidth * 0.84
         brandImageLayer.frame = CGRect(
             x: glyphFrame.midX - brandSide / 2,
             y: glyphFrame.midY - brandSide / 2,
@@ -140,6 +140,8 @@ private extension NodeSeekSplashAnimator {
         brandImageLayer.contents = UIImage(named: "SplashLogo")?.cgImage
         brandImageLayer.contentsGravity = .resizeAspect
         brandImageLayer.contentsScale = UIScreen.main.scale
+        brandImageLayer.cornerRadius = brandSide * 0.2237
+        brandImageLayer.masksToBounds = true
 
         let eyeWidth = coreDiameter * 0.16
         let eyeHeight = coreDiameter * 0.25

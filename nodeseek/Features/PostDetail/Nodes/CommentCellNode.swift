@@ -181,6 +181,7 @@ final class CommentCellNode: ASCellNode, ThemeRefreshableNode {
         themeTraitObserver.install(on: self)
         installContextMenu(on: view)
         requestAvatarIfNeeded()
+        NodeSeekUserInfoStore.shared.requestBadge(for: comment.authorProfileURL)
     }
 
     override func didEnterDisplayState() {

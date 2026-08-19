@@ -160,6 +160,7 @@ final class PostBodyCellNode: ASCellNode, ThemeRefreshableNode {
         themeTraitObserver.install(on: self)
         installBodyContextMenus()
         requestAvatarIfNeeded()
+        NodeSeekUserInfoStore.shared.requestBadge(for: content.authorProfileURL)
     }
 
     override func didEnterDisplayState() {

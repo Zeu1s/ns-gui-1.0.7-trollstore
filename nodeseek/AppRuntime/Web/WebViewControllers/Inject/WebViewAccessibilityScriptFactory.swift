@@ -342,6 +342,20 @@ enum WebViewAccessibilityScriptFactory {
               html.nodeseek-profile-page #nsk-body-left img {
                 max-width: 100% !important;
                 height: auto !important;
+              }              html.nodeseek-private-message-page,
+              html.nodeseek-profile-page {
+                overflow-x: hidden !important;
+                max-width: 100vw !important;
+              }
+              html.nodeseek-private-message-page body,
+              html.nodeseek-profile-page body {
+                overflow-x: hidden !important;
+                max-width: 100vw !important;
+              }
+              html.nodeseek-private-message-page #nsk-body-left *,
+              html.nodeseek-profile-page #nsk-body-left * {
+                max-width: 100% !important;
+                box-sizing: border-box !important;
               }              html.nodeseek-private-message-page table,
               html.nodeseek-profile-page table {
                 width: 100% !important;

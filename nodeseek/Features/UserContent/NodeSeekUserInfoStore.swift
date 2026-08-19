@@ -10,18 +10,24 @@ final class NodeSeekUserInfoStore {
     static let didUpdateNotification = Notification.Name("NodeSeekUserInfoStore.didUpdate")
 
     private let client: NodeSeekUserInfoLoading
+    private let defaults: UserDefaults
     private var cache: [Int: NodeSeekUserInfo] = [:]
     private var inflight: [Int: Task<Void, Never>] = [:]
     private var pendingIDs: [Int] = []
-    private var isProcessing = false
+    private var activeCount = 0
+    private let maxConcurrent = 6
 
-    init(client: NodeSeekUserInfoLoading = NodeSeekUserInfoClient()) {
+    init(client: NodeSeekUserInfoLoading = NodeSeekUserInfoClient(), defaults: UserDefaults = .standard) {
         self.client = client
+        self.defaults = defaults
     }
 
     func badgeText(for profileURL: URL?) -> String? {
         guard let userID = Self.userID(from: profileURL) else { return nil }
-        return cache[userID]?.badgeText
+        if let info = cache[userID] {
+            return info.badgeText
+        }
+        return defaults.string(forKey: Self.cacheKey(userID))
     }
 
     func requestBadge(for profileURL: URL?) {
@@ -34,33 +40,39 @@ final class NodeSeekUserInfoStore {
     }
 
     private func processNext() {
-        guard isProcessing == false else { return }
-        guard let userID = pendingIDs.first else { return }
-        pendingIDs.removeFirst()
-        isProcessing = true
-        let task = Task { [weak self] in
-            do {
-                let info = try await self?.client.loadUserInfo(userID: userID)
-                await MainActor.run {
-                    guard let self, let info else { return }
-                    self.cache[userID] = info
-                    NotificationCenter.default.post(
-                        name: Self.didUpdateNotification,
-                        object: nil,
-                        userInfo: ["userID": userID]
-                    )
+        while activeCount < maxConcurrent, let userID = pendingIDs.first {
+            pendingIDs.removeFirst()
+            activeCount += 1
+            let task = Task { [weak self] in
+                do {
+                    if let info = try await self?.client.loadUserInfo(userID: userID) {
+                        await MainActor.run {
+                            guard let self else { return }
+                            self.cache[userID] = info
+                            self.defaults.set(info.badgeText, forKey: Self.cacheKey(userID))
+                            NotificationCenter.default.post(
+                                name: Self.didUpdateNotification,
+                                object: nil,
+                                userInfo: ["userID": userID]
+                            )
+                        }
+                    }
+                } catch {
+                    // 单次失败不重试，避免在弱网下打满接口。
                 }
-            } catch {
-                // 单次失败不重试，避免在弱网下打满接口。
+                await MainActor.run {
+                    guard let self else { return }
+                    self.inflight[userID] = nil
+                    self.activeCount -= 1
+                    self.processNext()
+                }
             }
-            await MainActor.run {
-                guard let self else { return }
-                self.inflight[userID] = nil
-                self.isProcessing = false
-                self.processNext()
-            }
+            inflight[userID] = task
         }
-        inflight[userID] = task
+    }
+
+    private static func cacheKey(_ userID: Int) -> String {
+        "nodeseek.userInfo.\(userID)"
     }
 
     static func userID(from profileURL: URL?) -> Int? {
