@@ -30,6 +30,7 @@ final class PostTextureListHostViewController: UIViewController {
         listView.delegate = self
         listView.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(listView)
+        listView.isSpecialFollow = category.isSpecialFollow
         NSLayoutConstraint.activate([
             listView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             listView.trailingAnchor.constraint(equalTo: view.trailingAnchor),

@@ -468,8 +468,9 @@ class PostListViewController: UIViewController {
             return
         }
         selectedCategory = category
-        applySelectedCategory(category, syncPage: true, pageAnimated: true)
+        applySelectedCategory(category, syncPage: true, pageAnimated: false)
         pageContainerViewController.refreshFirstPageKeepingContent(for: category)
+        pageContainerViewController.scrollToTop(for: category, animated: false)
         renderSortMode(pageContainerViewController.sortMode(for: category))
         presenter.didSelectCategory(category)
     }

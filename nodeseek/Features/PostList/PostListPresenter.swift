@@ -79,7 +79,7 @@ class PostListPresenter: PostListPresenterProtocol {
 
     func didSelectCategory(_ category: PostListCategoryItem) {
         guard category != currentCategory else { return }
-        guard categoryPreferenceStore.visibleCategoryItems.contains(category) else { return }
+        guard category.isSpecialFollow || categoryPreferenceStore.visibleCategoryItems.contains(category) else { return }
         currentCategory = category
     }
 
@@ -206,7 +206,7 @@ private extension PostListPresenter {
 
     func renderCurrentCategories() {
         let categories = categoryPreferenceStore.visibleCategoryItems
-        if !categories.contains(currentCategory) {
+        if !categories.contains(currentCategory), currentCategory.isSpecialFollow == false {
             currentCategory = .all
         }
         view?.renderCategories(categories, selected: currentCategory)

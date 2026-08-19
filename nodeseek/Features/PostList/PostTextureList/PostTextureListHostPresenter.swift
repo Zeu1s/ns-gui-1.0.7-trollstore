@@ -21,6 +21,7 @@ final class PostTextureListHostPresenter: PostTextureListHostPresenterProtocol {
     private var isLoadingFirstPage = false
     private var isRefreshing = false
     private var isLoadingMore = false
+    private var specialFollowAutoFetchPagesRemaining = 0
 
     init(
         category: PostListCategoryItem,
@@ -112,6 +113,10 @@ extension PostTextureListHostPresenter: PostTextureListHostInteractorOutput {
         view?.hideRefreshing()
         view?.hideLoadingMore()
         delegate?.postTextureListHostDidLoadFirstPage(category: category)
+        if category.isSpecialFollow, items.isEmpty, hasMorePages, specialFollowAutoFetchPagesRemaining == 0 {
+            specialFollowAutoFetchPagesRemaining = 6
+            fetchNextSpecialFollowPageIfNeeded()
+        }
     }
 
     func didLoadMorePosts(
@@ -143,6 +148,9 @@ extension PostTextureListHostPresenter: PostTextureListHostInteractorOutput {
             view?.setItems(items)
         }
         view?.hideLoadingMore()
+        if category.isSpecialFollow, items.isEmpty, specialFollowAutoFetchPagesRemaining > 0 {
+            fetchNextSpecialFollowPageIfNeeded()
+        }
     }
 
     func didFailLoadPosts(error: String, category: PostListCategoryItem, sortMode: PostListSortMode) {
@@ -231,6 +239,16 @@ private extension PostTextureListHostPresenter {
         interactor.loadMorePosts(page: nextPage, category: category, sortMode: sortMode)
     }
 
+    private func fetchNextSpecialFollowPageIfNeeded() {
+        guard category.isSpecialFollow else { return }
+        guard specialFollowAutoFetchPagesRemaining > 0 else { return }
+        guard !isLoadingMore, !isLoadingFirstPage else { return }
+        guard hasMorePages else { return }
+        specialFollowAutoFetchPagesRemaining -= 1
+        isLoadingMore = true
+        view?.showLoadingMore()
+        interactor.loadMorePosts(page: nextPage, category: category, sortMode: sortMode)
+    }
     func postItems(for posts: [PostSummary]) -> [PostListItem] {
         let filteredPosts: [PostSummary]
         if category.isSpecialFollow {

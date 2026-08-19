@@ -6,7 +6,7 @@ on:
       version:
         description: "应用版本号，例如 1.0.7"
         required: false
-        default: "2.0.0"
+        default: "2.1.0"
         type: string
       build_number:
         description: "构建号，仅允许数字"
@@ -85,12 +85,12 @@ jobs:
           done < <(find build/Payload/nodeseek.app -type f -perm -111 -print0)
 
           ldid -S "$main_binary"
-          (cd build && zip -qry NS-Connect-2.0.0-trollstore.ipa Payload)
-          unzip -t build/NS-Connect-2.0.0-trollstore.ipa
+          (cd build && zip -qry NS-Connect-2.1.0-trollstore.ipa Payload)
+          unzip -t build/NS-Connect-2.1.0-trollstore.ipa
 
       - name: Upload TrollStore IPA
         uses: actions/upload-artifact@v4
         with:
-          name: NS-Connect-2.0.0-trollstore-ipa
-          path: build/NS-Connect-2.0.0-trollstore.ipa
+          name: NS-Connect-2.1.0-trollstore-ipa
+          path: build/NS-Connect-2.1.0-trollstore.ipa
           if-no-files-found: error

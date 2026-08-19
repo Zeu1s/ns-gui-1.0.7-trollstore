@@ -24,6 +24,7 @@ final class PostSummaryCellNode: ASCellNode, ThemeRefreshableNode {
 
     private let post: PostSummary
     private let isVisited: Bool
+    private let isSpecialFollow: Bool
     private let avatarLoader = AvatarImageLoader.shared
     private var hasRequestedAvatar = false
     private var hasDisplayableAuthor: Bool {
@@ -61,9 +62,14 @@ final class PostSummaryCellNode: ASCellNode, ThemeRefreshableNode {
         self.init(post: item.post, isVisited: item.isVisited)
     }
 
-    init(post: PostSummary, isVisited: Bool) {
+    convenience init(item: PostListItem, isSpecialFollow: Bool) {
+        self.init(post: item.post, isVisited: item.isVisited, isSpecialFollow: isSpecialFollow)
+    }
+
+    init(post: PostSummary, isVisited: Bool, isSpecialFollow: Bool = false) {
         self.post = post
         self.isVisited = isVisited
+        self.isSpecialFollow = isSpecialFollow
         super.init()
         automaticallyManagesSubnodes = true
         selectionStyle = .none
@@ -131,7 +137,7 @@ final class PostSummaryCellNode: ASCellNode, ThemeRefreshableNode {
     }
 
     private func configureText() {
-        let specialFollowRules = SpecialFollowKeywordStore.shared.rules
+        let specialFollowRules = isSpecialFollow ? SpecialFollowKeywordStore.shared.rules : []
         titleNode.maximumNumberOfLines = PostListCellStyle.Typography.titleMaximumNumberOfLines
         titleNode.truncationMode = .byTruncatingTail
         titleNode.attributedText = Self.titleAttributedText(

@@ -24,6 +24,7 @@ final class PostTextureListView: UIView {
     }
 
     weak var delegate: PostTextureListViewDelegate?
+    var isSpecialFollow = false
 
     private let tableNode = ASTableNode(style: .plain)
     private let refreshControl = UIRefreshControl()
@@ -324,8 +325,9 @@ extension PostTextureListView: ASTableDataSource {
         switch displayMode {
         case .content:
             let item = items[indexPath.row]
+            let isSpecialFollow = self.isSpecialFollow
             return {
-                PostSummaryCellNode(item: item)
+                PostSummaryCellNode(item: item, isSpecialFollow: isSpecialFollow)
             }
         case .skeleton:
             return {
