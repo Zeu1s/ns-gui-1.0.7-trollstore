@@ -40,6 +40,27 @@ enum WebViewAccessibilityScriptFactory {
             root.classList.toggle('nodeseek-private-message-page', isPrivateMessagePage);
             root.classList.toggle('nodeseek-profile-page', isProfilePage);
 
+            if (isPrivateMessagePage) {
+              const messageCandidates = Array.from(document.querySelectorAll('[class*="message"], [class*="conversation"], [class*="chat"]'));
+              messageCandidates.forEach((element) => {
+                const className = String(element.className || '').toLowerCase();
+                if (element === root || element === document.body || element.id === 'app' || element.id === 'nsk-frame' || element.id === 'nsk-body' || element.id === 'nsk-body-left') return;
+                if (!className || /header|footer|toolbar|editor|input|button|list|content|bubble|text/.test(className) && !/item|row/.test(className)) return;
+                const avatars = element.querySelectorAll('img, [class*="avatar"]');
+                if (avatars.length > 1 && !/item|row|record/.test(className)) return;
+                const avatar = avatars[0];
+                const bubble = element.querySelector('article, p, [class*="bubble"], [class*="content"]');
+                if (!avatar && !bubble) return;
+                const explicitRight = /(^|[-_ ])(self|own|mine|right|outgoing|sent)([-_ ]|$)/.test(className);
+                const explicitLeft = /(^|[-_ ])(other|incoming|received|left)([-_ ]|$)/.test(className);
+                const avatarRect = avatar && avatar.getBoundingClientRect();
+                const avatarOnRight = avatarRect && avatarRect.left > (window.innerWidth * 0.5);
+                const isRight = explicitRight || (!explicitLeft && avatarOnRight);
+                element.classList.toggle('nodeseek-message-right', Boolean(isRight));
+                element.classList.toggle('nodeseek-message-left', !isRight);
+              });
+            }
+
             if (!isProfilePage) return;
             document.querySelectorAll('[class*="medal"], [class*="badge"], img[alt*="勋章"], img[title*="勋章"]').forEach((element) => {
               const label = `${element.getAttribute('alt') || ''} ${element.getAttribute('title') || ''} ${element.textContent || ''}`;
@@ -379,8 +400,14 @@ enum WebViewAccessibilityScriptFactory {
               html.nodeseek-private-message-page #nsk-body-left {
                 padding: 0 12px calc(140px + env(safe-area-inset-bottom)) !important;
                 background: #eef0f3 !important;
-                border-left: 1px solid rgba(0, 0, 0, 0.06) !important;
-                border-right: 1px solid rgba(0, 0, 0, 0.06) !important;
+                border-left: 0 !important;
+                border-right: 0 !important;
+                box-sizing: border-box !important;
+              }
+              html.nodeseek-private-message-page #nsk-frame {
+                border-left: 4px solid #2f3133 !important;
+                border-right: 4px solid #2f3133 !important;
+                box-sizing: border-box !important;
               }
               html.nodeseek-private-message-page #nsk-body-left :is([class*="conversation"], [class*="chat"], [class*="message-list"]) {
                 overflow-y: auto !important;
@@ -447,7 +474,43 @@ enum WebViewAccessibilityScriptFactory {
               html.nodeseek-private-message-page [class*="chat"] [class*="right"] :is(article, [class*="bubble"], [class*="content"]) {
                 background: #95ec69 !important;
                 border-color: #7fd45a !important;
-              }              html.nodeseek-private-message-page table,
+              }
+              html.nodeseek-private-message-page .nodeseek-message-right,
+              html.nodeseek-private-message-page .nodeseek-message-left {
+                display: flex !important;
+                align-items: flex-start !important;
+                gap: 8px !important;
+                width: 100% !important;
+                max-width: 100% !important;
+                box-sizing: border-box !important;
+              }
+              html.nodeseek-private-message-page .nodeseek-message-right {
+                flex-direction: row-reverse !important;
+                justify-content: flex-start !important;
+                padding-right: 4px !important;
+              }
+              html.nodeseek-private-message-page .nodeseek-message-left {
+                flex-direction: row !important;
+                justify-content: flex-start !important;
+                padding-left: 4px !important;
+              }
+              html.nodeseek-private-message-page .nodeseek-message-right :is(article, [class*="bubble"], [class*="content"]) {
+                margin-left: auto !important;
+                margin-right: 0 !important;
+                max-width: calc(100% - 52px) !important;
+              }
+              html.nodeseek-private-message-page .nodeseek-message-left :is(article, [class*="bubble"], [class*="content"]) {
+                margin-left: 0 !important;
+                margin-right: auto !important;
+                max-width: calc(100% - 52px) !important;
+              }
+              @media (prefers-color-scheme: dark) {
+                html.nodeseek-private-message-page #nsk-body-left,
+                html.nodeseek-private-message-page #nsk-frame {
+                  border-color: #111214 !important;
+                }
+              }
+              html.nodeseek-private-message-page table,
               html.nodeseek-profile-page table {
                 width: 100% !important;
                 max-width: 100% !important;
