@@ -109,15 +109,34 @@ final class MainTabContainerViewController: UIViewController {
             }
             root = home
         case .history:
-            root = RecentVisitedPostsViewController(visitedStore: VisitedPostStore.shared)
+            let history = RecentVisitedPostsViewController(visitedStore: VisitedPostStore.shared)
+            history.onSelectRecord = { [weak history] record in
+                let post = Self.postSummary(from: record)
+                let detail = PostDetailRouter.createModule(post: post, page: 1, initialAnchorID: nil)
+                history?.navigationController?.pushViewController(detail, animated: true)
+            }
+            root = history
         case .search:
             root = SearchViewController()
         case .messages:
-            root = PrivateMessageWebViewController(url: NodeSeekNotificationTab.message.webURL)
+            root = NotificationViewController()
         case .profile:
-            root = UserInfoWebViewController(profileURL: NodeSeekSite.baseURL, title: "我的")
+            root = ProfileTabViewController()
         }
         root.navigationItem.hidesBackButton = true
         return UINavigationController(rootViewController: root)
+    }
+    private static func postSummary(from record: VisitedPostRecord) -> PostSummary {
+        PostSummary(
+            id: record.postID,
+            title: record.title,
+            url: record.url,
+            authorName: "",
+            nodeName: nil,
+            replyCount: 0,
+            viewCount: 0,
+            lastActivityText: nil,
+            avatarURL: record.avatarURL
+        )
     }
 }

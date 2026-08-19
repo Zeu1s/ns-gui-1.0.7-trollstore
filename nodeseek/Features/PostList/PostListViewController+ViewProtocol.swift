@@ -24,12 +24,11 @@ extension PostListViewController: PostListViewProtocol {
     }
 
     func renderCategories(_ categories: [PostListCategoryItem], selected: PostListCategoryItem) {
-        let displayCategories = [PostListCategoryItem.specialFollow] + categories.filter { $0.isSpecialFollow == false }
-        let categoriesChanged = displayCategories != self.categories
+        let categoriesChanged = categories != self.categories
         if categoriesChanged {
-            self.categories = displayCategories
+            self.categories = categories
             rebuildCategoryButtons()
-            pageContainerViewController.configure(categories: displayCategories)
+            pageContainerViewController.configure(categories: categories)
         }
         selectedCategory = selected
         applySelectedCategory(selected, syncPage: categoriesChanged, pageAnimated: false)

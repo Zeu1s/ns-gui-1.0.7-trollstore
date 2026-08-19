@@ -137,7 +137,7 @@ final class PostSummaryCellNode: ASCellNode, ThemeRefreshableNode {
     }
 
     private func configureText() {
-        let specialFollowRules = isSpecialFollow ? SpecialFollowKeywordStore.shared.rules : []
+        let specialFollowRules = SpecialFollowKeywordStore.shared.rules
         titleNode.maximumNumberOfLines = PostListCellStyle.Typography.titleMaximumNumberOfLines
         titleNode.truncationMode = .byTruncatingTail
         titleNode.attributedText = Self.titleAttributedText(

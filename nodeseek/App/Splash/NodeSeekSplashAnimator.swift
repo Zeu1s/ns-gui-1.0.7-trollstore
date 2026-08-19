@@ -190,7 +190,7 @@ private extension NodeSeekSplashAnimator {
         let wordmarkWidth = min(bounds.width * 0.62, 238)
         let wordmarkFrame = CGRect(
             x: bounds.midX - wordmarkWidth / 2,
-            y: glyphFrame.maxY + glyphHeight * 0.17,
+            y: glyphFrame.maxY + glyphHeight * 0.42,
             width: wordmarkWidth,
             height: 42
         )

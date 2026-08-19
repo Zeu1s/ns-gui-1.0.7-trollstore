@@ -40,7 +40,7 @@ extension PostListViewController: PostPageContainerViewControllerDelegate {
         _ containerView: PostPageContainerViewController,
         didLoadFirstPageFor category: PostListCategoryItem
     ) {
-        guard category.isAll else { return }
+        containerView.scrollToTop(for: category, animated: false)
         Task { @MainActor [weak self] in
             guard let self else { return }
             await autoCheckInRunner(self)

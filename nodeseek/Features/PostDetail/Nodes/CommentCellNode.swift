@@ -375,7 +375,7 @@ final class CommentCellNode: ASCellNode, ThemeRefreshableNode {
         configureChickenLegActionButton(count: comment.chickenLegCount, isClicked: comment.isChickenLegClicked)
         configureOpposeActionButton(count: comment.opposeCount, isClicked: comment.isOpposeClicked)
         configureActionButton(replyButtonNode, systemImageName: "arrowshape.turn.up.left", accessibilityLabel: "回复评论")
-        configureActionButton(quoteButtonNode, systemImageName: "quote.opening", accessibilityLabel: "引用评论")
+        configureActionButton(quoteButtonNode, systemImageName: "quote.bubble", accessibilityLabel: "引用评论")
     }
 
     private func configureLevelDaysBadge() {

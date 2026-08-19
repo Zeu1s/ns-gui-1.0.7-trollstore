@@ -89,7 +89,7 @@ final class PostListBottomNavigationView: UIView {
 
     func refreshDisplayScale() {
         layer.cornerRadius = AppDisplayScaleSettings.scaled(26)
-        selectionPillView.layer.cornerRadius = AppDisplayScaleSettings.scaled(16)
+        selectionPillView.layer.cornerRadius = AppDisplayScaleSettings.scaled(12)
         messageUnreadBadge.layer.cornerRadius = AppDisplayScaleSettings.scaled(6)
         stackLeadingConstraint?.constant = AppDisplayScaleSettings.scaled(5)
         stackTrailingConstraint?.constant = -AppDisplayScaleSettings.scaled(5)
@@ -120,7 +120,7 @@ final class PostListBottomNavigationView: UIView {
         ])
 
         selectionPillView.backgroundColor = UIColor.systemOrange.withAlphaComponent(0.16)
-        selectionPillView.layer.cornerRadius = AppDisplayScaleSettings.scaled(16)
+        selectionPillView.layer.cornerRadius = AppDisplayScaleSettings.scaled(12)
         selectionPillView.isUserInteractionEnabled = false
         selectionPillView.translatesAutoresizingMaskIntoConstraints = true
         selectionPillView.frame = .zero
@@ -205,7 +205,7 @@ final class PostListBottomNavigationView: UIView {
     private func updateSelectionPill(animated: Bool) {
         guard let button = buttons[selectedItem] else { return }
         let target = button.convert(button.bounds, to: self)
-        let frame = target.insetBy(dx: -4, dy: 2)
+        let frame = target.insetBy(dx: 1, dy: 4)
         let apply: () -> Void = { [weak self] in
             guard let self else { return }
             self.selectionPillView.frame = frame
