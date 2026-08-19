@@ -1,0 +1,1046 @@
+//
+//  SettingsViewControllerTests.swift
+//  nodeseekTests
+//
+//  Created by Codex on 2026/5/2.
+//
+
+import Testing
+import UIKit
+@testable import nodeseek
+
+@MainActor
+struct SettingsViewControllerTests {
+    @Test func settingsPageShowsCacheActionAndLogoutAtBottomWhenLoggedIn() async throws {
+        try await withFileLoggingConfigIsolation {
+            NodeSeekDebugConfig.enableFileLogging = false
+            let defaults = try #require(UserDefaults(suiteName: "settings-account-\(UUID().uuidString)"))
+            let accountStore = CurrentAccountStore(userDefaults: defaults, storageKey: "account")
+            await accountStore.save(AccountResponse(displayName: "mistj", isLoggedIn: true))
+            let categoryStore = makeCategoryPreferenceStore()
+            let textSizeDefaults = try #require(UserDefaults(suiteName: "settings-text-size-\(UUID().uuidString)"))
+            let textSizeSettings = AppTextSizeSettings(userDefaults: textSizeDefaults, storageKey: "text-size")
+            let displayScaleDefaults = try #require(UserDefaults(suiteName: "settings-display-scale-\(UUID().uuidString)"))
+            let displayScaleSettings = AppDisplayScaleSettings(userDefaults: displayScaleDefaults, storageKey: "display-scale")
+            let searchEntrySettings = makeSettingsPostListSearchEntrySettings()
+            let viewController = SettingsViewController(
+                cacheManager: FakeSettingsCacheManager(cacheByteSize: 4_096),
+                sessionManager: FakeSettingsSessionManager(),
+                currentAccountStore: accountStore,
+                buildInfo: .testFlightFixture,
+                nodeImageAPIKeyStore: FakeNodeImageAPIKeyStore(),
+                textSizeSettings: textSizeSettings,
+                displayScaleSettings: displayScaleSettings,
+                searchEntrySettings: searchEntrySettings,
+                categoryPreferenceStore: categoryStore,
+                autoCheckInSummaryProvider: { "未开启" }
+            )
+            viewController.loadViewIfNeeded()
+            viewController.view.frame = CGRect(x: 0, y: 0, width: 390, height: 844)
+            viewController.view.layoutIfNeeded()
+            try await waitUntil { viewController.tableView.numberOfRows(inSection: 5) == 1 }
+
+            let tableView = try #require(viewController.tableView)
+            #expect(viewController.title == "设置")
+            #expect(tableView.numberOfSections == 6)
+            #expect(tableView.numberOfRows(inSection: 0) == 5)
+            #expect(tableView.numberOfRows(inSection: 1) == 3)
+            #expect(tableView.numberOfRows(inSection: 2) == 1)
+            #expect(tableView.numberOfRows(inSection: 3) == 1)
+            #expect(tableView.numberOfRows(inSection: 4) == 1)
+            #expect(tableView.numberOfRows(inSection: 5) == 1)
+            #expect(tableView.dataSource?.tableView?(tableView, titleForHeaderInSection: 0) == "阅读")
+            #expect(tableView.dataSource?.tableView?(tableView, titleForHeaderInSection: 1) == "功能")
+            #expect(tableView.dataSource?.tableView?(tableView, titleForHeaderInSection: 2) == "存储")
+            #expect(tableView.dataSource?.tableView?(tableView, titleForHeaderInSection: 3) == nil)
+            #expect(tableView.dataSource?.tableView?(tableView, titleForHeaderInSection: 4) == nil)
+
+            let cacheCell = try #require(tableView.dataSource?.tableView(
+                tableView,
+                cellForRowAt: IndexPath(row: 0, section: 2)
+            ))
+            let nodeImageCell = try #require(tableView.dataSource?.tableView(
+                tableView,
+                cellForRowAt: IndexPath(row: 0, section: 1)
+            ))
+            let specialFollowCell = try #require(tableView.dataSource?.tableView(
+                tableView,
+                cellForRowAt: IndexPath(row: 1, section: 1)
+            ))
+            let autoCheckInCell = try #require(tableView.dataSource?.tableView(
+                tableView,
+                cellForRowAt: IndexPath(row: 2, section: 1)
+            ))
+            let categoryPreferencesCell = try #require(tableView.dataSource?.tableView(
+                tableView,
+                cellForRowAt: IndexPath(row: 0, section: 0)
+            ))
+            let textSizeCell = try #require(tableView.dataSource?.tableView(
+                tableView,
+                cellForRowAt: IndexPath(row: 2, section: 0)
+            ))
+            let searchEntryCell = try #require(tableView.dataSource?.tableView(
+                tableView,
+                cellForRowAt: IndexPath(row: 1, section: 0)
+            ))
+            let signatureCell = try #require(tableView.dataSource?.tableView(
+                tableView,
+                cellForRowAt: IndexPath(row: 4, section: 0)
+            ))
+            let displayScaleCell = try #require(tableView.dataSource?.tableView(
+                tableView,
+                cellForRowAt: IndexPath(row: 3, section: 0)
+            ))
+            let debugCell = try #require(tableView.dataSource?.tableView(
+                tableView,
+                cellForRowAt: IndexPath(row: 0, section: 3)
+            ))
+            let aboutCell = try #require(tableView.dataSource?.tableView(
+                tableView,
+                cellForRowAt: IndexPath(row: 0, section: 4)
+            ))
+            let logoutCell = try #require(tableView.dataSource?.tableView(
+                tableView,
+                cellForRowAt: IndexPath(row: 0, section: 5)
+            ))
+
+            #expect(cacheCell.textLabel?.text == "清除缓存")
+            #expect(cacheCell.detailTextLabel?.text == "4 KB")
+            #expect(nodeImageCell.textLabel?.text == "NodeImage 授权")
+            #expect(nodeImageCell.accessoryType == .disclosureIndicator)
+            #expect(specialFollowCell.textLabel?.text == "特别关注")
+            #expect(specialFollowCell.detailTextLabel?.text == "帖子列表关键字高亮展示")
+            #expect(categoryPreferencesCell.textLabel?.text == "首页分类")
+            #expect(categoryPreferencesCell.detailTextLabel?.text == "全部、日常、技术等 16 个")
+            #expect(categoryPreferencesCell.accessoryType == .disclosureIndicator)
+            #expect(textSizeCell.textLabel?.text == "字体大小")
+            #expect(textSizeCell.detailTextLabel?.text == "标准")
+            #expect(textSizeCell.accessoryType == .disclosureIndicator)
+            #expect(displayScaleCell.textLabel?.text == "全局缩放")
+            #expect(displayScaleCell.detailTextLabel?.text == "100%")
+            #expect(displayScaleCell.accessoryType == .disclosureIndicator)
+            #expect(searchEntryCell.textLabel?.text == "首页搜索入口")
+            let searchEntrySwitch = try #require(searchEntryCell.accessoryView as? UISwitch)
+            #expect(searchEntrySwitch.isOn == false)
+            #expect(autoCheckInCell.textLabel?.text == "自动签到")
+            #expect(autoCheckInCell.detailTextLabel?.text == "Beta · 未开启")
+            #expect(autoCheckInCell.accessoryType == .disclosureIndicator)
+            #expect(signatureCell.textLabel?.text == "显示帖子签名")
+            let signatureSwitch = try #require(signatureCell.accessoryView as? UISwitch)
+            #expect(signatureSwitch.isOn == true)
+            #expect(debugCell.textLabel?.text == "调试")
+            #expect(debugCell.accessoryType == .disclosureIndicator)
+            #expect(aboutCell.textLabel?.text == "关于")
+            #expect(aboutCell.accessoryType == .disclosureIndicator)
+            #expect(logoutCell.textLabel?.text == "退出登录")
+            #expect(logoutCell.textLabel?.textColor == .systemRed)
+        }
+    }
+
+    @Test func settingsPageHidesLogoutWhenNotLoggedIn() async throws {
+        let defaults = try #require(UserDefaults(suiteName: "settings-account-\(UUID().uuidString)"))
+        let accountStore = CurrentAccountStore(userDefaults: defaults, storageKey: "account")
+        let viewController = SettingsViewController(
+            cacheManager: FakeSettingsCacheManager(cacheByteSize: 4_096),
+            sessionManager: FakeSettingsSessionManager(),
+            currentAccountStore: accountStore,
+            nodeImageAPIKeyStore: FakeNodeImageAPIKeyStore()
+        )
+
+        viewController.loadViewIfNeeded()
+        try await waitUntil { viewController.tableView.numberOfRows(inSection: 5) == 0 }
+
+        #expect(viewController.tableView.numberOfRows(inSection: 5) == 0)
+    }
+
+    @Test func postSignatureDisplayDefaultsToEnabledWhenUnset() throws {
+        let suiteName = "settings-signature-display-default-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let signatureSettings = PostSignatureDisplaySettings(userDefaults: defaults, storageKey: "show-signatures")
+
+        #expect(defaults.object(forKey: "show-signatures") == nil)
+        #expect(signatureSettings.showsSignatures == true)
+    }
+
+    @Test func togglingSignatureDisplaySwitchPersistsPreference() throws {
+        let suiteName = "settings-signature-display-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let signatureSettings = PostSignatureDisplaySettings(userDefaults: defaults, storageKey: "show-signatures")
+        let viewController = SettingsViewController(
+            cacheManager: FakeSettingsCacheManager(cacheByteSize: 0),
+            sessionManager: FakeSettingsSessionManager(),
+            nodeImageAPIKeyStore: FakeNodeImageAPIKeyStore(),
+            signatureDisplaySettings: signatureSettings
+        )
+        viewController.loadViewIfNeeded()
+
+        let cell = try #require(viewController.tableView.dataSource?.tableView(
+            viewController.tableView,
+            cellForRowAt: IndexPath(row: 4, section: 0)
+        ))
+        let signatureSwitch = try #require(cell.accessoryView as? UISwitch)
+        #expect(signatureSwitch.isOn == true)
+
+        signatureSwitch.isOn = false
+        signatureSwitch.sendActions(for: .valueChanged)
+
+        #expect(signatureSettings.showsSignatures == false)
+    }
+
+    @Test func postListSearchEntryDefaultsToDisabledWhenUnset() throws {
+        let suiteName = "settings-home-search-entry-default-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let searchEntrySettings = PostListSearchEntrySettings(userDefaults: defaults, storageKey: "home-search-entry")
+
+        #expect(defaults.object(forKey: "home-search-entry") == nil)
+        #expect(searchEntrySettings.showsTopSearchEntry == false)
+    }
+
+    @Test func togglingPostListSearchEntrySwitchPersistsPreferenceAndPostsNotification() throws {
+        let suiteName = "settings-home-search-entry-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let searchEntrySettings = PostListSearchEntrySettings(userDefaults: defaults, storageKey: "home-search-entry")
+        let viewController = SettingsViewController(
+            cacheManager: FakeSettingsCacheManager(cacheByteSize: 0),
+            sessionManager: FakeSettingsSessionManager(),
+            nodeImageAPIKeyStore: FakeNodeImageAPIKeyStore(),
+            searchEntrySettings: searchEntrySettings
+        )
+        var notificationCount = 0
+        let observer = NotificationCenter.default.addObserver(
+            forName: PostListSearchEntrySettings.didChangeNotification,
+            object: searchEntrySettings,
+            queue: nil
+        ) { _ in
+            notificationCount += 1
+        }
+        defer { NotificationCenter.default.removeObserver(observer) }
+        viewController.loadViewIfNeeded()
+
+        let cell = try #require(viewController.tableView.dataSource?.tableView(
+            viewController.tableView,
+            cellForRowAt: IndexPath(row: 1, section: 0)
+        ))
+        #expect(cell.textLabel?.text == "首页搜索入口")
+        let searchEntrySwitch = try #require(cell.accessoryView as? UISwitch)
+        #expect(searchEntrySwitch.isOn == false)
+
+        searchEntrySwitch.isOn = true
+        searchEntrySwitch.sendActions(for: .valueChanged)
+
+        #expect(searchEntrySettings.showsTopSearchEntry == true)
+        #expect(notificationCount == 1)
+    }
+
+    @Test func textSizeSliderPersistsOffsetAndUpdatesPreview() throws {
+        let suiteName = "settings-text-size-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let textSizeSettings = AppTextSizeSettings(userDefaults: defaults, storageKey: "text-size")
+        let viewController = SettingsTextSizeViewController(textSizeSettings: textSizeSettings)
+        viewController.loadViewIfNeeded()
+        viewController.view.frame = CGRect(x: 0, y: 0, width: 390, height: 844)
+        viewController.view.layoutIfNeeded()
+
+        let adjustmentCell = try #require(viewController.tableView.dataSource?.tableView(
+            viewController.tableView,
+            cellForRowAt: IndexPath(row: 0, section: 0)
+        ) as? SettingsTextSizeAdjustmentCell)
+        let previewCell = try #require(viewController.tableView.dataSource?.tableView(
+            viewController.tableView,
+            cellForRowAt: IndexPath(row: 1, section: 0)
+        ) as? SettingsTextSizePreviewCell)
+
+        adjustmentCell.slider.value = 2
+        adjustmentCell.slider.sendActions(for: .valueChanged)
+        previewCell.configure(pointOffset: textSizeSettings.pointOffset)
+
+        #expect(textSizeSettings.pointOffset == 2)
+        #expect(previewCell.debugListTitleFont?.pointSize == 19)
+        #expect(previewCell.debugCommentBodyFont?.pointSize == 19)
+    }
+
+    @Test func selectingTextSizePushesTextSizeSettingsScreen() throws {
+        let viewController = SettingsViewController(
+            cacheManager: FakeSettingsCacheManager(cacheByteSize: 0),
+            sessionManager: FakeSettingsSessionManager(),
+            nodeImageAPIKeyStore: FakeNodeImageAPIKeyStore()
+        )
+        let navigationController = UINavigationController(rootViewController: viewController)
+        viewController.loadViewIfNeeded()
+
+        viewController.tableView.delegate?.tableView?(
+            viewController.tableView,
+            didSelectRowAt: IndexPath(row: 2, section: 0)
+        )
+
+        #expect(navigationController.topViewController is SettingsTextSizeViewController)
+    }
+
+    @Test func displayScaleSliderPersistsCustomPercentage() throws {
+        let suiteName = "settings-display-scale-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let displayScaleSettings = AppDisplayScaleSettings(userDefaults: defaults, storageKey: "display-scale")
+        let viewController = SettingsDisplayScaleViewController(displayScaleSettings: displayScaleSettings)
+        viewController.loadViewIfNeeded()
+
+        let adjustmentCell = try #require(viewController.tableView.dataSource?.tableView(
+            viewController.tableView,
+            cellForRowAt: IndexPath(row: 0, section: 0)
+        ) as? SettingsDisplayScaleAdjustmentCell)
+        adjustmentCell.slider.value = 1.2
+        adjustmentCell.slider.sendActions(for: .valueChanged)
+
+        #expect(displayScaleSettings.scale == 1.2)
+        #expect(displayScaleSettings.displayText == "120%")
+        #expect(AppDisplayScaleSettings.normalizedScale(0.1) == 0.7)
+        #expect(AppDisplayScaleSettings.normalizedScale(2) == 1.2)
+    }
+
+    @Test func selectingDisplayScalePushesScaleSettingsScreen() throws {
+        let viewController = SettingsViewController(
+            cacheManager: FakeSettingsCacheManager(cacheByteSize: 0),
+            sessionManager: FakeSettingsSessionManager(),
+            nodeImageAPIKeyStore: FakeNodeImageAPIKeyStore()
+        )
+        let navigationController = UINavigationController(rootViewController: viewController)
+        viewController.loadViewIfNeeded()
+
+        viewController.tableView.delegate?.tableView?(
+            viewController.tableView,
+            didSelectRowAt: IndexPath(row: 3, section: 0)
+        )
+
+        #expect(navigationController.topViewController is SettingsDisplayScaleViewController)
+    }
+
+    @Test func textSizePreviewCellRecalculatesFlexibleHeightForLargeFont() {
+        let cell = SettingsTextSizePreviewCell(style: .default, reuseIdentifier: nil)
+        cell.bounds = CGRect(x: 0, y: 0, width: 390, height: 1)
+        cell.contentView.bounds = CGRect(x: 0, y: 0, width: 390, height: 1)
+
+        cell.configure(pointOffset: 0)
+        let standardHeight = cell.contentView.systemLayoutSizeFitting(
+            CGSize(width: 390, height: UIView.layoutFittingCompressedSize.height),
+            withHorizontalFittingPriority: .required,
+            verticalFittingPriority: .fittingSizeLevel
+        ).height
+
+        cell.configure(pointOffset: AppTextSizeSettings.maximumPointOffset)
+        let largeHeight = cell.contentView.systemLayoutSizeFitting(
+            CGSize(width: 390, height: UIView.layoutFittingCompressedSize.height),
+            withHorizontalFittingPriority: .required,
+            verticalFittingPriority: .fittingSizeLevel
+        ).height
+
+        #expect(largeHeight > standardHeight)
+        #expect(cell.debugCommentActionNumberOfLines == 0)
+    }
+
+    @Test func textSizeSettingsUsesExpandedAdjustmentRange() {
+        #expect(AppTextSizeSettings.normalizedPointOffset(-100) == -4)
+        #expect(AppTextSizeSettings.normalizedPointOffset(100) == 8)
+        #expect(AppTextSizeSettings.displayText(for: 8) == "+8")
+    }
+
+    @Test func settingsPageShowsSpecialFollowCountAndPushesKeywordList() throws {
+        let store = makeSpecialFollowStore()
+        try store.save(keyword: "NodeImage")
+        try store.save(keyword: "mist", colorHex: "#34C759")
+        let viewController = SettingsViewController(
+            cacheManager: FakeSettingsCacheManager(cacheByteSize: 0),
+            sessionManager: FakeSettingsSessionManager(),
+            nodeImageAPIKeyStore: FakeNodeImageAPIKeyStore(),
+            specialFollowKeywordStore: store
+        )
+        let navigationController = UINavigationController(rootViewController: viewController)
+        viewController.loadViewIfNeeded()
+
+        let cell = try #require(viewController.tableView.dataSource?.tableView(
+            viewController.tableView,
+            cellForRowAt: IndexPath(row: 1, section: 1)
+        ))
+        #expect(cell.textLabel?.text == "特别关注")
+        #expect(cell.detailTextLabel?.text == "帖子列表关键字高亮展示 · 2 个")
+        #expect(cell.accessoryType == .disclosureIndicator)
+
+        viewController.tableView.delegate?.tableView?(
+            viewController.tableView,
+            didSelectRowAt: IndexPath(row: 1, section: 1)
+        )
+
+        #expect(navigationController.topViewController is SpecialFollowKeywordsViewController)
+    }
+
+    @Test func settingsPageShowsPostCategoryPreferencesSummaryAndPushesEditor() throws {
+        let categoryStore = makeCategoryPreferenceStore()
+        categoryStore.hideCategory(.tech)
+        let viewController = SettingsViewController(
+            cacheManager: FakeSettingsCacheManager(cacheByteSize: 0),
+            sessionManager: FakeSettingsSessionManager(),
+            nodeImageAPIKeyStore: FakeNodeImageAPIKeyStore(),
+            categoryPreferenceStore: categoryStore
+        )
+        let navigationController = UINavigationController(rootViewController: viewController)
+        viewController.loadViewIfNeeded()
+
+        let cell = try #require(viewController.tableView.dataSource?.tableView(
+            viewController.tableView,
+            cellForRowAt: IndexPath(row: 0, section: 0)
+        ))
+        #expect(cell.textLabel?.text == "首页分类")
+        #expect(cell.detailTextLabel?.text == "显示 15 个，隐藏 1 个")
+        #expect(cell.accessoryType == .disclosureIndicator)
+
+        viewController.tableView.delegate?.tableView?(
+            viewController.tableView,
+            didSelectRowAt: IndexPath(row: 0, section: 0)
+        )
+
+        #expect(navigationController.topViewController is PostCategoryPreferencesViewController)
+    }
+
+    @Test func settingsPageRefreshesPostCategoryPreferencesSummaryWhenInjectedStoreChanges() async throws {
+        let categoryStore = makeCategoryPreferenceStore()
+        let otherCategoryStore = makeCategoryPreferenceStore()
+        let viewController = SpySettingsViewController(
+            cacheManager: FakeSettingsCacheManager(cacheByteSize: 0),
+            sessionManager: FakeSettingsSessionManager(),
+            nodeImageAPIKeyStore: FakeNodeImageAPIKeyStore(),
+            categoryPreferenceStore: categoryStore
+        )
+        let window = UIWindow(frame: UIScreen.main.bounds)
+        window.rootViewController = viewController
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true }
+        viewController.view.frame = CGRect(x: 0, y: 0, width: 390, height: 844)
+        viewController.view.layoutIfNeeded()
+        viewController.tableView.layoutIfNeeded()
+
+        let indexPath = IndexPath(row: 0, section: 0)
+        let initialCell = try #require(viewController.tableView.cellForRow(at: indexPath))
+        #expect(initialCell.detailTextLabel?.text == "全部、日常、技术等 16 个")
+        let initialRequestCount = viewController.categoryPreferencesCellRequestCount
+
+        otherCategoryStore.hideCategory(.tech)
+        try await Task.sleep(nanoseconds: 50_000_000)
+        #expect(viewController.categoryPreferencesCellRequestCount == initialRequestCount)
+        #expect(viewController.tableView.cellForRow(at: indexPath)?.detailTextLabel?.text == "全部、日常、技术等 16 个")
+
+        let animationsEnabled = UIView.areAnimationsEnabled
+        UIView.setAnimationsEnabled(false)
+        defer { UIView.setAnimationsEnabled(animationsEnabled) }
+        categoryStore.hideCategory(.tech)
+        viewController.tableView.layoutIfNeeded()
+        try await waitUntil {
+            viewController.categoryPreferencesCellRequestCount > initialRequestCount
+                && viewController.tableView.cellForRow(at: indexPath)?.detailTextLabel?.text == "显示 15 个，隐藏 1 个"
+        }
+
+        #expect(viewController.categoryPreferencesCellRequestCount > initialRequestCount)
+        #expect(viewController.tableView.cellForRow(at: indexPath)?.detailTextLabel?.text == "显示 15 个，隐藏 1 个")
+    }
+
+    @Test func selectingAboutPushesAboutScreen() throws {
+        let viewController = SettingsViewController(
+            cacheManager: FakeSettingsCacheManager(cacheByteSize: 0),
+            sessionManager: FakeSettingsSessionManager(),
+            buildInfo: .testFlightFixture,
+            nodeImageAPIKeyStore: FakeNodeImageAPIKeyStore()
+        )
+        let navigationController = UINavigationController(rootViewController: viewController)
+        viewController.loadViewIfNeeded()
+
+        viewController.tableView.delegate?.tableView?(
+            viewController.tableView,
+            didSelectRowAt: IndexPath(row: 0, section: 4)
+        )
+
+        #expect(navigationController.topViewController is SettingsAboutViewController)
+    }
+
+    @Test func aboutScreenShowsBuildInfo() throws {
+        let viewController = SettingsAboutViewController(buildInfo: .testFlightFixture)
+        viewController.loadViewIfNeeded()
+
+        #expect(viewController.title == "关于")
+        #expect(viewController.tableView.numberOfRows(inSection: 0) == 6)
+
+        let appVersionCell = try #require(viewController.tableView.dataSource?.tableView(
+            viewController.tableView,
+            cellForRowAt: IndexPath(row: 0, section: 0)
+        ))
+        let buildNumberCell = try #require(viewController.tableView.dataSource?.tableView(
+            viewController.tableView,
+            cellForRowAt: IndexPath(row: 1, section: 0)
+        ))
+        let gitCell = try #require(viewController.tableView.dataSource?.tableView(
+            viewController.tableView,
+            cellForRowAt: IndexPath(row: 2, section: 0)
+        ))
+        let repositoryCell = try #require(viewController.tableView.dataSource?.tableView(
+            viewController.tableView,
+            cellForRowAt: IndexPath(row: 3, section: 0)
+        ))
+        let workflowCell = try #require(viewController.tableView.dataSource?.tableView(
+            viewController.tableView,
+            cellForRowAt: IndexPath(row: 4, section: 0)
+        ))
+        let githubCell = try #require(viewController.tableView.dataSource?.tableView(
+            viewController.tableView,
+            cellForRowAt: IndexPath(row: 5, section: 0)
+        ))
+
+        #expect(appVersionCell.textLabel?.text == "版本")
+        #expect(appVersionCell.detailTextLabel?.text == "1.0.1")
+        #expect(buildNumberCell.textLabel?.text == "Build")
+        #expect(buildNumberCell.detailTextLabel?.text == "42")
+        #expect(gitCell.textLabel?.text == "Git")
+        #expect(gitCell.detailTextLabel?.text == "abcdef1")
+        #expect(repositoryCell.textLabel?.text == "仓库")
+        #expect(repositoryCell.detailTextLabel?.text == "https://github.com/tyrad/nodeseek")
+        #expect(repositoryCell.accessoryType == .disclosureIndicator)
+        #expect(workflowCell.textLabel?.text == "Workflow")
+        #expect(workflowCell.detailTextLabel?.text == "TestFlight #25443881348")
+        #expect(githubCell.textLabel?.text == "GitHub")
+        #expect(githubCell.detailTextLabel?.text == "https://github.com/tyrad/nodeseek/actions/runs/25443881348")
+    }
+
+    @Test func selectingAutoCheckInPushesModuleSettingsScreen() throws {
+        let viewController = SettingsViewController(
+            cacheManager: FakeSettingsCacheManager(cacheByteSize: 0),
+            sessionManager: FakeSettingsSessionManager(),
+            nodeImageAPIKeyStore: FakeNodeImageAPIKeyStore()
+        )
+        let navigationController = UINavigationController(rootViewController: viewController)
+        viewController.loadViewIfNeeded()
+
+        viewController.tableView.delegate?.tableView?(
+            viewController.tableView,
+            didSelectRowAt: IndexPath(row: 2, section: 1)
+        )
+
+        #expect(navigationController.topViewController is AutoCheckInSettingsViewController)
+    }
+
+    @Test func returningToSettingsRefreshesAutoCheckInSummary() throws {
+        let summary = AutoCheckInSummaryBox("未开启")
+        let viewController = SettingsViewController(
+            cacheManager: FakeSettingsCacheManager(cacheByteSize: 0),
+            sessionManager: FakeSettingsSessionManager(),
+            nodeImageAPIKeyStore: FakeNodeImageAPIKeyStore(),
+            autoCheckInSummaryProvider: { summary.value }
+        )
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
+        window.rootViewController = viewController
+        window.makeKeyAndVisible()
+        defer {
+            window.isHidden = true
+        }
+        viewController.loadViewIfNeeded()
+        viewController.view.frame = window.bounds
+        viewController.view.layoutIfNeeded()
+        let indexPath = IndexPath(row: 2, section: 1)
+        viewController.tableView.scrollToRow(at: indexPath, at: .middle, animated: false)
+        viewController.tableView.layoutIfNeeded()
+
+        let cell = try #require(viewController.tableView.cellForRow(at: indexPath))
+        #expect(cell.detailTextLabel?.text == "Beta · 未开启")
+
+        summary.value = "已开启 · 试试手气"
+        #expect(cell.detailTextLabel?.text == "Beta · 未开启")
+        viewController.viewWillAppear(false)
+        viewController.tableView.layoutIfNeeded()
+        let refreshedCell = try #require(viewController.tableView.cellForRow(at: indexPath))
+
+        #expect(refreshedCell.detailTextLabel?.text == "Beta · 已开启 · 试试手气")
+    }
+
+    @Test func specialFollowKeywordListEditsAndDeletesKeywords() throws {
+        let store = makeSpecialFollowStore()
+        let viewController = SpecialFollowKeywordsViewController(store: store)
+        viewController.loadViewIfNeeded()
+
+        #expect(viewController.title == "特别关注")
+        try viewController.saveKeywordForTesting(keyword: "NodeImage", colorHex: "#34C759")
+
+        #expect(viewController.tableView.numberOfRows(inSection: 0) == 1)
+        let cell = try #require(viewController.tableView.dataSource?.tableView(
+            viewController.tableView,
+            cellForRowAt: IndexPath(row: 0, section: 0)
+        ))
+        #expect(cell.textLabel?.text == "NodeImage")
+        #expect(cell.detailTextLabel?.text == "#34C759")
+        #expect(cell.imageView?.image?.renderingMode == .alwaysOriginal)
+        let footerText = viewController.tableView.dataSource?.tableView?(
+            viewController.tableView,
+            titleForFooterInSection: 0
+        )
+        #expect(footerText?.contains("右滑删除") == true)
+
+        try viewController.saveKeywordForTesting(keyword: "nodeimage", colorHex: "#007AFF")
+        #expect(store.keywords == [
+            SpecialFollowKeyword(keyword: "nodeimage", colorHex: "#007AFF")
+        ])
+
+        viewController.deleteKeywordForTesting(keyword: "nodeimage")
+        #expect(store.keywords.isEmpty)
+        #expect(viewController.tableView.numberOfRows(inSection: 0) == 0)
+    }
+
+    @Test func selectingClearCacheClearsCacheWithoutLoggingOut() async throws {
+        let cacheManager = FakeSettingsCacheManager(cacheByteSize: 4_096)
+        let sessionManager = FakeSettingsSessionManager()
+        let viewController = SettingsViewController(
+            cacheManager: cacheManager,
+            sessionManager: sessionManager,
+            nodeImageAPIKeyStore: FakeNodeImageAPIKeyStore(),
+            confirmsActionsImmediately: true
+        )
+        viewController.loadViewIfNeeded()
+
+        viewController.tableView.delegate?.tableView?(
+            viewController.tableView,
+            didSelectRowAt: IndexPath(row: 0, section: 2)
+        )
+        try await Task.sleep(nanoseconds: 100_000_000)
+
+        #expect(cacheManager.clearCount == 1)
+        #expect(sessionManager.logoutCount == 0)
+    }
+
+    @Test func selectingLogoutLogsOutAndRunsCallback() async throws {
+        let cacheManager = FakeSettingsCacheManager(cacheByteSize: 4_096)
+        let sessionManager = FakeSettingsSessionManager()
+        let defaults = try #require(UserDefaults(suiteName: "settings-account-\(UUID().uuidString)"))
+        let accountStore = CurrentAccountStore(userDefaults: defaults, storageKey: "account")
+        await accountStore.save(AccountResponse(displayName: "mistj", isLoggedIn: true))
+        var logoutCallbackCount = 0
+        let viewController = SettingsViewController(
+            cacheManager: cacheManager,
+            sessionManager: sessionManager,
+            currentAccountStore: accountStore,
+            nodeImageAPIKeyStore: FakeNodeImageAPIKeyStore(),
+            confirmsActionsImmediately: true,
+            onLogout: {
+                logoutCallbackCount += 1
+            }
+        )
+        viewController.loadViewIfNeeded()
+        try await waitUntil { viewController.tableView.numberOfRows(inSection: 5) == 1 }
+
+        viewController.tableView.delegate?.tableView?(
+            viewController.tableView,
+            didSelectRowAt: IndexPath(row: 0, section: 5)
+        )
+        try await Task.sleep(nanoseconds: 100_000_000)
+
+        #expect(cacheManager.clearCount == 0)
+        #expect(sessionManager.logoutCount == 1)
+        #expect(logoutCallbackCount == 1)
+    }
+
+    @Test func selectingDebugPushesDebugSettingsScreen() throws {
+        let viewController = SettingsViewController(
+            cacheManager: FakeSettingsCacheManager(cacheByteSize: 0),
+            sessionManager: FakeSettingsSessionManager(),
+            nodeImageAPIKeyStore: FakeNodeImageAPIKeyStore()
+        )
+        let navigationController = UINavigationController(rootViewController: viewController)
+        viewController.loadViewIfNeeded()
+
+        viewController.tableView.delegate?.tableView?(
+            viewController.tableView,
+            didSelectRowAt: IndexPath(row: 0, section: 3)
+        )
+
+        #expect(navigationController.topViewController is SettingsDebugViewController)
+    }
+
+    @Test func selectingDebugRowsRunsDebugCallbacks() throws {
+        var logFileTapCount = 0
+        var detailTestTapCount = 0
+        let viewController = SettingsDebugViewController(
+            onLogFile: {
+                logFileTapCount += 1
+            },
+            onDetailTest: {
+                detailTestTapCount += 1
+            }
+        )
+        viewController.loadViewIfNeeded()
+
+        viewController.tableView.delegate?.tableView?(
+            viewController.tableView,
+            didSelectRowAt: IndexPath(row: 1, section: 0)
+        )
+        viewController.tableView.delegate?.tableView?(
+            viewController.tableView,
+            didSelectRowAt: IndexPath(row: 2, section: 0)
+        )
+
+        #expect(logFileTapCount == 1)
+        #expect(detailTestTapCount == 1)
+    }
+
+    @Test func selectingDetailTestKeepsSettingsOnNavigationStack() throws {
+        var detailTestTapCount = 0
+        let rootViewController = UIViewController()
+        let viewController = SettingsDebugViewController(
+            onDetailTest: {
+                detailTestTapCount += 1
+            }
+        )
+        let navigationController = UINavigationController(rootViewController: rootViewController)
+        navigationController.pushViewController(viewController, animated: false)
+        viewController.loadViewIfNeeded()
+
+        viewController.tableView.delegate?.tableView?(
+            viewController.tableView,
+            didSelectRowAt: IndexPath(row: 2, section: 0)
+        )
+
+        #expect(detailTestTapCount == 1)
+        #expect(navigationController.viewControllers == [rootViewController, viewController])
+    }
+
+    @Test func selectingDebugLinksPushesDebugListFromSettings() throws {
+        let viewController = SettingsDebugViewController()
+        let navigationController = UINavigationController(rootViewController: viewController)
+        viewController.loadViewIfNeeded()
+
+        viewController.tableView.delegate?.tableView?(
+            viewController.tableView,
+            didSelectRowAt: IndexPath(row: 3, section: 0)
+        )
+
+        #expect(navigationController.viewControllers.count == 2)
+        #expect(navigationController.topViewController is PostDetailDebugLinksViewController)
+    }
+
+    @Test func detailDebugLinksListShowsFixedCasesAndReturnsSelectedTarget() throws {
+        var selectedTarget: PostDetailTestTarget?
+        let viewController = PostDetailDebugLinksViewController { target, _ in
+            selectedTarget = target
+        }
+        viewController.loadViewIfNeeded()
+
+        #expect(viewController.title == "调试链接")
+        #expect(viewController.tableView.numberOfRows(inSection: 0) == 2)
+
+        let quoteCell = try #require(viewController.tableView.dataSource?.tableView(
+            viewController.tableView,
+            cellForRowAt: IndexPath(row: 0, section: 0)
+        ))
+        let svgCell = try #require(viewController.tableView.dataSource?.tableView(
+            viewController.tableView,
+            cellForRowAt: IndexPath(row: 1, section: 0)
+        ))
+
+        #expect(quoteCell.textLabel?.text == "qute嵌套")
+        #expect(quoteCell.detailTextLabel?.text == "https://www.nodeseek.com/post-720543-1")
+        #expect(svgCell.textLabel?.text == "svg兼容问题")
+        #expect(svgCell.detailTextLabel?.text == "https://www.nodeseek.com/post-720369-1")
+
+        viewController.tableView.delegate?.tableView?(
+            viewController.tableView,
+            didSelectRowAt: IndexPath(row: 1, section: 0)
+        )
+
+        #expect(selectedTarget?.post.id == "720369")
+        #expect(selectedTarget?.page == 1)
+    }
+
+    @Test func togglingFileLoggingSwitchUpdatesRuntimeConfig() async throws {
+        try await withFileLoggingConfigIsolation {
+            NodeSeekDebugConfig.enableFileLogging = false
+            let viewController = SettingsDebugViewController()
+            viewController.loadViewIfNeeded()
+
+            let cell = try #require(viewController.tableView.dataSource?.tableView(
+                viewController.tableView,
+                cellForRowAt: IndexPath(row: 0, section: 0)
+            ))
+            let loggingSwitch = try #require(cell.accessoryView as? UISwitch)
+            loggingSwitch.isOn = true
+            loggingSwitch.sendActions(for: .valueChanged)
+
+            #expect(NodeSeekDebugConfig.enableFileLogging == true)
+        }
+    }
+
+    @Test func nodeImageCellShowsCancelAuthorizationWhenAPIKeyExists() throws {
+        let nodeImageAPIKeyStore = FakeNodeImageAPIKeyStore()
+        nodeImageAPIKeyStore.save(apiKey: "nodeimage-key")
+        let viewController = SettingsViewController(
+            cacheManager: FakeSettingsCacheManager(cacheByteSize: 0),
+            sessionManager: FakeSettingsSessionManager(),
+            nodeImageAPIKeyStore: nodeImageAPIKeyStore
+        )
+        viewController.loadViewIfNeeded()
+
+        let cell = try #require(viewController.tableView.dataSource?.tableView(
+            viewController.tableView,
+            cellForRowAt: IndexPath(row: 0, section: 1)
+        ))
+
+        #expect(cell.textLabel?.text == "取消 NodeImage 授权")
+        #expect(cell.textLabel?.textColor == .systemRed)
+        #expect(cell.accessoryType == .none)
+    }
+
+    @Test func selectingNodeImageAuthorizationStoresAPIKeyAndRefreshesCell() throws {
+        let nodeImageAPIKeyStore = FakeNodeImageAPIKeyStore()
+        let authorizationPresenter = FakeNodeImageAuthorizationPresenter(apiKeyToReturn: "new-nodeimage-key")
+        let viewController = SettingsViewController(
+            cacheManager: FakeSettingsCacheManager(cacheByteSize: 0),
+            sessionManager: FakeSettingsSessionManager(),
+            nodeImageAPIKeyStore: nodeImageAPIKeyStore,
+            nodeImageAuthorizationPresenter: authorizationPresenter,
+            confirmsActionsImmediately: true
+        )
+        viewController.loadViewIfNeeded()
+
+        viewController.tableView.delegate?.tableView?(
+            viewController.tableView,
+            didSelectRowAt: IndexPath(row: 0, section: 1)
+        )
+
+        #expect(authorizationPresenter.presentCount == 1)
+        #expect(nodeImageAPIKeyStore.apiKey() == "new-nodeimage-key")
+        let cell = try #require(viewController.tableView.dataSource?.tableView(
+            viewController.tableView,
+            cellForRowAt: IndexPath(row: 0, section: 1)
+        ))
+        #expect(cell.textLabel?.text == "取消 NodeImage 授权")
+    }
+
+    @Test func selectingNodeImageAuthorizationDoesNotShowSuccessAlertAfterSavingAPIKey() throws {
+        let nodeImageAPIKeyStore = FakeNodeImageAPIKeyStore()
+        let authorizationPresenter = FakeNodeImageAuthorizationPresenter(apiKeyToReturn: "new-nodeimage-key")
+        let viewController = SettingsViewController(
+            cacheManager: FakeSettingsCacheManager(cacheByteSize: 0),
+            sessionManager: FakeSettingsSessionManager(),
+            nodeImageAPIKeyStore: nodeImageAPIKeyStore,
+            nodeImageAuthorizationPresenter: authorizationPresenter
+        )
+        viewController.loadViewIfNeeded()
+
+        viewController.tableView.delegate?.tableView?(
+            viewController.tableView,
+            didSelectRowAt: IndexPath(row: 0, section: 1)
+        )
+
+        #expect(nodeImageAPIKeyStore.apiKey() == "new-nodeimage-key")
+        #expect(viewController.presentedViewController == nil)
+    }
+
+    @Test func selectingCancelNodeImageAuthorizationClearsAPIKeyAndRefreshesCell() throws {
+        let nodeImageAPIKeyStore = FakeNodeImageAPIKeyStore()
+        nodeImageAPIKeyStore.save(apiKey: "nodeimage-key")
+        let viewController = SettingsViewController(
+            cacheManager: FakeSettingsCacheManager(cacheByteSize: 0),
+            sessionManager: FakeSettingsSessionManager(),
+            nodeImageAPIKeyStore: nodeImageAPIKeyStore,
+            confirmsActionsImmediately: true
+        )
+        viewController.loadViewIfNeeded()
+
+        viewController.tableView.delegate?.tableView?(
+            viewController.tableView,
+            didSelectRowAt: IndexPath(row: 0, section: 1)
+        )
+
+        #expect(nodeImageAPIKeyStore.clearCount == 1)
+        #expect(nodeImageAPIKeyStore.apiKey() == nil)
+        let cell = try #require(viewController.tableView.dataSource?.tableView(
+            viewController.tableView,
+            cellForRowAt: IndexPath(row: 0, section: 1)
+        ))
+        #expect(cell.textLabel?.text == "NodeImage 授权")
+    }
+
+    @Test func defaultSessionLogoutClearsNodeImageAuthorization() async throws {
+        let nodeImageAPIKeyStore = FakeNodeImageAPIKeyStore()
+        nodeImageAPIKeyStore.save(apiKey: "nodeimage-key")
+        let defaults = try #require(UserDefaults(suiteName: "settings-session-\(UUID().uuidString)"))
+        let accountStore = CurrentAccountStore(userDefaults: defaults, storageKey: "account")
+        let cookieStorage = try #require(URLSessionConfiguration.ephemeral.httpCookieStorage)
+        let manager = DefaultSettingsSessionManager(
+            cookieBridge: CookieBridge(
+                webCookieStore: FakeWebCookieStore(),
+                urlCookieStorage: cookieStorage,
+                allowedDomains: []
+            ),
+            currentAccountStore: accountStore,
+            nodeImageAPIKeyStore: nodeImageAPIKeyStore
+        )
+
+        await manager.logout()
+
+        #expect(nodeImageAPIKeyStore.clearCount == 1)
+        #expect(nodeImageAPIKeyStore.apiKey() == nil)
+    }
+}
+
+private extension SettingsBuildInfo {
+    static let testFlightFixture = SettingsBuildInfo(
+        appVersion: "1.0.1",
+        buildNumber: "42",
+        gitSHA: "abcdef1234567890",
+        workflowName: "TestFlight",
+        githubRunID: "25443881348",
+        githubRunURL: URL(string: "https://github.com/tyrad/nodeseek/actions/runs/25443881348")
+    )
+}
+
+private func makeSpecialFollowStore() -> SpecialFollowKeywordStore {
+    let suiteName = "settings-special-follow-\(UUID().uuidString)"
+    let defaults = UserDefaults(suiteName: suiteName)!
+    defaults.removePersistentDomain(forName: suiteName)
+    return SpecialFollowKeywordStore(userDefaults: defaults, storageKey: "keywords")
+}
+
+private func makeCategoryPreferenceStore() -> PostCategoryPreferenceStore {
+    let suiteName = "settings-category-preferences-\(UUID().uuidString)"
+    let defaults = UserDefaults(suiteName: suiteName)!
+    defaults.removePersistentDomain(forName: suiteName)
+    return PostCategoryPreferenceStore(userDefaults: defaults, storageKey: "categories")
+}
+
+@MainActor
+private final class SpySettingsViewController: SettingsViewController {
+    private(set) var categoryPreferencesCellRequestCount = 0
+
+    override func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
+        let cell = super.tableView(tableView, cellForRowAt: indexPath)
+        if indexPath == IndexPath(row: 0, section: 0) {
+            categoryPreferencesCellRequestCount += 1
+        }
+        return cell
+    }
+}
+
+@MainActor
+private func withFileLoggingConfigIsolation(_ body: () async throws -> Void) async throws {
+    try await FileLoggingTestGate.shared.withExclusiveAccess {
+        let previousFileLogging = NodeSeekDebugConfig.enableFileLogging
+        let previousAvatarLogging = NodeSeekDebugConfig.enableAvatarImageLogs
+        defer {
+            NodeSeekDebugConfig.enableFileLogging = previousFileLogging
+            NodeSeekDebugConfig.enableAvatarImageLogs = previousAvatarLogging
+        }
+        try await body()
+    }
+}
+
+private func makeSettingsPostListSearchEntrySettings() -> PostListSearchEntrySettings {
+    let suiteName = "settings-post-list-search-entry-\(UUID().uuidString)"
+    let defaults = UserDefaults(suiteName: suiteName)!
+    return PostListSearchEntrySettings(userDefaults: defaults, storageKey: "shows-top-search-entry")
+}
+
+@MainActor
+private final class AutoCheckInSummaryBox {
+    var value: String
+
+    init(_ value: String) {
+        self.value = value
+    }
+}
+
+@MainActor
+private final class FakeSettingsCacheManager: SettingsCacheManaging {
+    private(set) var clearCount = 0
+    private var byteSize: UInt64
+
+    init(cacheByteSize: UInt64) {
+        self.byteSize = cacheByteSize
+    }
+
+    func cacheByteSize() async -> UInt64 {
+        byteSize
+    }
+
+    func clearPreservingCookies() async throws {
+        clearCount += 1
+        byteSize = 0
+    }
+}
+
+@MainActor
+private final class FakeSettingsSessionManager: SettingsSessionManaging {
+    private(set) var logoutCount = 0
+
+    func logout() async {
+        logoutCount += 1
+    }
+}
+
+private final class FakeNodeImageAPIKeyStore: NodeImageAPIKeyStoring {
+    private(set) var clearCount = 0
+    private var storedAPIKey: String?
+
+    func apiKey() -> String? {
+        storedAPIKey
+    }
+
+    func save(apiKey: String) {
+        storedAPIKey = apiKey
+    }
+
+    func clear() {
+        clearCount += 1
+        storedAPIKey = nil
+    }
+}
+
+@MainActor
+private final class FakeNodeImageAuthorizationPresenter: NodeImageAuthorizationPresenting {
+    private(set) var presentCount = 0
+    private let apiKeyToReturn: String
+
+    init(apiKeyToReturn: String) {
+        self.apiKeyToReturn = apiKeyToReturn
+    }
+
+    func presentAuthorization(
+        from presentingViewController: UIViewController,
+        onAPIKey: @escaping @MainActor (String) -> Void
+    ) {
+        presentCount += 1
+        onAPIKey(apiKeyToReturn)
+    }
+}
+
+@MainActor
+private final class FakeWebCookieStore: WebCookieStore {
+    func allCookies() async -> [HTTPCookie] {
+        []
+    }
+
+    func setCookie(_ cookie: HTTPCookie) async {}
+
+    func deleteCookie(_ cookie: HTTPCookie) async {}
+}
+
+@MainActor
+private func waitUntil(
+    timeoutNanoseconds: UInt64 = 1_000_000_000,
+    condition: @escaping @MainActor () -> Bool
+) async throws {
+    let step: UInt64 = 25_000_000
+    var waited: UInt64 = 0
+    while waited < timeoutNanoseconds {
+        if condition() {
+            return
+        }
+        try await Task.sleep(nanoseconds: step)
+        waited += step
+    }
+}

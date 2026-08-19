@@ -1,0 +1,364 @@
+//
+//  PostSummaryCellNode.swift
+//  nodeseek
+//
+//  Created by Codex on 2026/4/27.
+//
+
+import AsyncDisplayKit
+import UIKit
+
+final class PostSummaryCellNode: ASCellNode, ThemeRefreshableNode {
+
+    private enum Layout {
+        static let verticalSpacing: CGFloat = 5
+        static let contentInset = UIEdgeInsets(
+            top: PostListCellStyle.Layout.verticalContentInset,
+            left: 16,
+            bottom: PostListCellStyle.Layout.verticalContentInset,
+            right: 12
+        )
+    }
+
+    private let post: PostSummary
+    private let isVisited: Bool
+    private let avatarLoader = AvatarImageLoader.shared
+    private var hasRequestedAvatar = false
+    private var hasDisplayableAuthor: Bool {
+        AuthorDisplayPolicy.isDisplayable(post.authorName)
+    }
+
+    private lazy var avatarNode: ASDisplayNode = {
+        let node = ASDisplayNode(viewBlock: { [weak self] in
+            let imageView = UIImageView()
+            imageView.contentMode = .scaleAspectFill
+            imageView.layer.cornerRadius = PostListCellStyle.Avatar.cornerRadius
+            imageView.layer.masksToBounds = true
+            imageView.backgroundColor = .systemGray5
+            self?.avatarImageView = imageView
+            return imageView
+        })
+        node.style.preferredSize = CGSize(
+            width: PostListCellStyle.Avatar.size,
+            height: PostListCellStyle.Avatar.size
+        )
+        return node
+    }()
+
+    private let titleNode = ASTextNode()
+    private let metadataNode = ASTextNode()
+    private weak var avatarImageView: UIImageView?
+    private let themeTraitObserver = ThemeTraitObserver()
+
+    convenience init(post: PostSummary) {
+        self.init(post: post, isVisited: false)
+    }
+
+    convenience init(item: PostListItem) {
+        self.init(post: item.post, isVisited: item.isVisited)
+    }
+
+    init(post: PostSummary, isVisited: Bool) {
+        self.post = post
+        self.isVisited = isVisited
+        super.init()
+        automaticallyManagesSubnodes = true
+        selectionStyle = .none
+        backgroundColor = .clear
+        applyCurrentTheme()
+    }
+
+    override func didLoad() {
+        super.didLoad()
+        themeTraitObserver.install(on: self)
+        requestAvatarIfNeeded()
+    }
+
+    override func didEnterDisplayState() {
+        super.didEnterDisplayState()
+        requestAvatarIfNeeded()
+    }
+
+    override func didExitDisplayState() {
+        super.didExitDisplayState()
+        cancelAvatarLoad()
+        hasRequestedAvatar = false
+    }
+
+    deinit {
+        cancelAvatarLoad()
+    }
+
+    override func layoutSpecThatFits(_ constrainedSize: ASSizeRange) -> ASLayoutSpec {
+        titleNode.style.flexShrink = 1
+        metadataNode.style.flexShrink = 1
+
+        let textStack = ASStackLayoutSpec.vertical()
+        textStack.spacing = Layout.verticalSpacing
+        textStack.children = [titleNode, metadataNode]
+        textStack.style.flexGrow = 1
+        textStack.style.flexShrink = 1
+
+        let contentStack = ASStackLayoutSpec.horizontal()
+        contentStack.spacing = PostListCellStyle.Layout.horizontalSpacing
+        contentStack.alignItems = .start
+        contentStack.children = hasDisplayableAuthor ? [avatarNode, textStack] : [textStack]
+
+        return ASInsetLayoutSpec(insets: Layout.contentInset, child: contentStack)
+    }
+
+    func applyCurrentTheme() {
+        configureText()
+    }
+
+    private func configureText() {
+        let specialFollowRules = SpecialFollowKeywordStore.shared.rules
+        titleNode.maximumNumberOfLines = PostListCellStyle.Typography.titleMaximumNumberOfLines
+        titleNode.truncationMode = .byTruncatingTail
+        titleNode.attributedText = Self.titleAttributedText(
+            for: post,
+            isVisited: isVisited,
+            specialFollowRules: specialFollowRules
+        )
+
+        metadataNode.maximumNumberOfLines = PostListCellStyle.Typography.metadataMaximumNumberOfLines
+        metadataNode.truncationMode = .byTruncatingTail
+        metadataNode.attributedText = Self.metadataAttributedText(for: post, specialFollowRules: specialFollowRules)
+    }
+
+    var debugTitleAttributedText: NSAttributedString? {
+        titleNode.attributedText
+    }
+
+    var debugMetadataAttributedText: NSAttributedString? {
+        metadataNode.attributedText
+    }
+
+    private func requestAvatarIfNeeded() {
+        guard hasDisplayableAuthor else { return }
+        guard !hasRequestedAvatar else { return }
+        guard let avatarImageView else { return }
+        hasRequestedAvatar = true
+        ImageLoad.url(post.avatarURL)
+            .toAvatar(requestID: post.id)
+            .into(avatarImageView)
+    }
+
+    private func cancelAvatarLoad() {
+        guard let avatarImageView else { return }
+        avatarLoader.cancel(on: avatarImageView)
+    }
+
+    static func metadataAttributedText(
+        for post: PostSummary,
+        specialFollowRules: [SpecialFollowKeywordRule] = []
+    ) -> NSAttributedString {
+        let font = PostListCellStyle.Typography.metadataFont
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: font,
+            .foregroundColor: UIColor.secondaryLabel
+        ]
+        let metadata = NSMutableAttributedString()
+
+        func appendSeparatorIfNeeded() {
+            guard metadata.length > 0 else { return }
+            metadata.append(NSAttributedString(string: "  ", attributes: attributes))
+        }
+
+        if let authorName = AuthorDisplayPolicy.displayName(from: post.authorName) {
+            appendSeparatorIfNeeded()
+            metadata.append(SpecialFollowKeywordHighlighter.attributedText(
+                string: authorName,
+                baseAttributes: attributes,
+                rules: specialFollowRules
+            ))
+        }
+
+        appendSeparatorIfNeeded()
+        metadata.append(metricAttributedText(
+            systemName: "eye",
+            value: post.viewCount,
+            font: font,
+            attributes: attributes
+        ))
+
+        appendSeparatorIfNeeded()
+        metadata.append(metricAttributedText(
+            systemName: "bubble.left",
+            value: post.replyCount,
+            font: font,
+            attributes: attributes
+        ))
+
+        if let lastActivity = lastActivityText(for: post) {
+            appendSeparatorIfNeeded()
+            metadata.append(NSAttributedString(string: lastActivity, attributes: attributes))
+        }
+
+        return metadata
+    }
+
+    static func titleAttributedText(
+        for post: PostSummary,
+        isVisited: Bool = false,
+        specialFollowRules: [SpecialFollowKeywordRule] = []
+    ) -> NSAttributedString {
+        let font = PostListCellStyle.Typography.titleFont
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: font,
+            .foregroundColor: isVisited ? UIColor.secondaryLabel : UIColor.label
+        ]
+        let title = NSMutableAttributedString()
+        let configuration = UIImage.SymbolConfiguration(font: font, scale: .small)
+
+        if post.isPinned {
+            appendSymbol(
+                "pin.fill",
+                tintColor: .secondaryLabel,
+                font: font,
+                rotationAngle: .pi / 4,
+                to: title
+            )
+            title.append(NSAttributedString(string: " ", attributes: attributes))
+        }
+
+        title.append(NSAttributedString(string: post.title, attributes: attributes))
+        SpecialFollowKeywordHighlighter.applyHighlight(to: title, rules: specialFollowRules)
+
+        guard post.isLocked else {
+            return title
+        }
+
+        title.append(NSAttributedString(string: " ", attributes: attributes))
+
+        appendSymbol(
+            "lock.fill",
+            tintColor: .systemRed,
+            font: font,
+            configuration: configuration,
+            to: title
+        )
+
+        if let requiredReadingLevel = post.requiredReadingLevel {
+            title.append(NSAttributedString(
+                string: " \(requiredReadingLevel)",
+                attributes: [
+                    .font: font,
+                    .foregroundColor: UIColor.systemRed
+                ]
+            ))
+        }
+
+        return title
+    }
+
+    private static func appendSymbol(
+        _ systemName: String,
+        tintColor: UIColor,
+        font: UIFont,
+        configuration: UIImage.SymbolConfiguration? = nil,
+        rotationAngle: CGFloat = 0,
+        to text: NSMutableAttributedString
+    ) {
+        let configuration = configuration ?? UIImage.SymbolConfiguration(font: font, scale: .small)
+
+        guard let image = UIImage(systemName: systemName, withConfiguration: configuration)?
+            .withTintColor(tintColor, renderingMode: .alwaysOriginal) else {
+            return
+        }
+
+        let displayImage = rotationAngle == 0 ? image : rotated(image, by: rotationAngle)
+        let attachment = NSTextAttachment(image: displayImage)
+        attachment.bounds = CGRect(
+            x: 0,
+            y: (font.capHeight - displayImage.size.height) / 2,
+            width: displayImage.size.width,
+            height: displayImage.size.height
+        )
+        text.append(NSAttributedString(attachment: attachment))
+    }
+
+    private static func rotated(_ image: UIImage, by angle: CGFloat) -> UIImage {
+        let sourceSize = image.size
+        let rotatedRect = CGRect(origin: .zero, size: sourceSize).applying(CGAffineTransform(rotationAngle: angle))
+        let canvasSize = CGSize(
+            width: ceil(abs(rotatedRect.width)),
+            height: ceil(abs(rotatedRect.height))
+        )
+        let format = UIGraphicsImageRendererFormat.default()
+        format.scale = image.scale
+
+        return UIGraphicsImageRenderer(size: canvasSize, format: format).image { context in
+            let cgContext = context.cgContext
+            cgContext.translateBy(x: canvasSize.width / 2, y: canvasSize.height / 2)
+            cgContext.rotate(by: angle)
+            image.draw(in: CGRect(
+                x: -sourceSize.width / 2,
+                y: -sourceSize.height / 2,
+                width: sourceSize.width,
+                height: sourceSize.height
+            ))
+        }
+    }
+
+    private static func metricAttributedText(
+        systemName: String,
+        value: Int,
+        font: UIFont,
+        attributes: [NSAttributedString.Key: Any]
+    ) -> NSAttributedString {
+        let text = NSMutableAttributedString()
+        let configuration = UIImage.SymbolConfiguration(font: font, scale: .small)
+
+        if UIImage(systemName: systemName, withConfiguration: configuration) != nil {
+            appendSymbol(
+                systemName,
+                tintColor: .secondaryLabel,
+                font: font,
+                configuration: configuration,
+                to: text
+            )
+            text.append(NSAttributedString(string: " ", attributes: attributes))
+        }
+
+        text.append(NSAttributedString(string: "\(value)", attributes: attributes))
+        return text
+    }
+
+    private static func lastActivityText(for post: PostSummary) -> String? {
+        let trimmed = post.lastActivityText?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return trimmed.isEmpty ? nil : trimmed
+    }
+}
+
+enum PostListCellStyle {
+    enum Typography {
+        static let titleMaximumNumberOfLines: UInt = 0
+        static let metadataMaximumNumberOfLines: UInt = 1
+        static let titlePointSize: CGFloat = 17
+        static let metadataPointSize: CGFloat = 13
+        static let titleWeight = UIFont.Weight.medium
+        static let metadataWeight = UIFont.Weight.regular
+
+        static var titleFont: UIFont {
+            AppTypography.listTitleFont()
+        }
+
+        static var metadataFont: UIFont {
+            AppTypography.listMetadataFont()
+        }
+    }
+
+    enum Avatar {
+        static let size: CGFloat = 48
+        static let cornerRadius: CGFloat = 9
+        static let skeletonSize: CGFloat = 48
+    }
+
+    enum Layout {
+        static let horizontalSpacing: CGFloat = 10
+        static let verticalContentInset: CGFloat = 8
+    }
+}
+
+typealias PostSummaryCellStyle = PostListCellStyle
