@@ -63,7 +63,9 @@ final class PrivateMessageWebViewController: BaseWebViewController {
     override func configureNavigationItems() {
         super.configureNavigationItems()
         let moreButton = navigationItem.rightBarButtonItem
-        navigationItem.rightBarButtonItems = [imageUploadButton, moreButton].compactMap { $0 }
+        // The conversation page owns the camera control. Keeping a second native
+        // button here makes the header look misaligned and gives two upload paths.
+        navigationItem.rightBarButtonItems = [moreButton].compactMap { $0 }
         updateImageUploadButton()
     }
 
@@ -176,17 +178,21 @@ final class PrivateMessageWebViewController: BaseWebViewController {
               const host = window.location.hostname.toLowerCase();
               if (host !== 'nodeseek.com' && !host.endsWith('.nodeseek.com')) return;
               const ensureButton = () => {
-                if (document.getElementById('nodeseek-upload-image-button')) return;
                 const route = (window.location.pathname + window.location.hash).toLowerCase();
-                if (!route.includes('/message')) return;
+                const existing = document.getElementById('nodeseek-upload-image-button');
+                if (!route.includes('/message')) {
+                  existing && existing.remove();
+                  return;
+                }
+                if (existing) return;
                 if (!document.documentElement) return;
                 const button = document.createElement('button');
                 button.id = 'nodeseek-upload-image-button';
                 button.type = 'button';
                 button.setAttribute('aria-label', '通过图床发送图片');
                 button.title = '通过图床发送图片';
-                button.textContent = '📷';
-                button.style.cssText = 'display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;border-radius:50%;border:none;background:#1677ff;color:#fff;font-size:16px;line-height:1;margin-left:8px;vertical-align:middle;cursor:pointer;touch-action:manipulation;flex:0 0 auto';
+                button.innerHTML = '<span aria-hidden="true" style="position:relative;display:block;width:24px;height:17px;border:2px solid #fff;border-radius:3px;box-sizing:border-box"><span style="position:absolute;left:6px;top:3px;width:7px;height:7px;border:2px solid #fff;border-radius:50%;box-sizing:border-box"></span><span style="position:absolute;left:3px;top:-5px;width:7px;height:4px;border:2px solid #fff;border-bottom:0;border-radius:2px 2px 0 0;box-sizing:border-box"></span></span>';
+                button.style.cssText = 'display:inline-flex;align-items:center;justify-content:center;width:44px;height:44px;border-radius:6px;border:0;background:#0a84ff;color:#fff;line-height:1;cursor:pointer;touch-action:manipulation;flex:0 0 auto;box-shadow:none;padding:0;margin:0';
                 button.addEventListener('click', () => {
                   if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.nodeSeekUploadImage) {
                     window.webkit.messageHandlers.nodeSeekUploadImage.postMessage({});
@@ -207,10 +213,16 @@ final class PrivateMessageWebViewController: BaseWebViewController {
                 const header = selectors
                   .map((selector) => document.querySelector(selector))
                   .find((el) => el && el.offsetParent !== null && el.textContent.trim().length > 0);
-                if (header && header.parentElement) {
-                  header.parentElement.appendChild(button);
+                if (header) {
+                  const titleLike = /title|user-name|username|nickname/.test(String(header.className || '').toLowerCase());
+                  const target = titleLike && header.parentElement ? header.parentElement : header;
+                  const headerStyle = window.getComputedStyle(target);
+                  if (headerStyle.position === 'static') target.style.position = 'relative';
+                  target.style.overflow = 'visible';
+                  button.style.cssText += ';position:absolute;right:8px;top:50%;transform:translateY(-50%);z-index:30';
+                  target.appendChild(button);
                 } else {
-                  button.style.cssText = 'position:fixed;top:max(12px, env(safe-area-inset-top) + 64px);right:max(12px, env(safe-area-inset-right));width:44px;height:44px;border-radius:22px;border:none;background:#1677ff;color:#fff;font-size:20px;display:flex;align-items:center;justify-content:center;line-height:1;box-shadow:0 4px 12px rgba(0,0,0,0.25);z-index:2147483647;touch-action:manipulation';
+                  button.style.cssText += ';position:fixed;top:max(12px, env(safe-area-inset-top) + 64px);right:max(12px, env(safe-area-inset-right));z-index:2147483647';
                   document.documentElement.appendChild(button);
                 }
               };
