@@ -22,6 +22,7 @@ final class PostPageContainerViewController: UIPageViewController {
     var categories: [PostListCategoryItem] = []
     var hostViewControllers: [PostListCategoryItem: PostTextureListHostViewController] = [:]
     private(set) var currentCategory: PostListCategoryItem?
+    private var pendingCategory: PostListCategoryItem?
     weak var pagingScrollView: UIScrollView?
     var maximumLeadingBoundaryPullDistance: CGFloat = 0
     private let visitedStore: VisitedPostStoreProtocol
@@ -128,6 +129,17 @@ final class PostPageContainerViewController: UIPageViewController {
             return
         }
 
+        // Keep the currently rendered page on screen while a never-opened category
+        // fetches its first page. Showing its skeleton here causes a visible flash.
+        if currentCategory != nil, !targetVC.isReadyForDisplay {
+            pendingCategory = category
+            targetVC.loadViewIfNeeded()
+            pagingScrollView?.isScrollEnabled = false
+            return
+        }
+        pendingCategory = nil
+        pagingScrollView?.isScrollEnabled = true
+
         let direction: UIPageViewController.NavigationDirection = {
             guard let current = currentCategory,
                   let fromIndex = categories.firstIndex(of: current),
@@ -148,6 +160,8 @@ final class PostPageContainerViewController: UIPageViewController {
 
     func updateCurrentCategoryAfterPaging(_ category: PostListCategoryItem) {
         currentCategory = category
+        pendingCategory = nil
+        pagingScrollView?.isScrollEnabled = true
     }
 }
 
@@ -161,6 +175,14 @@ extension PostPageContainerViewController: PostTextureListHostPresenterDelegate 
     }
 
     func postTextureListHostDidLoadFirstPage(category: PostListCategoryItem) {
+        let shouldRevealPendingCategory = pendingCategory == category
+        if shouldRevealPendingCategory {
+            pendingCategory = nil
+            setCurrentCategory(category, animated: false, notifyDelegate: false)
+        }
         eventDelegate?.postPageContainerViewController(self, didLoadFirstPageFor: category)
+        if shouldRevealPendingCategory {
+            eventDelegate?.postPageContainerViewController(self, didScrollTo: category)
+        }
     }
 }
