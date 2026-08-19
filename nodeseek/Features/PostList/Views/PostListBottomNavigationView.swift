@@ -206,8 +206,9 @@ final class PostListBottomNavigationView: UIView {
         guard let button = buttons[selectedItem] else { return }
         let target = button.convert(button.bounds, to: self)
         let frame = target.insetBy(dx: -4, dy: 2)
-        let apply = { [weak self] in
-            self?.selectionPillView.frame = frame
+        let apply: () -> Void = { [weak self] in
+            guard let self else { return }
+            self.selectionPillView.frame = frame
         }
         if animated {
             UIView.animate(
