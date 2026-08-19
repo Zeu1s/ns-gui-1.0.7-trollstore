@@ -375,11 +375,28 @@ enum WebViewAccessibilityScriptFactory {
               html.nodeseek-private-message-page #nsk-body-left,
               html.nodeseek-profile-page #nsk-body-left {
                 min-height: 100vh !important;
-              }              html.nodeseek-private-message-page #nsk-body-left {
-                padding: 0 16px 140px !important;
+              }
+              html.nodeseek-private-message-page #nsk-body-left {
+                padding: 0 12px calc(140px + env(safe-area-inset-bottom)) !important;
                 background: #eef0f3 !important;
                 border-left: 1px solid rgba(0, 0, 0, 0.06) !important;
                 border-right: 1px solid rgba(0, 0, 0, 0.06) !important;
+              }
+              html.nodeseek-private-message-page #nsk-body-left :is([class*="conversation"], [class*="chat"], [class*="message-list"]) {
+                overflow-y: auto !important;
+                -webkit-overflow-scrolling: touch !important;
+                overscroll-behavior-y: contain !important;
+              }
+              html.nodeseek-private-message-page :is([class*="conversation"] [class*="header"], [class*="chat"] [class*="header"], [class*="conversation-header"], [class*="chat-header"], [class*="message-header"]) {
+                position: sticky !important;
+                top: 0 !important;
+                z-index: 15 !important;
+                min-height: 44px !important;
+                padding: 8px 12px !important;
+                background: rgba(255, 255, 255, 0.94) !important;
+                border-bottom: 1px solid #d7dbe2 !important;
+                backdrop-filter: blur(12px) !important;
+                -webkit-backdrop-filter: blur(12px) !important;
               }
               html.nodeseek-private-message-page [class*="message"] :is(article, [class*="bubble"], [class*="content"]),
               html.nodeseek-private-message-page [class*="conversation"] :is(article, [class*="bubble"], [class*="content"]) {
@@ -395,8 +412,25 @@ enum WebViewAccessibilityScriptFactory {
                 position: sticky !important;
                 bottom: 0 !important;
                 z-index: 20 !important;
-                background: #ffffff !important;
-                box-shadow: 0 -1px 4px rgba(0, 0, 0, 0.06) !important;
+                padding: 8px 10px calc(8px + env(safe-area-inset-bottom)) !important;
+                background: rgba(255, 255, 255, 0.96) !important;
+                border-top: 1px solid #d7dbe2 !important;
+                box-shadow: 0 -2px 8px rgba(0, 0, 0, 0.08) !important;
+                backdrop-filter: blur(12px) !important;
+                -webkit-backdrop-filter: blur(12px) !important;
+              }
+              html.nodeseek-private-message-page :is(form, [class*="editor"], [class*="toolbar"]) :is(textarea, input, [contenteditable="true"]) {
+                min-height: 40px !important;
+                max-height: 112px !important;
+                border: 1px solid #cfd4dc !important;
+                border-radius: 20px !important;
+                padding: 9px 14px !important;
+                background: #f7f8fa !important;
+              }
+              @media (prefers-color-scheme: dark) {
+                html.nodeseek-private-message-page #nsk-body-left { background: #1c1d20 !important; border-color: rgba(255, 255, 255, 0.08) !important; }
+                html.nodeseek-private-message-page :is([class*="conversation"] [class*="header"], [class*="chat"] [class*="header"], [class*="conversation-header"], [class*="chat-header"], [class*="message-header"], form, [class*="editor"], [class*="toolbar"], [class*="footer"]) { background: rgba(35, 36, 40, 0.96) !important; border-color: #3a3c42 !important; }
+                html.nodeseek-private-message-page :is(form, [class*="editor"], [class*="toolbar"]) :is(textarea, input, [contenteditable="true"]) { background: #292b30 !important; border-color: #484b54 !important; color: #f5f5f7 !important; }
               }
               html.nodeseek-private-message-page [class*="message"][class*="self"],
               html.nodeseek-private-message-page [class*="message"][class*="own"],
