@@ -753,7 +753,7 @@ final class CommentCellNode: ASCellNode, ThemeRefreshableNode {
     }
 }
 
-private enum CommentAuthorBadgeStyle {
+enum CommentAuthorBadgeStyle {
     struct Style {
         let backgroundColor: UIColor
         let cornerRadius: CGFloat
