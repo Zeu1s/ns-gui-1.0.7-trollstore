@@ -21,6 +21,8 @@ struct NodeSeekSplashAnimatorTests {
         #expect(layerNames.contains("splash.nodeseek.core"))
         #expect(layerNames.contains("splash.nodeseek.eyes"))
         #expect(layerNames.contains("splash.nodeseek.wordmark"))
+        #expect(layerNames.contains("splash.nodeseek.wordmark.left"))
+        #expect(layerNames.contains("splash.nodeseek.wordmark.right"))
         #expect(!layerNames.contains("splash.n.leftStroke"))
         #expect(!layerNames.contains("splash.finalLogo"))
     }
@@ -37,6 +39,8 @@ struct NodeSeekSplashAnimatorTests {
         let core = layers.first { $0.name == "splash.nodeseek.core" } as? CAShapeLayer
         let eyes = layers.first { $0.name == "splash.nodeseek.eyes" } as? CAShapeLayer
         let wordmark = layers.first { $0.name == "splash.nodeseek.wordmark" } as? CATextLayer
+        let wordmarkLeft = layers.first { $0.name == "splash.nodeseek.wordmark.left" } as? CATextLayer
+        let wordmarkRight = layers.first { $0.name == "splash.nodeseek.wordmark.right" } as? CATextLayer
 
         #expect(leftWaves?.path != nil)
         #expect(rightWaves?.path != nil)
@@ -45,6 +49,8 @@ struct NodeSeekSplashAnimatorTests {
         #expect(core?.path != nil)
         #expect(eyes?.path != nil)
         #expect(wordmark?.string as? String == "NodeSeek")
+        #expect(wordmarkLeft?.string as? String == "Node")
+        #expect(wordmarkRight?.string as? String == "Seek")
     }
 
     @Test func animatorFadesBrandLayersInSequence() {
@@ -60,6 +66,8 @@ struct NodeSeekSplashAnimatorTests {
         let core = layers.first { $0.name == "splash.nodeseek.core" }
         let eyes = layers.first { $0.name == "splash.nodeseek.eyes" }
         let wordmark = layers.first { $0.name == "splash.nodeseek.wordmark" }
+        let wordmarkLeft = layers.first { $0.name == "splash.nodeseek.wordmark.left" }
+        let wordmarkRight = layers.first { $0.name == "splash.nodeseek.wordmark.right" }
         let animations = [left, right, core, eyes, wordmark].compactMap {
             $0?.animation(forKey: "brandFade") as? CABasicAnimation
         }
@@ -71,6 +79,8 @@ struct NodeSeekSplashAnimatorTests {
             #expect(animations[2].beginTime <= animations[3].beginTime)
             #expect(animations[3].beginTime <= animations[4].beginTime)
         }
+        #expect(wordmarkLeft?.animation(forKey: "wordmarkConvergence") != nil)
+        #expect(wordmarkRight?.animation(forKey: "wordmarkConvergence") != nil)
     }
 
     @Test func reduceMotionCompletesWithoutLongAnimation() async {

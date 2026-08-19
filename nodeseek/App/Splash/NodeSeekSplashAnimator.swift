@@ -36,6 +36,8 @@ final class NodeSeekSplashAnimator: NSObject {
     private let nodeEyesLayer = CAShapeLayer()
     private let rightWaveLayer = CAShapeLayer()
     private let wordmarkLayer = CATextLayer()
+    private let wordmarkLeftLayer = CATextLayer()
+    private let wordmarkRightLayer = CATextLayer()
     private var completion: (() -> Void)?
 
     init(
@@ -55,6 +57,8 @@ final class NodeSeekSplashAnimator: NSObject {
         view.layer.addSublayer(rightWaveLayer)
         view.layer.addSublayer(nodeCoreLayer)
         view.layer.addSublayer(nodeEyesLayer)
+        view.layer.addSublayer(wordmarkLeftLayer)
+        view.layer.addSublayer(wordmarkRightLayer)
         view.layer.addSublayer(wordmarkLayer)
     }
 
@@ -98,6 +102,8 @@ private extension NodeSeekSplashAnimator {
         nodeEyesLayer.name = "splash.nodeseek.eyes"
         rightWaveLayer.name = "splash.nodeseek.rightWaves"
         wordmarkLayer.name = "splash.nodeseek.wordmark"
+        wordmarkLeftLayer.name = "splash.nodeseek.wordmark.left"
+        wordmarkRightLayer.name = "splash.nodeseek.wordmark.right"
     }
 
     func layoutBrandLayers(in bounds: CGRect) {
@@ -165,20 +171,43 @@ private extension NodeSeekSplashAnimator {
         rightWaveLayer.lineCap = .round
         rightWaveLayer.contentsScale = UIScreen.main.scale
 
-        wordmarkLayer.frame = CGRect(
-            x: bounds.midX - glyphWidth,
+        let wordmarkWidth = min(bounds.width * 0.62, 238)
+        let wordmarkFrame = CGRect(
+            x: bounds.midX - wordmarkWidth / 2,
             y: glyphFrame.maxY + glyphHeight * 0.17,
-            width: glyphWidth * 2,
+            width: wordmarkWidth,
             height: 42
         )
         let wordmarkFont = UIFont.systemFont(ofSize: 28, weight: .semibold)
+        wordmarkLayer.frame = wordmarkFrame
         wordmarkLayer.string = "NodeSeek"
         wordmarkLayer.fontSize = wordmarkFont.pointSize
         wordmarkLayer.alignmentMode = .center
         wordmarkLayer.contentsScale = UIScreen.main.scale
+        wordmarkLeftLayer.frame = CGRect(
+            x: wordmarkFrame.minX,
+            y: wordmarkFrame.minY,
+            width: wordmarkFrame.width / 2,
+            height: wordmarkFrame.height
+        )
+        wordmarkLeftLayer.string = "Node"
+        wordmarkLeftLayer.fontSize = wordmarkFont.pointSize
+        wordmarkLeftLayer.alignmentMode = .right
+        wordmarkLeftLayer.contentsScale = UIScreen.main.scale
+        wordmarkRightLayer.frame = CGRect(
+            x: wordmarkFrame.midX,
+            y: wordmarkFrame.minY,
+            width: wordmarkFrame.width / 2,
+            height: wordmarkFrame.height
+        )
+        wordmarkRightLayer.string = "Seek"
+        wordmarkRightLayer.fontSize = wordmarkFont.pointSize
+        wordmarkRightLayer.alignmentMode = .left
+        wordmarkRightLayer.contentsScale = UIScreen.main.scale
 
-        [leftWaveLayer, nodeCoreLayer, nodeEyesLayer, rightWaveLayer, wordmarkLayer].forEach {
+        [leftWaveLayer, nodeCoreLayer, nodeEyesLayer, rightWaveLayer, wordmarkLayer, wordmarkLeftLayer, wordmarkRightLayer].forEach {
             $0.opacity = 0
+            $0.transform = CATransform3DIdentity
         }
         if let containerView {
             applyBrandColors(for: containerView.traitCollection)
@@ -209,6 +238,8 @@ private extension NodeSeekSplashAnimator {
         leftWaveLayer.strokeColor = waveColor.cgColor
         rightWaveLayer.strokeColor = waveColor.cgColor
         wordmarkLayer.foregroundColor = NodeSeekSplashVector.wordmarkColor(for: traitCollection).cgColor
+        wordmarkLeftLayer.foregroundColor = NodeSeekSplashVector.wordmarkColor(for: traitCollection).cgColor
+        wordmarkRightLayer.foregroundColor = NodeSeekSplashVector.wordmarkColor(for: traitCollection).cgColor
     }
 
     func layoutLayers(in bounds: CGRect) {
@@ -333,7 +364,19 @@ private extension NodeSeekSplashAnimator {
         animateBrandLayer(rightWaveLayer, beginTime: timelineBegin + 0.10, duration: 0.28)
         animateBrandLayer(nodeCoreLayer, beginTime: timelineBegin + 0.26, duration: 0.30)
         animateBrandLayer(nodeEyesLayer, beginTime: timelineBegin + 0.46, duration: 0.22)
-        animateBrandLayer(wordmarkLayer, beginTime: timelineBegin + 0.66, duration: 0.34)
+        animateConvergingWordmarkLayer(
+            wordmarkLeftLayer,
+            translationX: -containerViewWidth * 0.62,
+            beginTime: timelineBegin + 0.66,
+            duration: 0.38
+        )
+        animateConvergingWordmarkLayer(
+            wordmarkRightLayer,
+            translationX: containerViewWidth * 0.62,
+            beginTime: timelineBegin + 0.66,
+            duration: 0.38
+        )
+        animateBrandLayer(wordmarkLayer, beginTime: timelineBegin + 1.02, duration: 0.12)
 
         DispatchQueue.main.asyncAfter(deadline: .now() + animationDuration) { [weak self] in
             guard let self else { return }
@@ -343,8 +386,9 @@ private extension NodeSeekSplashAnimator {
     }
 
     func pinModelLayersToFinalFrame() {
-        [leftWaveLayer, nodeCoreLayer, nodeEyesLayer, rightWaveLayer, wordmarkLayer].forEach {
+        [leftWaveLayer, nodeCoreLayer, nodeEyesLayer, rightWaveLayer, wordmarkLayer, wordmarkLeftLayer, wordmarkRightLayer].forEach {
             $0.opacity = 1
+            $0.transform = CATransform3DIdentity
             $0.removeAllAnimations()
         }
     }
@@ -413,6 +457,28 @@ private extension NodeSeekSplashAnimator {
         fade.fillMode = .both
         fade.isRemovedOnCompletion = false
         layer.add(fade, forKey: "brandFade")
+    }
+
+    var containerViewWidth: CGFloat {
+        max(containerView?.bounds.width ?? 0, 1)
+    }
+
+    func animateConvergingWordmarkLayer(
+        _ layer: CALayer,
+        translationX: CGFloat,
+        beginTime: CFTimeInterval,
+        duration: CFTimeInterval
+    ) {
+        animateBrandLayer(layer, beginTime: beginTime, duration: duration * 0.55)
+        let translation = CABasicAnimation(keyPath: "transform.translation.x")
+        translation.fromValue = translationX
+        translation.toValue = 0
+        translation.beginTime = beginTime
+        translation.duration = duration
+        translation.timingFunction = CAMediaTimingFunction(name: .easeOut)
+        translation.fillMode = .both
+        translation.isRemovedOnCompletion = false
+        layer.add(translation, forKey: "wordmarkConvergence")
     }
 
 }

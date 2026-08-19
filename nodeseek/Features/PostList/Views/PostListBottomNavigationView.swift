@@ -81,14 +81,15 @@ final class PostListBottomNavigationView: UIView {
 
     func refreshDisplayScale() {
         layer.cornerRadius = AppDisplayScaleSettings.scaled(18)
+        messageUnreadBadge.layer.cornerRadius = AppDisplayScaleSettings.scaled(6)
         stackLeadingConstraint?.constant = AppDisplayScaleSettings.scaled(5)
         stackTrailingConstraint?.constant = -AppDisplayScaleSettings.scaled(5)
         stackTopConstraint?.constant = AppDisplayScaleSettings.scaled(4)
         stackBottomConstraint?.constant = -AppDisplayScaleSettings.scaled(4)
-        unreadBadgeWidthConstraint?.constant = AppDisplayScaleSettings.scaled(7)
-        unreadBadgeHeightConstraint?.constant = AppDisplayScaleSettings.scaled(7)
+        unreadBadgeWidthConstraint?.constant = AppDisplayScaleSettings.scaled(12)
+        unreadBadgeHeightConstraint?.constant = AppDisplayScaleSettings.scaled(12)
         unreadBadgeTopConstraint?.constant = AppDisplayScaleSettings.scaled(8)
-        unreadBadgeCenterXConstraint?.constant = AppDisplayScaleSettings.scaled(11)
+        unreadBadgeCenterXConstraint?.constant = AppDisplayScaleSettings.scaled(13)
         setSelectedItem(selectedItem)
     }
 
@@ -117,7 +118,7 @@ final class PostListBottomNavigationView: UIView {
         }
 
         messageUnreadBadge.backgroundColor = .systemRed
-        messageUnreadBadge.layer.cornerRadius = 4
+        messageUnreadBadge.layer.cornerRadius = AppDisplayScaleSettings.scaled(6)
         messageUnreadBadge.isHidden = true
         messageUnreadBadge.isUserInteractionEnabled = false
         messageUnreadBadge.accessibilityIdentifier = "post-list-bottom-navigation-unread-badge"
@@ -141,10 +142,10 @@ final class PostListBottomNavigationView: UIView {
             constant: -AppDisplayScaleSettings.scaled(4)
         )
         let unreadBadgeWidthConstraint = messageUnreadBadge.widthAnchor.constraint(
-            equalToConstant: AppDisplayScaleSettings.scaled(7)
+            equalToConstant: AppDisplayScaleSettings.scaled(12)
         )
         let unreadBadgeHeightConstraint = messageUnreadBadge.heightAnchor.constraint(
-            equalToConstant: AppDisplayScaleSettings.scaled(7)
+            equalToConstant: AppDisplayScaleSettings.scaled(12)
         )
         let unreadBadgeTopConstraint = messageUnreadBadge.topAnchor.constraint(
             equalTo: topAnchor,
@@ -152,7 +153,7 @@ final class PostListBottomNavigationView: UIView {
         )
         let unreadBadgeCenterXConstraint = messageUnreadBadge.centerXAnchor.constraint(
             equalTo: buttons[.messages]!.centerXAnchor,
-            constant: AppDisplayScaleSettings.scaled(11)
+            constant: AppDisplayScaleSettings.scaled(13)
         )
         self.stackLeadingConstraint = stackLeadingConstraint
         self.stackTrailingConstraint = stackTrailingConstraint

@@ -1497,7 +1497,7 @@ struct PostDetailViewControllerTests {
         #expect(node.debugQuoteActionTitle == nil)
         #expect(node.debugReplyActionImage != nil)
         #expect(node.debugQuoteActionImage != nil)
-        #expect(node.debugFooterActionAccessibilityLabels == ["点赞", "加鸡腿", "反对", "回复评论", "引用评论"])
+        #expect(node.debugFooterActionAccessibilityLabels == ["点赞", "加鸡腿", "反对", "引用评论", "回复评论"])
         #expect(node.debugActionsAreDisplayedBelowBody)
     }
 

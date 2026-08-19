@@ -29,9 +29,9 @@ class PostListViewController: UIViewController {
     }
 
     private enum BottomNavigationLayout {
-        static var horizontalInset: CGFloat { AppDisplayScaleSettings.scaled(18) }
+        static var horizontalInset: CGFloat { AppDisplayScaleSettings.scaled(22) }
         static var bottomInset: CGFloat { 0 }
-        static var height: CGFloat { AppDisplayScaleSettings.scaled(64) }
+        static var height: CGFloat { AppDisplayScaleSettings.scaled(68) }
         static var contentSpacing: CGFloat { AppDisplayScaleSettings.scaled(4) }
     }
 
@@ -452,6 +452,7 @@ class PostListViewController: UIViewController {
         }
         selectedCategory = category
         applySelectedCategory(category, syncPage: true, pageAnimated: true)
+        pageContainerViewController.reloadFirstPage(for: category)
         renderSortMode(pageContainerViewController.sortMode(for: category))
         presenter.didSelectCategory(category)
     }

@@ -30,6 +30,53 @@ enum WebViewAccessibilityScriptFactory {
           if (host !== 'nodeseek.com' && !host.endsWith('.nodeseek.com')) return;
 
           const styleID = 'nodeseek-display-scale-style';
+          const pageRoute = () => `${window.location.pathname}${window.location.hash}`.toLowerCase();
+          const applyMobilePageClasses = () => {
+            const root = document.documentElement;
+            if (!root) return;
+            const route = pageRoute();
+            const isPrivateMessagePage = route.includes('/message');
+            const isProfilePage = route.includes('/space/');
+            root.classList.toggle('nodeseek-private-message-page', isPrivateMessagePage);
+            root.classList.toggle('nodeseek-profile-page', isProfilePage);
+
+            if (!isProfilePage) return;
+            document.querySelectorAll('[class*="medal"], [class*="badge"], img[alt*="勋章"], img[title*="勋章"]').forEach((element) => {
+              const label = `${element.getAttribute('alt') || ''} ${element.getAttribute('title') || ''} ${element.textContent || ''}`;
+              const className = String(element.getAttribute('class') || '').toLowerCase();
+              if (label.includes('勋章') || className.includes('medal')) {
+                element.classList.add('nodeseek-profile-medal');
+                element.parentElement?.classList.add('nodeseek-profile-medal-list');
+              }
+            });
+            const profileStatLabels = ['加入天数', '等级', 'Lv', '鸡腿数目', '主题帖数', '评论数'];
+            const statCards = [];
+            document.querySelectorAll('[class*="stat"], [class*="data"], [class*="info"], [class*="card"]').forEach((element) => {
+              const label = (element.textContent || '').replace(/\\s+/g, '');
+              if (profileStatLabels.some((item) => label.includes(item)) && label.length <= 96) {
+                element.classList.add('nodeseek-profile-stat-card');
+                statCards.push(element);
+              }
+              if (label.includes('加入天数') || label.includes('等级') || label.includes('Lv')) {
+                element.classList.add('nodeseek-profile-priority-stat');
+              }
+            });
+            statCards.forEach((card) => {
+              const parent = card.parentElement;
+              if (!parent) return;
+              const directCards = Array.from(parent.children).filter((child) => child.classList.contains('nodeseek-profile-stat-card'));
+              if (directCards.length >= 2) parent.classList.add('nodeseek-profile-stats-grid');
+            });
+          };
+          let mobilePageRefreshScheduled = false;
+          const scheduleMobilePageRefresh = () => {
+            if (mobilePageRefreshScheduled) return;
+            mobilePageRefreshScheduled = true;
+            requestAnimationFrame(() => {
+              mobilePageRefreshScheduled = false;
+              applyMobilePageClasses();
+            });
+          };
           const ensureViewport = () => {
             let viewport = document.querySelector('meta[name="viewport"]');
             if (!viewport) {
@@ -51,10 +98,7 @@ enum WebViewAccessibilityScriptFactory {
             const root = document.documentElement;
             if (!root) return;
             root.style.setProperty('--nodeseek-display-scale', String(scale));
-            root.classList.toggle(
-              'nodeseek-private-message-page',
-              `${window.location.pathname}${window.location.hash}`.toLowerCase().includes('/message')
-            );
+            applyMobilePageClasses();
             let style = document.getElementById(styleID);
             if (!style) {
               style = document.createElement('style');
@@ -74,6 +118,121 @@ enum WebViewAccessibilityScriptFactory {
                 transform: none !important;
                 transform-origin: initial !important;
                 overflow-x: hidden !important;
+                box-sizing: border-box !important;
+              }
+              html.nodeseek-private-message-page #nsk-head,
+              html.nodeseek-profile-page #nsk-head,
+              html.nodeseek-private-message-page body > header,
+              html.nodeseek-profile-page body > header {
+                display: none !important;
+              }
+              html.nodeseek-private-message-page :is(#app, #nsk-body, #nsk-body-left, #nsk-body-right, [class*="notification"], [class*="message"], [class*="conversation"], [class*="editor"]),
+              html.nodeseek-profile-page :is(#app, #nsk-body, #nsk-body-left, #nsk-body-right, [class*="profile"], [class*="user-info"], [class*="user-card"]) {
+                width: 100% !important;
+                max-width: 100% !important;
+                min-width: 0 !important;
+                margin-left: 0 !important;
+                margin-right: 0 !important;
+                box-sizing: border-box !important;
+              }
+              html.nodeseek-private-message-page :is(main, section, form, [class*="content"], [class*="body"], [class*="panel"]),
+              html.nodeseek-profile-page :is(main, section, [class*="content"], [class*="body"], [class*="panel"]) {
+                min-width: 0 !important;
+                max-width: 100% !important;
+                overflow-x: hidden !important;
+                box-sizing: border-box !important;
+              }
+              html.nodeseek-private-message-page :is(#nsk-body, [class*="message"], [class*="conversation"], [class*="editor"], [class*="toolbar"], [class*="action"]),
+              html.nodeseek-profile-page :is([class*="profile"], [class*="user-info"], [class*="user-card"]) {
+                min-width: 0 !important;
+                max-width: 100% !important;
+              }
+              html.nodeseek-private-message-page [style*="width"],
+              html.nodeseek-profile-page [style*="width"] {
+                max-width: 100% !important;
+              }
+              html.nodeseek-private-message-page body,
+              html.nodeseek-private-message-page #app,
+              html.nodeseek-private-message-page #nsk-body {
+                background: #f6f7f9 !important;
+                color: #20242b !important;
+              }
+              html.nodeseek-private-message-page :is(textarea, input[type="text"], [contenteditable="true"]) {
+                width: 100% !important;
+                max-width: 100% !important;
+                height: 132px !important;
+                min-height: 112px !important;
+                max-height: 160px !important;
+                padding: 12px !important;
+                background: #ffffff !important;
+                color: #20242b !important;
+                border: 1px solid #d7dbe2 !important;
+                border-radius: 8px !important;
+              }
+              html.nodeseek-private-message-page :is(form, [class*="toolbar"], [class*="action"], [class*="footer"], [class*="editor"]) {
+                display: flex !important;
+                flex-wrap: wrap !important;
+                gap: 8px !important;
+                width: 100% !important;
+                min-width: 0 !important;
+                box-sizing: border-box !important;
+              }
+              html.nodeseek-private-message-page :is(form, [class*="toolbar"], [class*="action"], [class*="footer"], [class*="editor"]) > * {
+                min-width: 0 !important;
+                max-width: 100% !important;
+              }
+              html.nodeseek-private-message-page :is(button, a[role="button"]) {
+                max-width: 100% !important;
+                min-width: 0 !important;
+                white-space: normal !important;
+              }
+              html.nodeseek-private-message-page [class*="message"] :is(article, .content, [class*="content"], [class*="bubble"]),
+              html.nodeseek-private-message-page [class*="conversation"] :is(article, .content, [class*="content"], [class*="bubble"]) {
+                background: #ffffff !important;
+                border-color: #dfe3e8 !important;
+                color: #20242b !important;
+              }
+              html.nodeseek-profile-page body,
+              html.nodeseek-profile-page #app,
+              html.nodeseek-profile-page #nsk-body {
+                background: #f6f7f9 !important;
+                color: #20242b !important;
+              }
+              html.nodeseek-profile-page .nodeseek-profile-stats-grid {
+                display: grid !important;
+                grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+                gap: 8px !important;
+                width: 100% !important;
+                overflow: visible !important;
+              }
+              html.nodeseek-profile-page .nodeseek-profile-stat-card {
+                width: auto !important;
+                min-width: 0 !important;
+                max-width: 100% !important;
+                margin: 0 !important;
+                box-sizing: border-box !important;
+              }
+              html.nodeseek-profile-page .nodeseek-profile-priority-stat {
+                order: -1 !important;
+              }
+              html.nodeseek-profile-page .nodeseek-profile-medal-list {
+                display: flex !important;
+                flex-wrap: wrap !important;
+                align-items: center !important;
+                gap: 4px !important;
+                max-width: 100% !important;
+              }
+              html.nodeseek-profile-page .nodeseek-profile-medal {
+                display: inline-flex !important;
+                align-items: center !important;
+                gap: 4px !important;
+                min-height: 28px !important;
+                padding: 4px 8px !important;
+                margin: 2px !important;
+                border: 1px solid #e2b55b !important;
+                border-radius: 6px !important;
+                background: #fff8e9 !important;
+                color: #8a5a10 !important;
                 box-sizing: border-box !important;
               }
               input:not([type="checkbox"]):not([type="radio"]),
@@ -154,8 +313,16 @@ enum WebViewAccessibilityScriptFactory {
               }
             `;
             ensureViewport();
+            scheduleMobilePageRefresh();
           };
           window.__nodeSeekApplyDisplayScale = apply;
+          const observedRoot = document.documentElement;
+          if (observedRoot) {
+            const observer = new MutationObserver(scheduleMobilePageRefresh);
+            observer.observe(observedRoot, { childList: true, subtree: true });
+          }
+          window.addEventListener('hashchange', scheduleMobilePageRefresh);
+          window.addEventListener('popstate', scheduleMobilePageRefresh);
           apply(\(normalizedScaleLiteral(scale)));
         })();
         """

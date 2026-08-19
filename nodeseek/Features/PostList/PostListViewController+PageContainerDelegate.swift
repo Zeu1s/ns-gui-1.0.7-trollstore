@@ -28,8 +28,12 @@ extension PostListViewController: PostPageContainerViewControllerDelegate {
         _ containerView: PostPageContainerViewController,
         didScrollTo category: PostListCategoryItem
     ) {
+        let categoryChanged = category != selectedCategory
         syncSelectedCategoryFromPageContainerIfNeeded(category)
         renderSortMode(containerView.sortMode(for: category))
+        if categoryChanged {
+            containerView.reloadFirstPage(for: category)
+        }
     }
 
     func postPageContainerViewController(
