@@ -47,6 +47,9 @@ final class PostBodyCellNode: ASCellNode, ThemeRefreshableNode {
 
     private let titleNode = ASTextNode()
     private let authorButtonNode = ASButtonNode()
+    private let authorBadgeNodes: [ASButtonNode]
+    private let levelDaysBadgeNode = ASButtonNode()
+    private var userInfoObserver: NSObjectProtocol?
     private let metadataNode = ASTextNode()
     private let likeButtonNode = ASButtonNode()
     private let chickenLegButtonNode = ASButtonNode()
@@ -123,6 +126,7 @@ final class PostBodyCellNode: ASCellNode, ThemeRefreshableNode {
         self.onContentCopyTapped = onContentCopyTapped
         self.showsReplyActions = showsReplyActions
         self.onTextLayoutInvalidated = onTextLayoutInvalidated
+        self.authorBadgeNodes = content.authorBadgeTexts.map { Self.makeAuthorBadgeNode(text: $0) }
         self.bodyNodes = DetailContentBlockNodeFactory.makeNodes(
             from: renderedContent ?? [],
             onImageTapped: onImageTapped,
@@ -138,6 +142,17 @@ final class PostBodyCellNode: ASCellNode, ThemeRefreshableNode {
         selectionStyle = .none
         applyCurrentTheme()
         configureActions()
+        userInfoObserver = NotificationCenter.default.addObserver(
+            forName: NodeSeekUserInfoStore.didUpdateNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            guard let self else { return }
+            guard let userID = notification.userInfo?["userID"] as? Int,
+                  userID == NodeSeekUserInfoStore.userID(from: self.content.authorProfileURL) else { return }
+            self.configureText()
+            self.setNeedsLayout()
+        }
     }
 
     override func didLoad() {
@@ -150,6 +165,7 @@ final class PostBodyCellNode: ASCellNode, ThemeRefreshableNode {
     override func didEnterDisplayState() {
         super.didEnterDisplayState()
         requestAvatarIfNeeded()
+        NodeSeekUserInfoStore.shared.requestBadge(for: content.authorProfileURL)
     }
 
     override func didExitDisplayState() {
@@ -158,9 +174,18 @@ final class PostBodyCellNode: ASCellNode, ThemeRefreshableNode {
         hasRequestedAvatar = false
     }
 
+    deinit {
+        cancelAvatarLoad()
+        if let userInfoObserver {
+            NotificationCenter.default.removeObserver(userInfoObserver)
+        }
+    }
+
     override func layoutSpecThatFits(_ constrainedSize: ASSizeRange) -> ASLayoutSpec {
         titleNode.style.flexShrink = 1
         authorButtonNode.style.flexShrink = 0
+        authorBadgeNodes.forEach { $0.style.flexShrink = 0 }
+        levelDaysBadgeNode.style.flexShrink = 0
         metadataNode.style.flexShrink = 1
 
         let identityStack = ASStackLayoutSpec.horizontal()
@@ -169,6 +194,8 @@ final class PostBodyCellNode: ASCellNode, ThemeRefreshableNode {
         var identityChildren: [ASLayoutElement] = []
         if hasDisplayableAuthor {
             identityChildren.append(authorButtonNode)
+            identityChildren.append(contentsOf: authorBadgeNodes)
+            identityChildren.append(levelDaysBadgeNode)
         }
         if Self.metadataText(for: content).isEmpty == false {
             identityChildren.append(metadataNode)
@@ -236,6 +263,66 @@ final class PostBodyCellNode: ASCellNode, ThemeRefreshableNode {
         configureFavoriteActionButton(count: content.favoriteCount, isCollected: content.isFavoriteCollected)
         configureActionButton(replyButtonNode, systemImageName: "arrowshape.turn.up.left", accessibilityLabel: "回复楼主")
         configureActionButton(commentButtonNode, systemImageName: "text.bubble", accessibilityLabel: "评论帖子")
+        configureLevelDaysBadge()
+    }
+
+    private func configureLevelDaysBadge() {
+        let badgeText = NodeSeekUserInfoStore.shared.badgeText(for: content.authorProfileURL)
+        guard let badgeText, badgeText.isEmpty == false else {
+            levelDaysBadgeNode.setAttributedTitle(nil, for: .normal)
+            levelDaysBadgeNode.isHidden = true
+            levelDaysBadgeNode.accessibilityLabel = nil
+            return
+        }
+        levelDaysBadgeNode.setAttributedTitle(
+            NSAttributedString(
+                string: badgeText,
+                attributes: [
+                    .font: AppTypography.commentBadgeFont(),
+                    .foregroundColor: UIColor.white
+                ]
+            ),
+            for: .normal
+        )
+        levelDaysBadgeNode.contentEdgeInsets = UIEdgeInsets(
+            top: AppDisplayScaleSettings.scaled(2),
+            left: AppDisplayScaleSettings.scaled(5),
+            bottom: AppDisplayScaleSettings.scaled(2),
+            right: AppDisplayScaleSettings.scaled(5)
+        )
+        levelDaysBadgeNode.cornerRadius = AppDisplayScaleSettings.scaled(4)
+        levelDaysBadgeNode.backgroundColor = .systemIndigo
+        levelDaysBadgeNode.isUserInteractionEnabled = false
+        levelDaysBadgeNode.isHidden = false
+        levelDaysBadgeNode.accessibilityLabel = badgeText
+    }
+
+    private static func makeAuthorBadgeNode(text: String) -> ASButtonNode {
+        let node = ASButtonNode()
+        let font = AppTypography.commentBadgeFont()
+        node.setAttributedTitle(
+            NSAttributedString(
+                string: text,
+                attributes: [
+                    .font: font,
+                    .foregroundColor: UIColor.white
+                ]
+            ),
+            for: .normal
+        )
+        node.contentEdgeInsets = UIEdgeInsets(
+            top: AppDisplayScaleSettings.scaled(2),
+            left: AppDisplayScaleSettings.scaled(5),
+            bottom: AppDisplayScaleSettings.scaled(2),
+            right: AppDisplayScaleSettings.scaled(5)
+        )
+        let style = CommentAuthorBadgeStyle.style(for: text)
+        node.cornerRadius = style.cornerRadius
+        node.backgroundColor = style.backgroundColor
+        node.borderWidth = 0
+        node.isUserInteractionEnabled = false
+        node.accessibilityLabel = text
+        return node
     }
 
     private static func titleAttributedText(for content: PostDetailHeaderContent) -> NSAttributedString {
@@ -334,6 +421,10 @@ final class PostBodyCellNode: ASCellNode, ThemeRefreshableNode {
         let image = UIImage(systemName: systemImageName, withConfiguration: configuration)?
             .withTintColor(color, renderingMode: .alwaysOriginal)
         button.setImage(image, for: .normal)
+        button.backgroundColor = UIColor.secondarySystemBackground.withAlphaComponent(0.55)
+        button.cornerRadius = PostDetailContentLayout.reactionActionHeight / 2
+        button.borderWidth = 1 / UIScreen.main.scale
+        button.layer.borderColor = UIColor.separator.cgColor
         let displayCount = count.flatMap { $0 > 0 ? $0 : nil }
         button.contentSpacing = displayCount == nil ? 0 : PostDetailContentLayout.reactionTitleSpacing
         button.contentEdgeInsets = PostDetailContentLayout.reactionContentEdgeInsets

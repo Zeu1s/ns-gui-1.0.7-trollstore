@@ -111,7 +111,7 @@ private extension NodeSeekSplashAnimator {
         let glyphHeight = glyphWidth * 0.62
         let glyphFrame = CGRect(
             x: bounds.midX - glyphWidth / 2,
-            y: bounds.midY - glyphHeight * 0.67,
+            y: bounds.midY - glyphHeight * 0.60,
             width: glyphWidth,
             height: glyphHeight
         )

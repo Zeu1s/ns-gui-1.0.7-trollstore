@@ -50,6 +50,7 @@ nonisolated struct PostSummary: Equatable, Sendable {
     let isLocked: Bool
     let requiredReadingLevel: Int?
     let avatarURL: URL?
+    let authorProfileURL: URL?
     let authorBadgeTexts: [String]
 
     init(
@@ -65,6 +66,7 @@ nonisolated struct PostSummary: Equatable, Sendable {
         isLocked: Bool = false,
         requiredReadingLevel: Int? = nil,
         avatarURL: URL? = nil,
+        authorProfileURL: URL? = nil,
         authorBadgeTexts: [String] = []
     ) {
         self.id = id
@@ -79,6 +81,7 @@ nonisolated struct PostSummary: Equatable, Sendable {
         self.isLocked = isLocked
         self.requiredReadingLevel = requiredReadingLevel
         self.avatarURL = avatarURL
+        self.authorProfileURL = authorProfileURL
         self.authorBadgeTexts = authorBadgeTexts
     }
 }
@@ -107,6 +110,7 @@ nonisolated struct PostDetail: Equatable, Sendable {
     let authorName: String
     let avatarURL: URL?
     let authorProfileURL: URL?
+    let authorBadgeTexts: [String]
     let metadataText: String?
     let contentHTML: String
     let signatureHTML: String?
@@ -131,6 +135,7 @@ nonisolated struct PostDetail: Equatable, Sendable {
         authorName: String,
         avatarURL: URL?,
         authorProfileURL: URL? = nil,
+        authorBadgeTexts: [String] = [],
         metadataText: String?,
         contentHTML: String,
         signatureHTML: String? = nil,
@@ -154,6 +159,7 @@ nonisolated struct PostDetail: Equatable, Sendable {
         self.authorName = authorName
         self.avatarURL = avatarURL
         self.authorProfileURL = authorProfileURL
+        self.authorBadgeTexts = authorBadgeTexts
         self.metadataText = metadataText
         self.contentHTML = contentHTML
         self.signatureHTML = signatureHTML

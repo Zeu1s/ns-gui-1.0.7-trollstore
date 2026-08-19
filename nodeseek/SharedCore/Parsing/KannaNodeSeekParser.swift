@@ -252,6 +252,15 @@ struct KannaNodeSeekParser: NodeSeekParser {
             xpaths: [XPathRules.postAvatar, XPathRules.fallbackAvatar],
             attribute: "src"
         ).flatMap { URL(string: $0, relativeTo: baseURL)?.absoluteURL }
+        let authorProfileURL = firstAttribute(
+            in: item,
+            xpaths: [
+                ".//*[contains(@class, 'info-author')]//a[contains(@href, '/space/')]",
+                ".//*[contains(@class, 'post-author')]//a[contains(@href, '/space/')]",
+                XPathRules.fallbackAuthor
+            ],
+            attribute: "href"
+        ).flatMap { URL(string: $0, relativeTo: baseURL)?.absoluteURL }
         let authorName = firstText(in: item, xpaths: [XPathRules.postAuthor, XPathRules.fallbackAuthor]) ?? ""
         let nodeName = firstText(in: item, xpaths: [XPathRules.postNode, XPathRules.fallbackNode])
         let viewNode = item.at_xpath(XPathRules.viewCount)
@@ -277,6 +286,7 @@ struct KannaNodeSeekParser: NodeSeekParser {
             isLocked: isLocked,
             requiredReadingLevel: requiredReadingLevel,
             avatarURL: avatarURL,
+            authorProfileURL: authorProfileURL,
             authorBadgeTexts: parsePostListAuthorBadgeTexts(in: item)
         )
     }
@@ -375,6 +385,7 @@ struct KannaNodeSeekParser: NodeSeekParser {
             ?? bodyReactionConfiguration?.opposeCount
         let bodyFavoriteCount = bodyItem.flatMap { parseReactionCount(in: $0, kind: .favorite) }
             ?? reactionConfiguration?.collectionCount
+        let authorBadgeTexts = bodyItem.map { parseAuthorBadgeTexts(in: $0) } ?? []
         let isFavoriteCollected = bodyItem.map {
             hasRenderedReactionMenu(in: $0)
                 ? parseReactionClicked(in: $0, kind: .favorite)
@@ -388,6 +399,7 @@ struct KannaNodeSeekParser: NodeSeekParser {
             authorName: authorName,
             avatarURL: avatarURL,
             authorProfileURL: authorProfileURL,
+            authorBadgeTexts: authorBadgeTexts,
             metadataText: metadataText,
             contentHTML: contentHTML,
             signatureHTML: signatureHTML,

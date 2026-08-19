@@ -79,6 +79,8 @@ final class CommentCellNode: ASCellNode, ThemeRefreshableNode {
     private let authorButtonNode = ASButtonNode()
     private let posterBadgeNode = ASButtonNode()
     private let authorBadgeNodes: [ASButtonNode]
+    private let levelDaysBadgeNode = ASButtonNode()
+    private var userInfoObserver: NSObjectProtocol?
     private let timeNode = ASTextNode()
     private let hotBadgeNode = ASImageNode()
     private let floorNode = ASTextNode()
@@ -161,6 +163,17 @@ final class CommentCellNode: ASCellNode, ThemeRefreshableNode {
         selectionStyle = .none
         applyCurrentTheme()
         configureActions()
+        userInfoObserver = NotificationCenter.default.addObserver(
+            forName: NodeSeekUserInfoStore.didUpdateNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            guard let self else { return }
+            guard let userID = notification.userInfo?["userID"] as? Int,
+                  userID == NodeSeekUserInfoStore.userID(from: self.comment.authorProfileURL) else { return }
+            self.configureText()
+            self.setNeedsLayout()
+        }
     }
 
     override func didLoad() {
@@ -173,6 +186,7 @@ final class CommentCellNode: ASCellNode, ThemeRefreshableNode {
     override func didEnterDisplayState() {
         super.didEnterDisplayState()
         requestAvatarIfNeeded()
+        NodeSeekUserInfoStore.shared.requestBadge(for: comment.authorProfileURL)
     }
 
     override func didExitDisplayState() {
@@ -181,10 +195,18 @@ final class CommentCellNode: ASCellNode, ThemeRefreshableNode {
         hasRequestedAvatar = false
     }
 
+    deinit {
+        cancelAvatarLoad()
+        if let userInfoObserver {
+            NotificationCenter.default.removeObserver(userInfoObserver)
+        }
+    }
+
     override func layoutSpecThatFits(_ constrainedSize: ASSizeRange) -> ASLayoutSpec {
         authorButtonNode.style.flexShrink = 1
         posterBadgeNode.style.flexShrink = 0
         authorBadgeNodes.forEach { $0.style.flexShrink = 0 }
+        levelDaysBadgeNode.style.flexShrink = 0
         timeNode.style.flexShrink = 1
         hotBadgeNode.style.preferredSize = CGSize(width: 13, height: 13)
         hotBadgeNode.style.flexShrink = 0
@@ -207,6 +229,7 @@ final class CommentCellNode: ASCellNode, ThemeRefreshableNode {
             identityChildren.append(posterBadgeNode)
         }
         identityChildren.append(contentsOf: authorBadgeNodes)
+        identityChildren.append(levelDaysBadgeNode)
         identityStack.children = identityChildren
         identityStack.style.flexGrow = 1
         identityStack.style.flexShrink = 1
@@ -320,6 +343,8 @@ final class CommentCellNode: ASCellNode, ThemeRefreshableNode {
         posterBadgeNode.isUserInteractionEnabled = false
         posterBadgeNode.accessibilityLabel = "楼主"
 
+        configureLevelDaysBadge()
+
         hotBadgeNode.image = UIImage(
             systemName: "flame.fill",
             withConfiguration: UIImage.SymbolConfiguration(pointSize: 13, weight: .semibold)
@@ -351,6 +376,37 @@ final class CommentCellNode: ASCellNode, ThemeRefreshableNode {
         configureOpposeActionButton(count: comment.opposeCount, isClicked: comment.isOpposeClicked)
         configureActionButton(replyButtonNode, systemImageName: "arrowshape.turn.up.left", accessibilityLabel: "回复评论")
         configureActionButton(quoteButtonNode, systemImageName: "quote.opening", accessibilityLabel: "引用评论")
+    }
+
+    private func configureLevelDaysBadge() {
+        let badgeText = NodeSeekUserInfoStore.shared.badgeText(for: comment.authorProfileURL)
+        guard let badgeText, badgeText.isEmpty == false else {
+            levelDaysBadgeNode.setAttributedTitle(nil, for: .normal)
+            levelDaysBadgeNode.isHidden = true
+            levelDaysBadgeNode.accessibilityLabel = nil
+            return
+        }
+        levelDaysBadgeNode.setAttributedTitle(
+            NSAttributedString(
+                string: badgeText,
+                attributes: [
+                    .font: AppTypography.commentBadgeFont(),
+                    .foregroundColor: UIColor.white
+                ]
+            ),
+            for: .normal
+        )
+        levelDaysBadgeNode.contentEdgeInsets = UIEdgeInsets(
+            top: AppDisplayScaleSettings.scaled(2),
+            left: AppDisplayScaleSettings.scaled(5),
+            bottom: AppDisplayScaleSettings.scaled(2),
+            right: AppDisplayScaleSettings.scaled(5)
+        )
+        levelDaysBadgeNode.cornerRadius = AppDisplayScaleSettings.scaled(4)
+        levelDaysBadgeNode.backgroundColor = .systemIndigo
+        levelDaysBadgeNode.isUserInteractionEnabled = false
+        levelDaysBadgeNode.isHidden = false
+        levelDaysBadgeNode.accessibilityLabel = badgeText
     }
 
     private func configureActions() {
@@ -430,6 +486,10 @@ final class CommentCellNode: ASCellNode, ThemeRefreshableNode {
         let image = UIImage(systemName: systemImageName, withConfiguration: configuration)?
             .withTintColor(color, renderingMode: .alwaysOriginal)
         button.setImage(image, for: .normal)
+        button.backgroundColor = UIColor.secondarySystemBackground.withAlphaComponent(0.55)
+        button.cornerRadius = PostDetailContentLayout.reactionActionHeight / 2
+        button.borderWidth = 1 / UIScreen.main.scale
+        button.layer.borderColor = UIColor.separator.cgColor
         let displayCount = count.flatMap { $0 > 0 ? $0 : nil }
         button.contentSpacing = displayCount == nil ? 0 : PostDetailContentLayout.reactionTitleSpacing
         button.contentEdgeInsets = PostDetailContentLayout.reactionContentEdgeInsets

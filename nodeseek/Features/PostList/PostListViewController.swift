@@ -29,9 +29,9 @@ class PostListViewController: UIViewController {
     }
 
     private enum BottomNavigationLayout {
-        static var horizontalInset: CGFloat { AppDisplayScaleSettings.scaled(22) }
+        static var horizontalInset: CGFloat { AppDisplayScaleSettings.scaled(24) }
         static var bottomInset: CGFloat { 0 }
-        static var height: CGFloat { AppDisplayScaleSettings.scaled(68) }
+        static var height: CGFloat { AppDisplayScaleSettings.scaled(74) }
         static var contentSpacing: CGFloat { AppDisplayScaleSettings.scaled(4) }
     }
 

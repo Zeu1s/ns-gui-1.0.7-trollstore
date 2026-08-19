@@ -159,7 +159,7 @@ struct PostListViewControllerTests {
         let profileButton = try #require(viewController.view.firstButton(accessibilityIdentifier: "post-list-bottom-navigation-我的"))
         let unreadBadge = try #require(viewController.view.firstView(accessibilityIdentifier: "post-list-bottom-navigation-unread-badge"))
 
-        #expect(navigation.bounds.height == 68)
+        #expect(navigation.bounds.height == 74)
         #expect(historyButton.configuration?.title == "历史")
         #expect(historyButton.titleLabel?.font.pointSize == 14)
         #expect(unreadBadge.isHidden == true)

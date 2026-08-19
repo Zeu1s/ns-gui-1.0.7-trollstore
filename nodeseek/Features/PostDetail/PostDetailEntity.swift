@@ -27,6 +27,7 @@ struct PostDetailHeaderContent: Equatable {
     let authorName: String
     let avatarURL: URL?
     let authorProfileURL: URL?
+    let authorBadgeTexts: [String]
     let metadataText: String?
     let contentHTML: String
     let signatureHTML: String?
@@ -46,6 +47,7 @@ struct PostDetailHeaderContent: Equatable {
         authorName: String,
         avatarURL: URL?,
         authorProfileURL: URL? = nil,
+        authorBadgeTexts: [String] = [],
         metadataText: String?,
         contentHTML: String = "",
         signatureHTML: String? = nil,
@@ -66,6 +68,7 @@ struct PostDetailHeaderContent: Equatable {
         self.authorName = authorName
         self.avatarURL = avatarURL
         self.authorProfileURL = authorProfileURL
+        self.authorBadgeTexts = authorBadgeTexts
         self.metadataText = metadataText
         self.contentHTML = contentHTML
         self.signatureHTML = signatureHTML
@@ -92,7 +95,7 @@ struct PostDetailHeaderContent: Equatable {
             title: post.title,
             authorName: post.authorName,
             avatarURL: post.avatarURL,
-            authorProfileURL: nil,
+            authorProfileURL: post.authorProfileURL,
             metadataText: metadata.isEmpty ? nil : metadata,
             requiredReadingLevel: nil
         )
@@ -105,6 +108,7 @@ struct PostDetailHeaderContent: Equatable {
             authorName: detail.authorName,
             avatarURL: detail.avatarURL,
             authorProfileURL: detail.authorProfileURL,
+            authorBadgeTexts: detail.authorBadgeTexts,
             metadataText: detail.metadataText,
             contentHTML: detail.contentHTML,
             signatureHTML: detail.signatureHTML,
@@ -128,6 +132,7 @@ struct PostDetailHeaderContent: Equatable {
             authorName: authorName,
             avatarURL: avatarURL,
             authorProfileURL: authorProfileURL,
+            authorBadgeTexts: authorBadgeTexts,
             metadataText: metadataText,
             contentHTML: contentHTML,
             signatureHTML: signatureHTML,
@@ -151,6 +156,7 @@ struct PostDetailHeaderContent: Equatable {
             authorName: authorName,
             avatarURL: avatarURL,
             authorProfileURL: authorProfileURL,
+            authorBadgeTexts: authorBadgeTexts,
             metadataText: metadataText,
             contentHTML: contentHTML,
             signatureHTML: signatureHTML,
@@ -174,6 +180,7 @@ struct PostDetailHeaderContent: Equatable {
             authorName: authorName,
             avatarURL: avatarURL,
             authorProfileURL: authorProfileURL,
+            authorBadgeTexts: authorBadgeTexts,
             metadataText: metadataText,
             contentHTML: contentHTML,
             signatureHTML: signatureHTML,
@@ -197,6 +204,7 @@ struct PostDetailHeaderContent: Equatable {
             authorName: authorName,
             avatarURL: avatarURL,
             authorProfileURL: authorProfileURL,
+            authorBadgeTexts: authorBadgeTexts,
             metadataText: metadataText,
             contentHTML: contentHTML,
             signatureHTML: signatureHTML,
@@ -220,6 +228,7 @@ struct PostDetailHeaderContent: Equatable {
             authorName: authorName,
             avatarURL: avatarURL,
             authorProfileURL: authorProfileURL,
+            authorBadgeTexts: authorBadgeTexts,
             metadataText: metadataText,
             contentHTML: contentHTML,
             signatureHTML: signatureHTML,

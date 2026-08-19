@@ -51,6 +51,7 @@ final class PostSummaryCellNode: ASCellNode, ThemeRefreshableNode {
     private let metadataNode = ASTextNode()
     private weak var avatarImageView: UIImageView?
     private let themeTraitObserver = ThemeTraitObserver()
+    private var userInfoObserver: NSObjectProtocol?
 
     convenience init(post: PostSummary) {
         self.init(post: post, isVisited: false)
@@ -68,6 +69,17 @@ final class PostSummaryCellNode: ASCellNode, ThemeRefreshableNode {
         selectionStyle = .none
         backgroundColor = .clear
         applyCurrentTheme()
+        userInfoObserver = NotificationCenter.default.addObserver(
+            forName: NodeSeekUserInfoStore.didUpdateNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            guard let self else { return }
+            guard let userID = notification.userInfo?["userID"] as? Int,
+                  userID == NodeSeekUserInfoStore.userID(from: self.post.authorProfileURL) else { return }
+            self.configureText()
+            self.setNeedsLayout()
+        }
     }
 
     override func didLoad() {
@@ -79,6 +91,7 @@ final class PostSummaryCellNode: ASCellNode, ThemeRefreshableNode {
     override func didEnterDisplayState() {
         super.didEnterDisplayState()
         requestAvatarIfNeeded()
+        NodeSeekUserInfoStore.shared.requestBadge(for: post.authorProfileURL)
     }
 
     override func didExitDisplayState() {
@@ -89,6 +102,9 @@ final class PostSummaryCellNode: ASCellNode, ThemeRefreshableNode {
 
     deinit {
         cancelAvatarLoad()
+        if let userInfoObserver {
+            NotificationCenter.default.removeObserver(userInfoObserver)
+        }
     }
 
     override func layoutSpecThatFits(_ constrainedSize: ASSizeRange) -> ASLayoutSpec {
@@ -125,7 +141,11 @@ final class PostSummaryCellNode: ASCellNode, ThemeRefreshableNode {
 
         metadataNode.maximumNumberOfLines = PostListCellStyle.Typography.metadataMaximumNumberOfLines
         metadataNode.truncationMode = .byTruncatingTail
-        metadataNode.attributedText = Self.metadataAttributedText(for: post, specialFollowRules: specialFollowRules)
+        metadataNode.attributedText = Self.metadataAttributedText(
+            for: post,
+            specialFollowRules: specialFollowRules,
+            userInfoBadgeText: NodeSeekUserInfoStore.shared.badgeText(for: post.authorProfileURL)
+        )
     }
 
     var debugTitleAttributedText: NSAttributedString? {
@@ -153,7 +173,8 @@ final class PostSummaryCellNode: ASCellNode, ThemeRefreshableNode {
 
     static func metadataAttributedText(
         for post: PostSummary,
-        specialFollowRules: [SpecialFollowKeywordRule] = []
+        specialFollowRules: [SpecialFollowKeywordRule] = [],
+        userInfoBadgeText: String? = nil
     ) -> NSAttributedString {
         let font = PostListCellStyle.Typography.metadataFont
         let attributes: [NSAttributedString.Key: Any] = [
@@ -176,6 +197,9 @@ final class PostSummaryCellNode: ASCellNode, ThemeRefreshableNode {
             ))
             for badgeText in post.authorBadgeTexts.prefix(3) {
                 metadata.append(authorBadgeAttributedText(badgeText))
+            }
+            if let userInfoBadgeText, userInfoBadgeText.isEmpty == false {
+                metadata.append(authorBadgeAttributedText(userInfoBadgeText))
             }
         }
 

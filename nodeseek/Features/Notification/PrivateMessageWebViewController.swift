@@ -38,7 +38,11 @@ final class PrivateMessageWebViewController: BaseWebViewController {
     ) {
         self.nodeImageAPIKeyStore = nodeImageAPIKeyStore
         self.nodeImageUploadClient = nodeImageUploadClient
-        super.init(initialURL: url, pageTitle: "私信")
+        super.init(
+            initialURL: url,
+            pageTitle: "私信",
+            additionalUserScripts: [Self.makeFloatingUploadButtonScript()]
+        )
         isPrivateMessagePage = Self.isPrivateMessageURL(url)
     }
 
@@ -48,6 +52,12 @@ final class PrivateMessageWebViewController: BaseWebViewController {
 
     deinit {
         imageUploadTask?.cancel()
+        webView.configuration.userContentController.removeScriptMessageHandler(forName: "nodeSeekUploadImage")
+    }
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        webView.configuration.userContentController.add(self, name: "nodeSeekUploadImage")
     }
 
     override func configureNavigationItems() {
@@ -159,6 +169,44 @@ final class PrivateMessageWebViewController: BaseWebViewController {
         present(alert, animated: true)
     }
 
+    private static func makeFloatingUploadButtonScript() -> WKUserScript {
+        WKUserScript(
+            source: """
+            (() => {
+              const host = window.location.hostname.toLowerCase();
+              if (host !== 'nodeseek.com' && !host.endsWith('.nodeseek.com')) return;
+              const ensureButton = () => {
+                if (document.getElementById('nodeseek-upload-image-button')) return;
+                const route = (window.location.pathname + window.location.hash).toLowerCase();
+                if (!route.includes('/message')) return;
+                if (!document.body) return;
+                const button = document.createElement('button');
+                button.id = 'nodeseek-upload-image-button';
+                button.type = 'button';
+                button.setAttribute('aria-label', '通过图床发送图片');
+                button.title = '通过图床发送图片';
+                button.textContent = '📷';
+                button.style.cssText = 'position:fixed;right:16px;bottom:100px;width:52px;height:52px;border-radius:26px;border:none;background:#1677ff;color:#fff;font-size:24px;line-height:52px;text-align:center;box-shadow:0 4px 12px rgba(0,0,0,0.25);z-index:2147483000;touch-action:manipulation';
+                button.addEventListener('click', () => {
+                  if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.nodeSeekUploadImage) {
+                    window.webkit.messageHandlers.nodeSeekUploadImage.postMessage({});
+                  }
+                });
+                document.body.appendChild(button);
+              };
+              const tryEnsure = () => { if (document.body) { ensureButton(); } };
+              tryEnsure();
+              window.addEventListener('load', tryEnsure);
+              const observer = new MutationObserver(tryEnsure);
+              observer.observe(document.documentElement, { childList: true, subtree: true });
+              window.addEventListener('hashchange', tryEnsure);
+            })();
+            """,
+            injectionTime: .atDocumentStart,
+            forMainFrameOnly: true
+        )
+    }
+
     private static func isPrivateMessageURL(_ url: URL) -> Bool {
         url.absoluteString.lowercased().contains("/message")
     }
@@ -202,6 +250,13 @@ final class PrivateMessageWebViewController: BaseWebViewController {
           return true;
         })();
         """
+    }
+}
+
+extension PrivateMessageWebViewController: WKScriptMessageHandler {
+    func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
+        guard message.name == "nodeSeekUploadImage" else { return }
+        uploadImageTapped()
     }
 }
 

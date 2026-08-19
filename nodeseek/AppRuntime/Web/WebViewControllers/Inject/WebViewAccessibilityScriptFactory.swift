@@ -68,6 +68,61 @@ enum WebViewAccessibilityScriptFactory {
               if (directCards.length >= 2) parent.classList.add('nodeseek-profile-stats-grid');
             });
           };
+          const userBadgeState = {};
+          const userBadgeStyleID = 'nodeseek-user-badge-style';
+          const ensureUserBadgeStyle = () => {
+            let style = document.getElementById(userBadgeStyleID);
+            if (!style) {
+              style = document.createElement('style');
+              style.id = userBadgeStyleID;
+              (document.head || document.documentElement).appendChild(style);
+            }
+            style.textContent = `
+              .nodeseek-user-info-badge{display:inline-flex;align-items:center;margin-left:6px;padding:2px 7px;border-radius:999px;background:linear-gradient(135deg,#6366f1,#8b5cf6);color:#fff!important;font-size:11px;font-weight:600;line-height:16px;vertical-align:middle;white-space:nowrap;text-decoration:none!important;pointer-events:none}
+              .info-author .nodeseek-user-info-badge{margin-left:4px}
+            `;
+          };
+          const appendUserBadge = (anchor, text) => {
+            if (!text) return;
+            const container = anchor.closest('.author-info') || anchor.parentElement;
+            if (!container) return;
+            if (container.querySelector(':scope > .nodeseek-user-info-badge')) return;
+            const badge = document.createElement('span');
+            badge.className = 'nodeseek-user-info-badge';
+            badge.textContent = text;
+            container.appendChild(badge);
+          };
+          const applyUserInfoBadges = () => {
+            ensureUserBadgeStyle();
+            const anchors = Array.from(document.querySelectorAll('a.author-name[href*="/space/"], .info-author a[href*="/space/"]'))
+              .filter((anchor) => !anchor.dataset.nodeseekUserInfoHandled);
+            if (anchors.length === 0) return;
+            anchors.forEach((anchor) => {
+              anchor.dataset.nodeseekUserInfoHandled = '1';
+              const match = (anchor.getAttribute('href') || '').match(/\\/space\\/(\\d+)/);
+              if (!match) return;
+              const userId = match[1];
+              if (userBadgeState[userId]) {
+                appendUserBadge(anchor, userBadgeState[userId]);
+                return;
+              }
+              fetch('/api/account/getInfo/' + userId, { credentials: 'include' })
+                .then((response) => response.ok ? response.json() : null)
+                .then((payload) => {
+                  const detail = payload && payload.success ? payload.detail : null;
+                  if (!detail) return;
+                  const createdAt = detail.created_at ? new Date(detail.created_at).getTime() : NaN;
+                  const joinDays = Number.isFinite(createdAt) ? Math.max(1, Math.ceil((Date.now() - createdAt) / 86400000)) : 0;
+                  const coin = Number(detail.coin) || 0;
+                  const level = Number(detail.rank) || Math.min(6, Math.floor(Math.sqrt(coin) / 10));
+                  const badgeText = 'Lv ' + level + (joinDays > 0 ? ' · ' + joinDays + '天' : '');
+                  userBadgeState[userId] = badgeText;
+                  appendUserBadge(anchor, badgeText);
+                })
+                .catch(() => {});
+            });
+          };
+
           let mobilePageRefreshScheduled = false;
           const scheduleMobilePageRefresh = () => {
             if (mobilePageRefreshScheduled) return;
@@ -75,6 +130,7 @@ enum WebViewAccessibilityScriptFactory {
             requestAnimationFrame(() => {
               mobilePageRefreshScheduled = false;
               applyMobilePageClasses();
+              applyUserInfoBadges();
             });
           };
           const ensureViewport = () => {
@@ -235,7 +291,53 @@ enum WebViewAccessibilityScriptFactory {
                 color: #8a5a10 !important;
                 box-sizing: border-box !important;
               }
-              input:not([type="checkbox"]):not([type="radio"]),
+              html.nodeseek-private-message-page #nsk-left-panel-container,
+              html.nodeseek-profile-page #nsk-left-panel-container,
+              html.nodeseek-profile-page #nsk-right-panel-container,
+              html.nodeseek-profile-page #nsk-body-right {
+                display: none !important;
+              }
+              html.nodeseek-private-message-page #nsk-frame,
+              html.nodeseek-profile-page #nsk-frame {
+                width: 100% !important;
+                max-width: 100% !important;
+                min-width: 0 !important;
+              }
+              html.nodeseek-private-message-page #nsk-body,
+              html.nodeseek-profile-page #nsk-body {
+                display: block !important;
+                width: 100% !important;
+                max-width: 100% !important;
+                min-width: 0 !important;
+                margin: 0 !important;
+                padding: 0 !important;
+                box-sizing: border-box !important;
+              }
+              html.nodeseek-private-message-page #nsk-body-left,
+              html.nodeseek-private-message-page #nsk-body-right,
+              html.nodeseek-profile-page #nsk-body-left {
+                display: block !important;
+                float: none !important;
+                width: 100% !important;
+                max-width: 100% !important;
+                min-width: 0 !important;
+                margin: 0 !important;
+                padding: 0 4px 24px !important;
+                box-sizing: border-box !important;
+              }
+              html.nodeseek-private-message-page .nsk-container,
+              html.nodeseek-profile-page .nsk-container {
+                width: 100% !important;
+                max-width: 100% !important;
+                min-width: 0 !important;
+                box-sizing: border-box !important;
+              }
+              html.nodeseek-private-message-page table,
+              html.nodeseek-profile-page table {
+                width: 100% !important;
+                max-width: 100% !important;
+                table-layout: fixed !important;
+              }              input:not([type="checkbox"]):not([type="radio"]),
               textarea,
               select {
                 font-size: ${inputFontSize}px !important;
