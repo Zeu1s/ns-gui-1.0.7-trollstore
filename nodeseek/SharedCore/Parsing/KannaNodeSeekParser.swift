@@ -270,7 +270,7 @@ struct KannaNodeSeekParser: NodeSeekParser {
         let replyText = item.at_xpath(XPathRules.replyCount)?.text ?? item.text ?? ""
         let replyCount = Self.replyCount(in: replyText) ?? 0
         let lastActivityText = firstText(in: item, xpaths: [XPathRules.lastActive, XPathRules.fallbackLastActive])
-        let timeNodes = item.xpath(".//time")
+        let timeNodes = Array(item.xpath(".//time"))
         let parsedCreatedAtText: String?
         let resolvedLastActivityText: String?
         if timeNodes.count >= 2 {
