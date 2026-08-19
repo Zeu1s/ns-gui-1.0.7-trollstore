@@ -63,6 +63,10 @@ final class AppDisplayScaleSettings {
         return percentage / 100
     }
 
+    static func scaled(_ value: CGFloat) -> CGFloat {
+        value * shared.scale
+    }
+
     static func displayText(for scale: CGFloat) -> String {
         "\(Int((normalizedScale(scale) * 100).rounded()))%"
     }

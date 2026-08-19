@@ -88,7 +88,7 @@ class BaseWebViewController: UIViewController, WKNavigationDelegate, WKUIDelegat
 
     func configureWebView() {
         configureWebViewProperties()
-        installWebViewLayout(topAnchor: view.topAnchor)
+        installWebViewLayout(topAnchor: view.safeAreaLayoutGuide.topAnchor)
     }
 
     func configureWebViewProperties() {

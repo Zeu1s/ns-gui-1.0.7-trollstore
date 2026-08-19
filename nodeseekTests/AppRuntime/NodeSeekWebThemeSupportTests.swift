@@ -42,7 +42,9 @@ struct NodeSeekWebThemeSupportTests {
         let source = WebViewAccessibilityScriptFactory.makeDisplayScaleScript(scale: 0.7).source
         let update = WebViewAccessibilityScriptFactory.updateDisplayScaleJavaScript(scale: 1.2)
 
-        #expect(source.contains("font-size: max(16px"))
+        #expect(source.contains("const inputFontSize = Math.max(16"))
+        #expect(source.contains("font-size: ${inputFontSize}px"))
+        #expect(source.contains("zoom: var(--nodeseek-display-scale)"))
         #expect(source.contains("meta[name=\"viewport\"]"))
         #expect(source.contains("__nodeSeekApplyDisplayScale"))
         #expect(source.contains("0.70"))

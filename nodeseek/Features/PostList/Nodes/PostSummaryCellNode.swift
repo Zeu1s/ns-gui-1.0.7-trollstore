@@ -11,13 +11,15 @@ import UIKit
 final class PostSummaryCellNode: ASCellNode, ThemeRefreshableNode {
 
     private enum Layout {
-        static let verticalSpacing: CGFloat = 5
-        static let contentInset = UIEdgeInsets(
-            top: PostListCellStyle.Layout.verticalContentInset,
-            left: 16,
-            bottom: PostListCellStyle.Layout.verticalContentInset,
-            right: 12
-        )
+        static var verticalSpacing: CGFloat { AppDisplayScaleSettings.scaled(4) }
+        static var contentInset: UIEdgeInsets {
+            UIEdgeInsets(
+                top: PostListCellStyle.Layout.verticalContentInset,
+                left: AppDisplayScaleSettings.scaled(14),
+                bottom: PostListCellStyle.Layout.verticalContentInset,
+                right: AppDisplayScaleSettings.scaled(10)
+            )
+        }
     }
 
     private let post: PostSummary
@@ -350,14 +352,14 @@ enum PostListCellStyle {
     }
 
     enum Avatar {
-        static let size: CGFloat = 48
-        static let cornerRadius: CGFloat = 9
-        static let skeletonSize: CGFloat = 48
+        static var size: CGFloat { AppDisplayScaleSettings.scaled(48) }
+        static var cornerRadius: CGFloat { AppDisplayScaleSettings.scaled(9) }
+        static var skeletonSize: CGFloat { AppDisplayScaleSettings.scaled(48) }
     }
 
     enum Layout {
-        static let horizontalSpacing: CGFloat = 10
-        static let verticalContentInset: CGFloat = 8
+        static var horizontalSpacing: CGFloat { AppDisplayScaleSettings.scaled(8) }
+        static var verticalContentInset: CGFloat { AppDisplayScaleSettings.scaled(5) }
     }
 }
 

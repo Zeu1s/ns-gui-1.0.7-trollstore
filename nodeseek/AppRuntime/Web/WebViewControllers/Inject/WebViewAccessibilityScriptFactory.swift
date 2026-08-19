@@ -43,10 +43,12 @@ enum WebViewAccessibilityScriptFactory {
           };
           const apply = (rawScale) => {
             const scale = Math.min(1.2, Math.max(0.7, Number(rawScale) || 1));
+            const inputFontSize = Math.max(16, 16 / scale);
+            const messageFontSize = Math.max(16, 17 / scale);
             const root = document.documentElement;
             if (!root) return;
             root.style.setProperty('--nodeseek-display-scale', String(scale));
-            root.style.setProperty('font-size', `${16 * scale}px`, 'important');
+            root.style.setProperty('font-size', '16px', 'important');
             let style = document.getElementById(styleID);
             if (!style) {
               style = document.createElement('style');
@@ -55,10 +57,73 @@ enum WebViewAccessibilityScriptFactory {
             }
             // iOS 会在输入控件字体小于 16px 时自动放大页面。保持控件最小字号可避免私信输入时跳变。
             style.textContent = `
+              html {
+                overflow-x: hidden !important;
+              }
+              body {
+                zoom: var(--nodeseek-display-scale) !important;
+                transform-origin: top left !important;
+                overflow-x: hidden !important;
+                box-sizing: border-box !important;
+              }
               input:not([type="checkbox"]):not([type="radio"]),
               textarea,
               select {
-                font-size: max(16px, calc(16px * var(--nodeseek-display-scale))) !important;
+                font-size: ${inputFontSize}px !important;
+                line-height: 1.35 !important;
+                box-sizing: border-box !important;
+              }
+              [role="tablist"],
+              .tabs,
+              [class*="tabs"],
+              .el-tabs__nav,
+              .el-tabs__header,
+              .nav-tabs,
+              .nav-pills,
+              .notification-tabs,
+              .notifications-nav,
+              [class*="notification-tab"] {
+                display: flex !important;
+                flex-wrap: wrap !important;
+                align-items: stretch !important;
+                gap: 4px !important;
+                height: auto !important;
+                min-height: 44px !important;
+                white-space: normal !important;
+              }
+              [role="tab"],
+              .tabs > *,
+              [class*="tabs"] > *,
+              .el-tabs__item,
+              .nav-tabs > *,
+              .nav-pills > *,
+              .notification-tabs > *,
+              .notifications-nav > *,
+              [class*="notification-tab"] > * {
+                min-height: 40px !important;
+                padding: 8px 12px !important;
+                line-height: 1.35 !important;
+                white-space: nowrap !important;
+                box-sizing: border-box !important;
+              }
+              [class*="message"] p,
+              [class*="message"] a,
+              [id*="message"] p,
+              [id*="message"] a,
+              [class*="profile"] a,
+              [class*="contact"] a {
+                font-size: ${messageFontSize}px !important;
+                line-height: 1.5 !important;
+                overflow-wrap: anywhere !important;
+              }
+              [class*="message"] button,
+              [class*="message"] input,
+              [class*="message"] textarea {
+                min-height: 40px !important;
+              }
+              h1, h2, h3, h4, h5, h6 {
+                line-height: 1.25 !important;
+                overflow-wrap: anywhere !important;
               }
             `;
             ensureViewport();

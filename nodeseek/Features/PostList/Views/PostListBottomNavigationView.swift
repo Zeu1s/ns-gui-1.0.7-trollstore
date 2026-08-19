@@ -49,6 +49,14 @@ final class PostListBottomNavigationView: UIView {
     private var buttons: [PostListBottomNavigationItem: UIButton] = [:]
     private let messageUnreadBadge = UIView()
     private var selectedItem: PostListBottomNavigationItem = .home
+    private var stackLeadingConstraint: NSLayoutConstraint?
+    private var stackTrailingConstraint: NSLayoutConstraint?
+    private var stackTopConstraint: NSLayoutConstraint?
+    private var stackBottomConstraint: NSLayoutConstraint?
+    private var unreadBadgeWidthConstraint: NSLayoutConstraint?
+    private var unreadBadgeHeightConstraint: NSLayoutConstraint?
+    private var unreadBadgeTopConstraint: NSLayoutConstraint?
+    private var unreadBadgeCenterXConstraint: NSLayoutConstraint?
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -72,13 +80,22 @@ final class PostListBottomNavigationView: UIView {
     }
 
     func refreshDisplayScale() {
+        layer.cornerRadius = AppDisplayScaleSettings.scaled(18)
+        stackLeadingConstraint?.constant = AppDisplayScaleSettings.scaled(5)
+        stackTrailingConstraint?.constant = -AppDisplayScaleSettings.scaled(5)
+        stackTopConstraint?.constant = AppDisplayScaleSettings.scaled(4)
+        stackBottomConstraint?.constant = -AppDisplayScaleSettings.scaled(4)
+        unreadBadgeWidthConstraint?.constant = AppDisplayScaleSettings.scaled(7)
+        unreadBadgeHeightConstraint?.constant = AppDisplayScaleSettings.scaled(7)
+        unreadBadgeTopConstraint?.constant = AppDisplayScaleSettings.scaled(8)
+        unreadBadgeCenterXConstraint?.constant = AppDisplayScaleSettings.scaled(11)
         setSelectedItem(selectedItem)
     }
 
     private func configureView() {
         accessibilityIdentifier = "post-list-bottom-navigation"
         backgroundColor = .secondarySystemBackground
-        layer.cornerRadius = 24
+        layer.cornerRadius = AppDisplayScaleSettings.scaled(18)
         layer.cornerCurve = .continuous
         translatesAutoresizingMaskIntoConstraints = false
 
@@ -107,16 +124,53 @@ final class PostListBottomNavigationView: UIView {
         messageUnreadBadge.translatesAutoresizingMaskIntoConstraints = false
         addSubview(messageUnreadBadge)
 
+        let stackLeadingConstraint = stackView.leadingAnchor.constraint(
+            equalTo: leadingAnchor,
+            constant: AppDisplayScaleSettings.scaled(5)
+        )
+        let stackTrailingConstraint = stackView.trailingAnchor.constraint(
+            equalTo: trailingAnchor,
+            constant: -AppDisplayScaleSettings.scaled(5)
+        )
+        let stackTopConstraint = stackView.topAnchor.constraint(
+            equalTo: topAnchor,
+            constant: AppDisplayScaleSettings.scaled(4)
+        )
+        let stackBottomConstraint = stackView.bottomAnchor.constraint(
+            equalTo: bottomAnchor,
+            constant: -AppDisplayScaleSettings.scaled(4)
+        )
+        let unreadBadgeWidthConstraint = messageUnreadBadge.widthAnchor.constraint(
+            equalToConstant: AppDisplayScaleSettings.scaled(7)
+        )
+        let unreadBadgeHeightConstraint = messageUnreadBadge.heightAnchor.constraint(
+            equalToConstant: AppDisplayScaleSettings.scaled(7)
+        )
+        let unreadBadgeTopConstraint = messageUnreadBadge.topAnchor.constraint(
+            equalTo: topAnchor,
+            constant: AppDisplayScaleSettings.scaled(8)
+        )
+        let unreadBadgeCenterXConstraint = messageUnreadBadge.centerXAnchor.constraint(
+            equalTo: buttons[.messages]!.centerXAnchor,
+            constant: AppDisplayScaleSettings.scaled(11)
+        )
+        self.stackLeadingConstraint = stackLeadingConstraint
+        self.stackTrailingConstraint = stackTrailingConstraint
+        self.stackTopConstraint = stackTopConstraint
+        self.stackBottomConstraint = stackBottomConstraint
+        self.unreadBadgeWidthConstraint = unreadBadgeWidthConstraint
+        self.unreadBadgeHeightConstraint = unreadBadgeHeightConstraint
+        self.unreadBadgeTopConstraint = unreadBadgeTopConstraint
+        self.unreadBadgeCenterXConstraint = unreadBadgeCenterXConstraint
         NSLayoutConstraint.activate([
-            stackView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 6),
-            stackView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -6),
-            stackView.topAnchor.constraint(equalTo: topAnchor, constant: 5),
-            stackView.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -5),
-
-            messageUnreadBadge.widthAnchor.constraint(equalToConstant: 8),
-            messageUnreadBadge.heightAnchor.constraint(equalToConstant: 8),
-            messageUnreadBadge.topAnchor.constraint(equalTo: topAnchor, constant: 10),
-            messageUnreadBadge.centerXAnchor.constraint(equalTo: buttons[.messages]!.centerXAnchor, constant: 12)
+            stackLeadingConstraint,
+            stackTrailingConstraint,
+            stackTopConstraint,
+            stackBottomConstraint,
+            unreadBadgeWidthConstraint,
+            unreadBadgeHeightConstraint,
+            unreadBadgeTopConstraint,
+            unreadBadgeCenterXConstraint
         ])
         setSelectedItem(.home)
     }
@@ -128,7 +182,7 @@ final class PostListBottomNavigationView: UIView {
     ) {
         guard let button else { return }
         let symbolConfiguration = UIImage.SymbolConfiguration(
-            pointSize: 21,
+            pointSize: AppDisplayScaleSettings.scaled(19),
             weight: isSelected ? .semibold : .regular
         )
         var configuration = UIButton.Configuration.plain()
@@ -138,13 +192,18 @@ final class PostListBottomNavigationView: UIView {
         )
         configuration.title = item.title
         configuration.imagePlacement = .top
-        configuration.imagePadding = 3
-        configuration.contentInsets = NSDirectionalEdgeInsets(top: 2, leading: 2, bottom: 2, trailing: 2)
+        configuration.imagePadding = AppDisplayScaleSettings.scaled(2)
+        configuration.contentInsets = NSDirectionalEdgeInsets(
+            top: AppDisplayScaleSettings.scaled(1),
+            leading: AppDisplayScaleSettings.scaled(1),
+            bottom: AppDisplayScaleSettings.scaled(1),
+            trailing: AppDisplayScaleSettings.scaled(1)
+        )
         configuration.baseForegroundColor = isSelected ? .systemOrange : .label
         configuration.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { incoming in
             var outgoing = incoming
             outgoing.font = UIFont.systemFont(
-                ofSize: 14 * AppDisplayScaleSettings.shared.scale,
+                ofSize: AppDisplayScaleSettings.scaled(13),
                 weight: isSelected ? .semibold : .medium
             )
             return outgoing

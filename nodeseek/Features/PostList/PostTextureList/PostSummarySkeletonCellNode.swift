@@ -11,15 +11,17 @@ import UIKit
 final class PostSummarySkeletonCellNode: ASCellNode {
 
     private enum Layout {
-        static let verticalSpacing: CGFloat = 8
-        static let titleHeight: CGFloat = 18
-        static let metaHeight: CGFloat = 13
-        static let contentInset = UIEdgeInsets(
-            top: PostListCellStyle.Layout.verticalContentInset,
-            left: 16,
-            bottom: PostListCellStyle.Layout.verticalContentInset,
-            right: 12
-        )
+        static var verticalSpacing: CGFloat { AppDisplayScaleSettings.scaled(4) }
+        static var titleHeight: CGFloat { AppDisplayScaleSettings.scaled(18) }
+        static var metaHeight: CGFloat { AppDisplayScaleSettings.scaled(13) }
+        static var contentInset: UIEdgeInsets {
+            UIEdgeInsets(
+                top: PostListCellStyle.Layout.verticalContentInset,
+                left: AppDisplayScaleSettings.scaled(14),
+                bottom: PostListCellStyle.Layout.verticalContentInset,
+                right: AppDisplayScaleSettings.scaled(10)
+            )
+        }
     }
 
     private let avatarPlaceholder = ASDisplayNode()
