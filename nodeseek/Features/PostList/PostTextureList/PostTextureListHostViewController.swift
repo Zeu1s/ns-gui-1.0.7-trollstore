@@ -44,6 +44,10 @@ final class PostTextureListHostViewController: UIViewController {
         presenter.currentSortMode
     }
 
+    var isReadyForDisplay: Bool {
+        presenter.isReadyForDisplay
+    }
+
     func toggleSortMode() -> PostListSortMode {
         presenter.toggleSortMode()
     }
