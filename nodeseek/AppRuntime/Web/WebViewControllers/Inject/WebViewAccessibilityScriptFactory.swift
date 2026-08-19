@@ -425,6 +425,22 @@ enum WebViewAccessibilityScriptFactory {
                 backdrop-filter: blur(12px) !important;
                 -webkit-backdrop-filter: blur(12px) !important;
               }
+              html.nodeseek-private-message-page #nsk-body-left :is([class*="conversation"], [class*="chat"], [class*="message-list"]) {
+                overflow-y: auto !important;
+                -webkit-overflow-scrolling: touch !important;
+                overscroll-behavior-y: contain !important;
+              }
+              html.nodeseek-private-message-page :is([class*="conversation"] [class*="header"], [class*="chat"] [class*="header"], [class*="conversation-header"], [class*="chat-header"], [class*="message-header"]) {
+                position: sticky !important;
+                top: 0 !important;
+                z-index: 15 !important;
+                min-height: 44px !important;
+                padding: 8px 12px !important;
+                background: rgba(255, 255, 255, 0.94) !important;
+                border-bottom: 1px solid #d7dbe2 !important;
+                backdrop-filter: blur(12px) !important;
+                -webkit-backdrop-filter: blur(12px) !important;
+              }
               html.nodeseek-private-message-page [class*="message"] :is(article, [class*="bubble"], [class*="content"]),
               html.nodeseek-private-message-page [class*="conversation"] :is(article, [class*="bubble"], [class*="content"]) {
                 max-width: 78% !important;
