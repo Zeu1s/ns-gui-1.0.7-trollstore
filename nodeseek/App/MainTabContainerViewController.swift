@@ -8,8 +8,8 @@ import UIKit
 @MainActor
 final class MainTabContainerViewController: UIViewController {
     private enum Layout {
-        static let horizontalInset: CGFloat = 24
-        static let height: CGFloat = 74
+        static let horizontalInset: CGFloat = 0
+        static let height: CGFloat = 84
     }
 
     private let containerView = UIView()
@@ -32,7 +32,7 @@ final class MainTabContainerViewController: UIViewController {
             containerView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             containerView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             containerView.topAnchor.constraint(equalTo: view.topAnchor),
-            containerView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+            containerView.bottomAnchor.constraint(equalTo: bottomNavigationView.topAnchor),
 
             bottomNavigationView.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: Layout.horizontalInset),
             bottomNavigationView.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -Layout.horizontalInset),
