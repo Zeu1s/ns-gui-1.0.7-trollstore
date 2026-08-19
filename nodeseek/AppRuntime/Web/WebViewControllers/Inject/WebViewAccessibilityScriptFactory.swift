@@ -30,7 +30,7 @@ enum WebViewAccessibilityScriptFactory {
           if (host !== 'nodeseek.com' && !host.endsWith('.nodeseek.com')) return;
 
           const styleID = 'nodeseek-display-scale-style';
-          const ensureViewport = () => {
+          const ensureViewport = (scale) => {
             let viewport = document.querySelector('meta[name="viewport"]');
             if (!viewport) {
               viewport = document.createElement('meta');
@@ -38,13 +38,16 @@ enum WebViewAccessibilityScriptFactory {
               document.head && document.head.appendChild(viewport);
             }
             if (viewport) {
-              viewport.setAttribute('content', 'width=device-width, initial-scale=1, viewport-fit=cover');
+              viewport.setAttribute(
+                'content',
+                `width=device-width, initial-scale=${scale}, minimum-scale=${scale}, maximum-scale=${scale}, user-scalable=no, viewport-fit=cover`
+              );
             }
           };
           const apply = (rawScale) => {
             const scale = Math.min(1.2, Math.max(0.7, Number(rawScale) || 1));
-            const inputFontSize = Math.max(16, 16 / scale);
-            const messageFontSize = Math.max(16, 17 / scale);
+            const inputFontSize = 16;
+            const messageFontSize = 17;
             const root = document.documentElement;
             if (!root) return;
             root.style.setProperty('--nodeseek-display-scale', String(scale));
@@ -61,8 +64,9 @@ enum WebViewAccessibilityScriptFactory {
                 overflow-x: hidden !important;
               }
               body {
-                zoom: var(--nodeseek-display-scale) !important;
-                transform-origin: top left !important;
+                zoom: 1 !important;
+                transform: none !important;
+                transform-origin: initial !important;
                 overflow-x: hidden !important;
                 box-sizing: border-box !important;
               }
@@ -126,7 +130,7 @@ enum WebViewAccessibilityScriptFactory {
                 overflow-wrap: anywhere !important;
               }
             `;
-            ensureViewport();
+            ensureViewport(scale);
           };
           window.__nodeSeekApplyDisplayScale = apply;
           apply(\(normalizedScaleLiteral(scale)));

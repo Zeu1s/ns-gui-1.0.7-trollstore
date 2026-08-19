@@ -512,7 +512,10 @@ final class NotificationViewController: UIViewController {
         if record.isViewed == false {
             markRead(id: record.maxID, tab: .message, rollbackOnFailure: false, showFailure: false)
         }
-        openWebURL(record.conversationWebURL(currentUserID: currentUserID))
+        navigationController?.pushViewController(
+            PrivateMessageWebViewController(url: record.conversationWebURL(currentUserID: currentUserID)),
+            animated: true
+        )
     }
 
     private func openWebURL(_ url: URL) {

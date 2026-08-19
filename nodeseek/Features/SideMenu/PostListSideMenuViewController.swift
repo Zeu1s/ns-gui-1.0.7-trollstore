@@ -75,7 +75,7 @@ final class PostListSideMenuViewController: UIViewController {
     private let nameLabel: UILabel = {
         let label = UILabel()
         label.text = "未登录"
-        label.font = .preferredFont(forTextStyle: .headline)
+        label.font = .systemFont(ofSize: 21, weight: .semibold)
         label.textColor = .label
         label.numberOfLines = 1
         label.lineBreakMode = .byTruncatingTail
@@ -87,7 +87,7 @@ final class PostListSideMenuViewController: UIViewController {
     private let statsLabel: UILabel = {
         let label = UILabel()
         label.text = "登录后同步账号信息"
-        label.font = .preferredFont(forTextStyle: .footnote)
+        label.font = .systemFont(ofSize: 14, weight: .regular)
         label.textColor = .secondaryLabel
         label.numberOfLines = 2
         label.lineBreakMode = .byTruncatingTail
@@ -171,6 +171,17 @@ final class PostListSideMenuViewController: UIViewController {
         return button
     }()
 
+    private let menuStackView: UIStackView = {
+        let stackView = UIStackView()
+        stackView.axis = .vertical
+        stackView.alignment = .fill
+        stackView.distribution = .fill
+        stackView.spacing = 4
+        stackView.accessibilityIdentifier = "post-list-side-menu-actions"
+        stackView.translatesAutoresizingMaskIntoConstraints = false
+        return stackView
+    }()
+
     init(
         currentAccountStore: CurrentAccountStore = .shared,
         accountRefresher: (any CurrentAccountRefreshing)? = nil,
@@ -212,13 +223,18 @@ final class PostListSideMenuViewController: UIViewController {
 
     private static func makeMenuButton(title: String, systemImageName: String) -> UIButton {
         let button = UIButton(type: .system)
-        let symbolConfiguration = UIImage.SymbolConfiguration(pointSize: 18, weight: .semibold)
+        let symbolConfiguration = UIImage.SymbolConfiguration(pointSize: 20, weight: .semibold)
         var configuration = UIButton.Configuration.plain()
         configuration.image = UIImage(systemName: systemImageName, withConfiguration: symbolConfiguration)
-        configuration.imagePadding = 10
+        configuration.imagePadding = 12
         configuration.baseForegroundColor = .label
-        configuration.contentInsets = NSDirectionalEdgeInsets(top: 12, leading: 14, bottom: 12, trailing: 14)
+        configuration.contentInsets = NSDirectionalEdgeInsets(top: 12, leading: 12, bottom: 12, trailing: 12)
         configuration.title = title
+        configuration.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { incoming in
+            var outgoing = incoming
+            outgoing.font = .systemFont(ofSize: 18, weight: .medium)
+            return outgoing
+        }
         button.configuration = configuration
         button.contentHorizontalAlignment = .leading
         button.translatesAutoresizingMaskIntoConstraints = false
@@ -365,12 +381,13 @@ final class PostListSideMenuViewController: UIViewController {
         extensionEntryStackView.addArrangedSubview(postsEntryButton)
         extensionEntryStackView.addArrangedSubview(commentsEntryButton)
         extensionEntryStackView.addArrangedSubview(favoritesEntryButton)
-        sideMenuView.addSubview(newDiscussionButton)
-        sideMenuView.addSubview(checkInButton)
-        sideMenuView.addSubview(notificationButton)
-        sideMenuView.addSubview(searchButton)
-        sideMenuView.addSubview(recentVisitedButton)
-        sideMenuView.addSubview(settingsButton)
+        sideMenuView.addSubview(menuStackView)
+        menuStackView.addArrangedSubview(newDiscussionButton)
+        menuStackView.addArrangedSubview(checkInButton)
+        menuStackView.addArrangedSubview(notificationButton)
+        menuStackView.addArrangedSubview(searchButton)
+        menuStackView.addArrangedSubview(recentVisitedButton)
+        menuStackView.addArrangedSubview(settingsButton)
 
         let sideMenuLeadingConstraint = sideMenuView.leadingAnchor.constraint(
             equalTo: view.leadingAnchor,
@@ -390,7 +407,7 @@ final class PostListSideMenuViewController: UIViewController {
             sideMenuView.widthAnchor.constraint(equalToConstant: SideMenuLayout.width),
 
             avatarImageView.leadingAnchor.constraint(equalTo: sideMenuView.leadingAnchor, constant: SideMenuLayout.horizontalInset),
-            avatarImageView.topAnchor.constraint(equalTo: sideMenuView.safeAreaLayoutGuide.topAnchor, constant: 28),
+            avatarImageView.topAnchor.constraint(equalTo: sideMenuView.safeAreaLayoutGuide.topAnchor, constant: 24),
             avatarImageView.widthAnchor.constraint(equalToConstant: SideMenuLayout.avatarSize),
             avatarImageView.heightAnchor.constraint(equalToConstant: SideMenuLayout.avatarSize),
 
@@ -415,35 +432,17 @@ final class PostListSideMenuViewController: UIViewController {
             commentsEntryButton.heightAnchor.constraint(equalToConstant: 24),
             favoritesEntryButton.heightAnchor.constraint(equalToConstant: 24),
 
-            settingsButton.leadingAnchor.constraint(equalTo: sideMenuView.leadingAnchor, constant: SideMenuLayout.horizontalInset),
-            settingsButton.trailingAnchor.constraint(equalTo: sideMenuView.trailingAnchor, constant: -SideMenuLayout.horizontalInset),
-            settingsButton.bottomAnchor.constraint(equalTo: sideMenuView.safeAreaLayoutGuide.bottomAnchor, constant: -18),
-            settingsButton.heightAnchor.constraint(equalToConstant: 48),
+            menuStackView.leadingAnchor.constraint(equalTo: sideMenuView.leadingAnchor, constant: SideMenuLayout.horizontalInset),
+            menuStackView.trailingAnchor.constraint(equalTo: sideMenuView.trailingAnchor, constant: -SideMenuLayout.horizontalInset),
+            menuStackView.topAnchor.constraint(equalTo: extensionEntryStackView.bottomAnchor, constant: 18),
+            menuStackView.bottomAnchor.constraint(lessThanOrEqualTo: sideMenuView.safeAreaLayoutGuide.bottomAnchor, constant: -16),
 
-            recentVisitedButton.leadingAnchor.constraint(equalTo: sideMenuView.leadingAnchor, constant: SideMenuLayout.horizontalInset),
-            recentVisitedButton.trailingAnchor.constraint(equalTo: sideMenuView.trailingAnchor, constant: -SideMenuLayout.horizontalInset),
-            recentVisitedButton.bottomAnchor.constraint(equalTo: settingsButton.topAnchor, constant: -8),
-            recentVisitedButton.heightAnchor.constraint(equalToConstant: 48),
-
-            searchButton.leadingAnchor.constraint(equalTo: sideMenuView.leadingAnchor, constant: SideMenuLayout.horizontalInset),
-            searchButton.trailingAnchor.constraint(equalTo: sideMenuView.trailingAnchor, constant: -SideMenuLayout.horizontalInset),
-            searchButton.bottomAnchor.constraint(equalTo: recentVisitedButton.topAnchor, constant: -8),
-            searchButton.heightAnchor.constraint(equalToConstant: 48),
-
-            notificationButton.leadingAnchor.constraint(equalTo: sideMenuView.leadingAnchor, constant: SideMenuLayout.horizontalInset),
-            notificationButton.trailingAnchor.constraint(equalTo: sideMenuView.trailingAnchor, constant: -SideMenuLayout.horizontalInset),
-            notificationButton.bottomAnchor.constraint(equalTo: searchButton.topAnchor, constant: -8),
-            notificationButton.heightAnchor.constraint(equalToConstant: 48),
-
-            checkInButton.leadingAnchor.constraint(equalTo: sideMenuView.leadingAnchor, constant: SideMenuLayout.horizontalInset),
-            checkInButton.trailingAnchor.constraint(equalTo: sideMenuView.trailingAnchor, constant: -SideMenuLayout.horizontalInset),
-            checkInButton.bottomAnchor.constraint(equalTo: notificationButton.topAnchor, constant: -8),
-            checkInButton.heightAnchor.constraint(equalToConstant: 48),
-
-            newDiscussionButton.leadingAnchor.constraint(equalTo: sideMenuView.leadingAnchor, constant: SideMenuLayout.horizontalInset),
-            newDiscussionButton.trailingAnchor.constraint(equalTo: sideMenuView.trailingAnchor, constant: -SideMenuLayout.horizontalInset),
-            newDiscussionButton.bottomAnchor.constraint(equalTo: checkInButton.topAnchor, constant: -8),
-            newDiscussionButton.heightAnchor.constraint(equalToConstant: 48)
+            newDiscussionButton.heightAnchor.constraint(equalToConstant: 52),
+            checkInButton.heightAnchor.constraint(equalToConstant: 52),
+            notificationButton.heightAnchor.constraint(equalToConstant: 52),
+            searchButton.heightAnchor.constraint(equalToConstant: 52),
+            recentVisitedButton.heightAnchor.constraint(equalToConstant: 52),
+            settingsButton.heightAnchor.constraint(equalToConstant: 52)
         ])
     }
 

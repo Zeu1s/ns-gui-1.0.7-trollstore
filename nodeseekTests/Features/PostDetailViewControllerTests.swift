@@ -1469,8 +1469,8 @@ struct PostDetailViewControllerTests {
         )
 
         #expect(node.debugAuthorBadgeTexts == ["已停用"])
-        #expect(node.debugAuthorBadgeBorderWidths == [1])
-        #expect(node.debugAuthorBadgeTitleColors == [.label])
+        #expect(node.debugAuthorBadgeBorderWidths == [0])
+        #expect(node.debugAuthorBadgeTitleColors == [.white])
     }
 
     @Test func commentCellUsesIconOnlyFooterActions() {

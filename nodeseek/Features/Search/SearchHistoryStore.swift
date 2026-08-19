@@ -57,6 +57,10 @@ final class SearchHistoryStore {
         userDefaults.removeObject(forKey: storageKey)
     }
 
+    func remove(_ record: SearchHistoryRecord) {
+        save(records().filter { $0 != record })
+    }
+
     private func save(_ records: [SearchHistoryRecord]) {
         guard let data = try? JSONEncoder().encode(records) else { return }
         userDefaults.set(data, forKey: storageKey)

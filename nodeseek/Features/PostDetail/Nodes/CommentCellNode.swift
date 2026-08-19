@@ -70,7 +70,7 @@ final class CommentCellNode: ASCellNode, ThemeRefreshableNode {
     }
 
     private let authorButtonNode = ASButtonNode()
-    private let posterBadgeNode = ASTextNode()
+    private let posterBadgeNode = ASButtonNode()
     private let authorBadgeNodes: [ASButtonNode]
     private let timeNode = ASTextNode()
     private let hotBadgeNode = ASImageNode()
@@ -292,14 +292,20 @@ final class CommentCellNode: ASCellNode, ThemeRefreshableNode {
         )
         authorButtonNode.accessibilityLabel = "查看 \(AuthorDisplayPolicy.displayName(from: comment.authorName) ?? "作者") 的主页"
 
-        posterBadgeNode.maximumNumberOfLines = 1
-        posterBadgeNode.attributedText = NSAttributedString(
+        posterBadgeNode.setAttributedTitle(
+            NSAttributedString(
             string: "楼主",
             attributes: [
                 .font: AppTypography.commentBadgeFont(),
-                .foregroundColor: UIColor.systemOrange
+                .foregroundColor: UIColor.white
             ]
+            ),
+            for: .normal
         )
+        posterBadgeNode.contentEdgeInsets = UIEdgeInsets(top: 2, left: 5, bottom: 2, right: 5)
+        posterBadgeNode.backgroundColor = .systemTeal
+        posterBadgeNode.cornerRadius = 4
+        posterBadgeNode.isUserInteractionEnabled = false
         posterBadgeNode.accessibilityLabel = "楼主"
 
         hotBadgeNode.image = UIImage(
@@ -355,20 +361,21 @@ final class CommentCellNode: ASCellNode, ThemeRefreshableNode {
     private static func makeAuthorBadgeNode(text: String) -> ASButtonNode {
         let node = ASButtonNode()
         let font = AppTypography.commentBadgeFont()
+        let style = CommentAuthorBadgeStyle.style(for: text)
         node.setAttributedTitle(
             NSAttributedString(
                 string: text,
                 attributes: [
                     .font: font,
-                    .foregroundColor: UIColor.label
+                    .foregroundColor: UIColor.white
                 ]
             ),
             for: .normal
         )
         node.contentEdgeInsets = UIEdgeInsets(top: 2, left: 5, bottom: 2, right: 5)
-        node.cornerRadius = 4
-        node.borderWidth = 1
-        node.borderColor = UIColor.separator.cgColor
+        node.cornerRadius = style.cornerRadius
+        node.backgroundColor = style.backgroundColor
+        node.borderWidth = 0
         node.isUserInteractionEnabled = false
         node.accessibilityLabel = text
         return node
@@ -525,7 +532,7 @@ final class CommentCellNode: ASCellNode, ThemeRefreshableNode {
     }
 
     var debugPosterBadgeAttributedText: NSAttributedString? {
-        comment.isPoster ? posterBadgeNode.attributedText : nil
+        comment.isPoster ? posterBadgeNode.attributedTitle(for: .normal) : nil
     }
 
     var debugAuthorBadgeTexts: [String] {
@@ -552,7 +559,7 @@ final class CommentCellNode: ASCellNode, ThemeRefreshableNode {
             parts.append(authorName)
         }
         if comment.isPoster {
-            parts.append(posterBadgeNode.attributedText?.string ?? "")
+            parts.append(posterBadgeNode.attributedTitle(for: .normal)?.string ?? "")
         }
         parts.append(contentsOf: debugAuthorBadgeTexts)
         if let floorText = comment.floorText?.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -666,6 +673,30 @@ final class CommentCellNode: ASCellNode, ThemeRefreshableNode {
     private func cancelAvatarLoad() {
         guard let avatarImageView else { return }
         avatarLoader.cancel(on: avatarImageView)
+    }
+}
+
+private enum CommentAuthorBadgeStyle {
+    struct Style {
+        let backgroundColor: UIColor
+        let cornerRadius: CGFloat
+    }
+
+    static func style(for text: String) -> Style {
+        let value = text.lowercased()
+        if value.contains("ai") {
+            return Style(backgroundColor: .systemPurple, cornerRadius: 4)
+        }
+        if value.contains("lv") || value.contains("等级") || value.contains("level") {
+            return Style(backgroundColor: .systemPink, cornerRadius: 4)
+        }
+        if value.contains("管理") || value.contains("admin") {
+            return Style(backgroundColor: .systemRed, cornerRadius: 4)
+        }
+        if value.contains("好友") || value.contains("关注") {
+            return Style(backgroundColor: .systemGreen, cornerRadius: 4)
+        }
+        return Style(backgroundColor: .systemIndigo, cornerRadius: 4)
     }
 }
 

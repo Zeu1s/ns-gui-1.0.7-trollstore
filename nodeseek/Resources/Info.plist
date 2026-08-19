@@ -3,9 +3,9 @@
 <plist version="1.0">
 <dict>
 	<key>CFBundleDisplayName</key>
-	<string>NS Connect</string>
+	<string>NodeSeek</string>
 	<key>CFBundleName</key>
-	<string>NS Connect</string>
+	<string>NodeSeek</string>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
 	<key>NSPhotoLibraryAddUsageDescription</key>

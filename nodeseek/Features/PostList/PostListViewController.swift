@@ -33,10 +33,10 @@ class PostListViewController: UIViewController {
     }
 
     private enum BottomNavigationLayout {
-        static var horizontalInset: CGFloat { AppDisplayScaleSettings.scaled(10) }
-        static var bottomInset: CGFloat { AppDisplayScaleSettings.scaled(14) }
-        static var height: CGFloat { AppDisplayScaleSettings.scaled(54) }
-        static var contentSpacing: CGFloat { AppDisplayScaleSettings.scaled(6) }
+        static var horizontalInset: CGFloat { AppDisplayScaleSettings.scaled(14) }
+        static var bottomInset: CGFloat { 0 }
+        static var height: CGFloat { AppDisplayScaleSettings.scaled(58) }
+        static var contentSpacing: CGFloat { AppDisplayScaleSettings.scaled(4) }
     }
 
     // MARK: - Properties
@@ -198,7 +198,7 @@ class PostListViewController: UIViewController {
         let stack = UIStackView()
         stack.axis = .horizontal
         stack.alignment = .fill
-        stack.spacing = 18
+        stack.spacing = 12
         stack.translatesAutoresizingMaskIntoConstraints = false
         return stack
     }()

@@ -31,6 +31,11 @@ final class NodeSeekSplashAnimator: NSObject {
     private let nFinalStrokeLayer = CAShapeLayer()
     private let sLayer = CAShapeLayer()
     private let dotLayer = CAShapeLayer()
+    private let leftWaveLayer = CAShapeLayer()
+    private let nodeCoreLayer = CAShapeLayer()
+    private let nodeEyesLayer = CAShapeLayer()
+    private let rightWaveLayer = CAShapeLayer()
+    private let wordmarkLayer = CATextLayer()
     private var completion: (() -> Void)?
 
     init(
@@ -45,13 +50,12 @@ final class NodeSeekSplashAnimator: NSObject {
     func install(in view: UIView) {
         containerView = view
         configureLayerNames()
-        layoutLayers(in: view.bounds)
-        view.layer.addSublayer(backgroundLayer)
-        view.layer.addSublayer(nLeftStrokeLayer)
-        view.layer.addSublayer(nDiagonalStrokeLayer)
-        view.layer.addSublayer(nFinalStrokeLayer)
-        view.layer.addSublayer(sLayer)
-        view.layer.addSublayer(dotLayer)
+        layoutBrandLayers(in: view.bounds)
+        view.layer.addSublayer(leftWaveLayer)
+        view.layer.addSublayer(rightWaveLayer)
+        view.layer.addSublayer(nodeCoreLayer)
+        view.layer.addSublayer(nodeEyesLayer)
+        view.layer.addSublayer(wordmarkLayer)
     }
 
     func play(completion: @escaping () -> Void) {
@@ -70,13 +74,13 @@ final class NodeSeekSplashAnimator: NSObject {
 
     func relayout() {
         guard let containerView else { return }
-        layoutLayers(in: containerView.bounds)
+        layoutBrandLayers(in: containerView.bounds)
     }
 
     func updateColors(for traitCollection: UITraitCollection) {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        applyColors(for: traitCollection)
+        applyBrandColors(for: traitCollection)
         CATransaction.commit()
     }
 }
@@ -89,6 +93,122 @@ private extension NodeSeekSplashAnimator {
         nFinalStrokeLayer.name = "splash.n.finalStroke"
         sLayer.name = "splash.s"
         dotLayer.name = "splash.dot"
+        leftWaveLayer.name = "splash.nodeseek.leftWaves"
+        nodeCoreLayer.name = "splash.nodeseek.core"
+        nodeEyesLayer.name = "splash.nodeseek.eyes"
+        rightWaveLayer.name = "splash.nodeseek.rightWaves"
+        wordmarkLayer.name = "splash.nodeseek.wordmark"
+    }
+
+    func layoutBrandLayers(in bounds: CGRect) {
+        let glyphWidth = min(bounds.width * 0.52, 258)
+        let glyphHeight = glyphWidth * 0.62
+        let glyphFrame = CGRect(
+            x: bounds.midX - glyphWidth / 2,
+            y: bounds.midY - glyphHeight * 0.67,
+            width: glyphWidth,
+            height: glyphHeight
+        )
+        let coreDiameter = glyphHeight * 0.78
+        let coreFrame = CGRect(
+            x: glyphFrame.midX - coreDiameter / 2,
+            y: glyphFrame.midY - coreDiameter / 2,
+            width: coreDiameter,
+            height: coreDiameter
+        )
+
+        nodeCoreLayer.frame = bounds
+        nodeCoreLayer.path = UIBezierPath(ovalIn: coreFrame).cgPath
+        nodeCoreLayer.contentsScale = UIScreen.main.scale
+
+        let eyeWidth = coreDiameter * 0.16
+        let eyeHeight = coreDiameter * 0.25
+        let eyeGap = coreDiameter * 0.18
+        let eyesPath = UIBezierPath()
+        eyesPath.append(UIBezierPath(roundedRect: CGRect(
+            x: coreFrame.midX - eyeGap / 2 - eyeWidth,
+            y: coreFrame.midY - eyeHeight / 2,
+            width: eyeWidth,
+            height: eyeHeight
+        ), cornerRadius: eyeWidth / 2))
+        eyesPath.append(UIBezierPath(roundedRect: CGRect(
+            x: coreFrame.midX + eyeGap / 2,
+            y: coreFrame.midY - eyeHeight / 2,
+            width: eyeWidth,
+            height: eyeHeight
+        ), cornerRadius: eyeWidth / 2))
+        nodeEyesLayer.frame = bounds
+        nodeEyesLayer.path = eyesPath.cgPath
+        nodeEyesLayer.fillRule = .evenOdd
+        nodeEyesLayer.contentsScale = UIScreen.main.scale
+
+        let waveLineWidth = max(6, glyphWidth * 0.045)
+        leftWaveLayer.frame = bounds
+        leftWaveLayer.path = wavePath(
+            center: CGPoint(x: coreFrame.minX - glyphWidth * 0.10, y: coreFrame.midY),
+            radius: glyphHeight * 0.39,
+            opensToLeft: true
+        ).cgPath
+        leftWaveLayer.fillColor = UIColor.clear.cgColor
+        leftWaveLayer.lineWidth = waveLineWidth
+        leftWaveLayer.lineCap = .round
+        leftWaveLayer.contentsScale = UIScreen.main.scale
+
+        rightWaveLayer.frame = bounds
+        rightWaveLayer.path = wavePath(
+            center: CGPoint(x: coreFrame.maxX + glyphWidth * 0.10, y: coreFrame.midY),
+            radius: glyphHeight * 0.39,
+            opensToLeft: false
+        ).cgPath
+        rightWaveLayer.fillColor = UIColor.clear.cgColor
+        rightWaveLayer.lineWidth = waveLineWidth
+        rightWaveLayer.lineCap = .round
+        rightWaveLayer.contentsScale = UIScreen.main.scale
+
+        wordmarkLayer.frame = CGRect(
+            x: bounds.midX - glyphWidth,
+            y: glyphFrame.maxY + glyphHeight * 0.17,
+            width: glyphWidth * 2,
+            height: 42
+        )
+        let wordmarkFont = UIFont.systemFont(ofSize: 28, weight: .semibold)
+        wordmarkLayer.string = "NodeSeek"
+        wordmarkLayer.fontSize = wordmarkFont.pointSize
+        wordmarkLayer.alignmentMode = .center
+        wordmarkLayer.contentsScale = UIScreen.main.scale
+
+        [leftWaveLayer, nodeCoreLayer, nodeEyesLayer, rightWaveLayer, wordmarkLayer].forEach {
+            $0.opacity = 0
+        }
+        if let containerView {
+            applyBrandColors(for: containerView.traitCollection)
+        }
+    }
+
+    func wavePath(center: CGPoint, radius: CGFloat, opensToLeft: Bool) -> UIBezierPath {
+        let path = UIBezierPath()
+        for multiplier in [0.68, 1.0] {
+            let waveRadius = radius * multiplier
+            let direction: CGFloat = opensToLeft ? -1 : 1
+            path.move(to: CGPoint(x: center.x, y: center.y - waveRadius))
+            path.addQuadCurve(
+                to: CGPoint(x: center.x, y: center.y + waveRadius),
+                controlPoint: CGPoint(x: center.x + direction * waveRadius * 0.78, y: center.y)
+            )
+        }
+        return path
+    }
+
+    func applyBrandColors(for traitCollection: UITraitCollection) {
+        let darkMode = traitCollection.userInterfaceStyle == .dark
+        let coreColor = darkMode ? UIColor.white : UIColor.black
+        let eyeColor = darkMode ? UIColor.black : UIColor.white
+        let waveColor = darkMode ? UIColor.systemGray2 : UIColor.systemGray
+        nodeCoreLayer.fillColor = coreColor.cgColor
+        nodeEyesLayer.fillColor = eyeColor.cgColor
+        leftWaveLayer.strokeColor = waveColor.cgColor
+        rightWaveLayer.strokeColor = waveColor.cgColor
+        wordmarkLayer.foregroundColor = NodeSeekSplashVector.wordmarkColor(for: traitCollection).cgColor
     }
 
     func layoutLayers(in bounds: CGRect) {
@@ -208,33 +328,12 @@ private extension NodeSeekSplashAnimator {
 
 private extension NodeSeekSplashAnimator {
     func startAnimationTimeline() {
-        dotLayer.opacity = 0
-
         let timelineBegin = CACurrentMediaTime()
-        animateStrokeReveal(
-            mask: nLeftStrokeLayer.mask,
-            beginTime: timelineBegin,
-            duration: NodeSeekSplashTimeline.nLeftDuration
-        )
-        animateStrokeReveal(
-            mask: nDiagonalStrokeLayer.mask,
-            beginTime: timelineBegin + NodeSeekSplashTimeline.nLeftDuration,
-            duration: NodeSeekSplashTimeline.nDiagonalDuration
-        )
-        animateStrokeReveal(
-            mask: nFinalStrokeLayer.mask,
-            beginTime: timelineBegin + NodeSeekSplashTimeline.nLeftDuration + NodeSeekSplashTimeline.nDiagonalDuration,
-            duration: NodeSeekSplashTimeline.nFinalDuration
-        )
-        animateStrokeReveal(
-            mask: sLayer.mask,
-            beginTime: timelineBegin + NodeSeekSplashTimeline.nDuration,
-            duration: NodeSeekSplashTimeline.sDuration
-        )
-        animateDotPop(
-            beginTime: timelineBegin + NodeSeekSplashTimeline.dotBegin,
-            duration: NodeSeekSplashTimeline.dotDuration
-        )
+        animateBrandLayer(leftWaveLayer, beginTime: timelineBegin, duration: 0.28)
+        animateBrandLayer(rightWaveLayer, beginTime: timelineBegin + 0.10, duration: 0.28)
+        animateBrandLayer(nodeCoreLayer, beginTime: timelineBegin + 0.26, duration: 0.30)
+        animateBrandLayer(nodeEyesLayer, beginTime: timelineBegin + 0.46, duration: 0.22)
+        animateBrandLayer(wordmarkLayer, beginTime: timelineBegin + 0.66, duration: 0.34)
 
         DispatchQueue.main.asyncAfter(deadline: .now() + animationDuration) { [weak self] in
             guard let self else { return }
@@ -244,15 +343,10 @@ private extension NodeSeekSplashAnimator {
     }
 
     func pinModelLayersToFinalFrame() {
-        nLeftStrokeLayer.opacity = 1
-        nDiagonalStrokeLayer.opacity = 1
-        nFinalStrokeLayer.opacity = 1
-        sLayer.opacity = 1
-        dotLayer.opacity = 1
-        revealStrokeMask(nLeftStrokeLayer.mask)
-        revealStrokeMask(nDiagonalStrokeLayer.mask)
-        revealStrokeMask(nFinalStrokeLayer.mask)
-        revealStrokeMask(sLayer.mask)
+        [leftWaveLayer, nodeCoreLayer, nodeEyesLayer, rightWaveLayer, wordmarkLayer].forEach {
+            $0.opacity = 1
+            $0.removeAllAnimations()
+        }
     }
 
     func complete() {
@@ -306,6 +400,19 @@ private extension NodeSeekSplashAnimator {
             CAMediaTimingFunction(name: .easeInEaseOut)
         ]
         dotLayer.add(scale, forKey: "dotPop")
+    }
+
+    func animateBrandLayer(_ layer: CALayer, beginTime: CFTimeInterval, duration: CFTimeInterval) {
+        layer.opacity = 1
+        let fade = CABasicAnimation(keyPath: "opacity")
+        fade.fromValue = 0
+        fade.toValue = 1
+        fade.beginTime = beginTime
+        fade.duration = duration
+        fade.timingFunction = CAMediaTimingFunction(name: .easeOut)
+        fade.fillMode = .both
+        fade.isRemovedOnCompletion = false
+        layer.add(fade, forKey: "brandFade")
     }
 
 }

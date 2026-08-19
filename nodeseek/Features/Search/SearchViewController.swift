@@ -7,6 +7,19 @@
 
 import UIKit
 
+private final class SearchHistoryRecordButton: UIButton {
+    let record: SearchHistoryRecord
+
+    init(record: SearchHistoryRecord) {
+        self.record = record
+        super.init(frame: .zero)
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+}
+
 final class SearchViewController: UIViewController {
     private struct SearchRequest: Equatable {
         let query: String
@@ -290,13 +303,14 @@ final class SearchViewController: UIViewController {
             return outgoing
         }
 
-        let button = UIButton(type: .system)
+        let button = SearchHistoryRecordButton(record: record)
         button.configuration = configuration
         button.contentHorizontalAlignment = .leading
         button.accessibilityIdentifier = "search-history-record-button-\(index)"
         button.addAction(UIAction { [weak self] _ in
             self?.submitSearch(record: record)
         }, for: .touchUpInside)
+        button.addInteraction(UIContextMenuInteraction(delegate: self))
         return button
     }
 
@@ -518,6 +532,28 @@ final class SearchViewController: UIViewController {
         let alert = UIAlertController(title: "错误", message: message, preferredStyle: .alert)
         alert.addAction(UIAlertAction(title: "确定", style: .default))
         present(alert, animated: true)
+    }
+}
+
+extension SearchViewController: UIContextMenuInteractionDelegate {
+    func contextMenuInteraction(
+        _ interaction: UIContextMenuInteraction,
+        configurationForMenuAtLocation location: CGPoint
+    ) -> UIContextMenuConfiguration? {
+        guard let button = interaction.view as? SearchHistoryRecordButton else { return nil }
+        let record = button.record
+        return UIContextMenuConfiguration(identifier: nil, previewProvider: nil) { [weak self] _ in
+            UIMenu(children: [
+                UIAction(
+                    title: "删除",
+                    image: UIImage(systemName: "trash"),
+                    attributes: .destructive
+                ) { _ in
+                    self?.searchHistoryStore.remove(record)
+                    self?.renderRecentSearches()
+                }
+            ])
+        }
     }
 }
 

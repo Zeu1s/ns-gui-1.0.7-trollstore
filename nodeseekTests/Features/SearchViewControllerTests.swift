@@ -119,6 +119,18 @@ struct SearchViewControllerTests {
         #expect(viewController.view.allButtons(accessibilityIdentifierPrefix: "search-history-record-button-").isEmpty)
     }
 
+    @Test func removingOneRecentSearchKeepsOtherRecords() {
+        let store = makeSearchHistoryStore()
+        let first = SearchHistoryRecord(query: "东京", category: .all)
+        let second = SearchHistoryRecord(query: "新加坡", category: .tech)
+        store.record(query: first.query, category: first.category)
+        store.record(query: second.query, category: second.category)
+
+        store.remove(first)
+
+        #expect(store.records() == [second])
+    }
+
     @Test func submittingSearchStoresRecentSearchRecord() throws {
         let store = makeSearchHistoryStore()
         let preferenceStore = makeSearchPreferenceStore()
