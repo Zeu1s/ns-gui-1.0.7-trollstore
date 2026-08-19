@@ -245,6 +245,7 @@ final class NotificationViewController: UIViewController {
         errorView.isHidden = true
         applyDisplayState()
         tableView.reloadData()
+        tableView.setContentOffset(CGPoint(x: 0, y: -tableView.adjustedContentInset.top), animated: false)
         updateMarkAllButton()
     }
 
@@ -340,6 +341,7 @@ final class NotificationViewController: UIViewController {
             displayMode = .content
             applyDisplayState()
             tableView.reloadData()
+            tableView.setContentOffset(CGPoint(x: 0, y: -tableView.adjustedContentInset.top), animated: false)
         } else {
             loadSelectedTab(showLoading: true)
         }
