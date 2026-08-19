@@ -376,7 +376,10 @@ enum WebViewAccessibilityScriptFactory {
               html.nodeseek-profile-page #nsk-body-left {
                 min-height: 100vh !important;
               }              html.nodeseek-private-message-page #nsk-body-left {
-                padding-bottom: 140px !important;
+                padding: 0 16px 140px !important;
+                background: #eef0f3 !important;
+                border-left: 1px solid rgba(0, 0, 0, 0.06) !important;
+                border-right: 1px solid rgba(0, 0, 0, 0.06) !important;
               }
               html.nodeseek-private-message-page [class*="message"] :is(article, [class*="bubble"], [class*="content"]),
               html.nodeseek-private-message-page [class*="conversation"] :is(article, [class*="bubble"], [class*="content"]) {

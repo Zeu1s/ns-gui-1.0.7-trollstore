@@ -1,4 +1,4 @@
-# NodeSeek iOS V2.1.0（TrollStore 版）
+# NodeSeek iOS V2.2.0（TrollStore 版）
 
 ![Swift](https://img.shields.io/badge/Swift-5.9-F05138?logo=swift&logoColor=white)
 ![iOS](https://img.shields.io/badge/iOS-15%2B-000000?logo=apple&logoColor=white)
@@ -31,7 +31,7 @@ NodeSeek iOS 是一个非官方三方 iOS 客户端，使用 UIKit 构建，通�
 
 ## 安装（TrollStore）
 
-1. 前往 [Releases](https://github.com/Zeu1s/ns-connect-1.0.7-trollstore/releases/latest) 下载 `NS-Connect-2.1.0-trollstore.ipa`。
+1. 前往 [Releases](https://github.com/Zeu1s/ns-connect-1.0.7-trollstore/releases/latest) 下载 `NS-Connect-2.2.0-trollstore.ipa`。
 2. 将 IPA 发送到 iPhone（AirDrop / 网盘 / 文件 App）。
 3. 使用 TrollStore 打开并安装。
 4. 首次使用在 App 内登录 NodeSeek，并在设置中完成 NodeImage 图床授权（私信/回帖发图需要）。

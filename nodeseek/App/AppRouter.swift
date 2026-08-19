@@ -10,6 +10,6 @@ import UIKit
 final class AppRouter {
 
     func makeRootViewController() -> UIViewController {
-        UINavigationController(rootViewController: PostListRouter.createModule())
+        MainTabContainerViewController()
     }
 }

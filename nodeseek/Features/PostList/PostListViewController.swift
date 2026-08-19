@@ -43,6 +43,8 @@ class PostListViewController: UIViewController {
     var categories: [PostListCategoryItem] = []
     var selectedCategory: PostListCategoryItem = .all
     var currentSortMode: PostListSortMode = .replyTime
+    var showsBottomNavigation = true
+    var onUnreadBadgeChange: ((Bool) -> Void)?
     var sortToggleWidthConstraint: NSLayoutConstraint?
     private var sortToggleTrailingConstraint: NSLayoutConstraint?
     private var sortToggleCollapseWorkItem: DispatchWorkItem?
@@ -271,7 +273,9 @@ class PostListViewController: UIViewController {
         super.viewWillAppear(animated)
         navigationController?.setNavigationBarHidden(true, animated: animated)
         installGlobalBottomNavigationIfNeeded()
-        bottomNavigationView.setSelectedItem(.home)
+        if showsBottomNavigation {
+            bottomNavigationView.setSelectedItem(.home)
+        }
         refreshAppearanceForCurrentTraits()
         applySearchEntryVisibility(animated: false)
         startNotificationRefreshTimer()
@@ -312,7 +316,9 @@ class PostListViewController: UIViewController {
         view.addSubview(tabScrollView)
         view.addSubview(topSearchGradientView)
         view.addSubview(topSearchButton)
-        view.addSubview(bottomNavigationView)
+        if showsBottomNavigation {
+            view.addSubview(bottomNavigationView)
+        }
         tabScrollView.addSubview(tabStackView)
 
         let tabScrollTrailingToSafeAreaConstraint = tabScrollView.trailingAnchor.constraint(
@@ -336,10 +342,15 @@ class PostListViewController: UIViewController {
             equalTo: view.bottomAnchor,
             constant: BottomNavigationLayout.bottomInset
         )
-        let pageContainerBottomConstraint = pageContainerView.bottomAnchor.constraint(
-            equalTo: bottomNavigationView.topAnchor,
-            constant: -BottomNavigationLayout.contentSpacing
-        )
+        let pageContainerBottomConstraint: NSLayoutConstraint
+        if showsBottomNavigation {
+            pageContainerBottomConstraint = pageContainerView.bottomAnchor.constraint(
+                equalTo: bottomNavigationView.topAnchor,
+                constant: -BottomNavigationLayout.contentSpacing
+            )
+        } else {
+            pageContainerBottomConstraint = pageContainerView.bottomAnchor.constraint(equalTo: view.bottomAnchor)
+        }
         self.pageContainerBottomConstraint = pageContainerBottomConstraint
         let bottomNavigationHeightConstraint = bottomNavigationView.heightAnchor.constraint(
             equalToConstant: BottomNavigationLayout.height
@@ -355,11 +366,6 @@ class PostListViewController: UIViewController {
             pageContainerView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             pageContainerView.topAnchor.constraint(equalTo: tabScrollView.bottomAnchor, constant: TopBarLayout.contentSpacing),
             pageContainerBottomConstraint,
-
-            bottomNavigationLeadingConstraint,
-            bottomNavigationTrailingConstraint,
-            bottomNavigationBottomConstraint,
-            bottomNavigationHeightConstraint,
 
             compactTopButton.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 8),
             compactTopButton.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: TopBarLayout.topOffset),
@@ -395,6 +401,14 @@ class PostListViewController: UIViewController {
             tabStackView.bottomAnchor.constraint(equalTo: tabScrollView.contentLayoutGuide.bottomAnchor),
             tabStackView.heightAnchor.constraint(equalTo: tabScrollView.frameLayoutGuide.heightAnchor)
         ])
+        if showsBottomNavigation {
+            NSLayoutConstraint.activate([
+                bottomNavigationLeadingConstraint,
+                bottomNavigationTrailingConstraint,
+                bottomNavigationBottomConstraint,
+                bottomNavigationHeightConstraint
+            ])
+        }
         pageContainerViewController.didMove(toParent: self)
 
         installSideMenuController()
@@ -626,8 +640,10 @@ class PostListViewController: UIViewController {
             queue: .main
         ) { [weak self] _ in
             guard let self else { return }
-            self.bottomNavigationView.refreshDisplayScale()
-            self.updateBottomNavigationLayout()
+            if self.showsBottomNavigation {
+                self.bottomNavigationView.refreshDisplayScale()
+                self.updateBottomNavigationLayout()
+            }
             self.rebuildCategoryButtons()
             self.applySelectedCategory(self.selectedCategory, syncPage: false, pageAnimated: false)
         }
@@ -645,6 +661,7 @@ class PostListViewController: UIViewController {
     }
 
     private func installGlobalBottomNavigationIfNeeded() {
+        guard showsBottomNavigation else { return }
         guard didInstallGlobalBottomNavigation == false else { return }
         guard let navigationController else { return }
 
@@ -696,7 +713,11 @@ class PostListViewController: UIViewController {
     func applyNotificationUnreadBadge(isVisible: Bool) {
         compactTopButtonUnreadBadgeView.isHidden = !isVisible
         compactTopButton.accessibilityValue = isVisible ? "有未读通知" : nil
-        bottomNavigationView.setUnreadMessagesVisible(isVisible)
+        if showsBottomNavigation {
+            bottomNavigationView.setUnreadMessagesVisible(isVisible)
+        } else {
+            onUnreadBadgeChange?(isVisible)
+        }
     }
 
     private func applySearchEntryVisibility(animated: Bool) {

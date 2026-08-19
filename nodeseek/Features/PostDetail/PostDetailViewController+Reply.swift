@@ -225,12 +225,36 @@ extension PostDetailViewController {
 
     func replyContextTargetText(comment: Comment) -> String {
         let authorName = AuthorDisplayPolicy.displayName(from: comment.authorName) ?? comment.authorName
-        let contextParts = [
+        let snippet = Self.plainText(fromHTML: comment.contentHTML)
+            .prefix(40)
+        var contextParts = [
             Self.trimmedNonEmpty(authorName),
             comment.floorText.flatMap(Self.trimmedNonEmpty)
         ]
             .compactMap(\.self)
+        if snippet.isEmpty == false {
+            contextParts.append(String(snippet))
+        }
         return contextParts.joined(separator: " ")
+    }
+
+    nonisolated static func plainText(fromHTML html: String) -> String {
+        let stripped = html.replacingOccurrences(
+            of: "<[^>]+>",
+            with: " ",
+            options: .regularExpression
+        )
+        let decoded = stripped
+            .replacingOccurrences(of: "&nbsp;", with: " ")
+            .replacingOccurrences(of: "&amp;", with: "&")
+            .replacingOccurrences(of: "&lt;", with: "<")
+            .replacingOccurrences(of: "&gt;", with: ">")
+            .replacingOccurrences(of: "&quot;", with: "\"")
+        return decoded
+            .components(separatedBy: .whitespacesAndNewlines)
+            .filter { $0.isEmpty == false }
+            .joined(separator: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     func rebuildReplyContextRows(_ rows: [String]) {
