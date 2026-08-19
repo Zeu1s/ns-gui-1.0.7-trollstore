@@ -276,8 +276,20 @@ struct KannaNodeSeekParser: NodeSeekParser {
             isPinned: isPinned,
             isLocked: isLocked,
             requiredReadingLevel: requiredReadingLevel,
-            avatarURL: avatarURL
+            avatarURL: avatarURL,
+            authorBadgeTexts: parsePostListAuthorBadgeTexts(in: item)
         )
+    }
+
+    private func parsePostListAuthorBadgeTexts(in item: Kanna.XMLElement) -> [String] {
+        var seen = Set<String>()
+        return item.xpath(XPathRules.postAuthorBadges).compactMap { node in
+            let value = node.text?.normalizedNonEmpty
+            guard let value, value != "楼主", seen.insert(value).inserted else {
+                return nil
+            }
+            return value
+        }
     }
 
     private func requiredReadingLevelFromPostListLockBadge(in item: Kanna.XMLElement) -> Int? {

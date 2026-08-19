@@ -11,7 +11,7 @@ import UIKit
 final class PostSummaryCellNode: ASCellNode, ThemeRefreshableNode {
 
     private enum Layout {
-        static var verticalSpacing: CGFloat { AppDisplayScaleSettings.scaled(4) }
+        static var verticalSpacing: CGFloat { AppDisplayScaleSettings.scaled(2) }
         static var contentInset: UIEdgeInsets {
             UIEdgeInsets(
                 top: PostListCellStyle.Layout.verticalContentInset,
@@ -174,6 +174,9 @@ final class PostSummaryCellNode: ASCellNode, ThemeRefreshableNode {
                 baseAttributes: attributes,
                 rules: specialFollowRules
             ))
+            for badgeText in post.authorBadgeTexts.prefix(3) {
+                metadata.append(authorBadgeAttributedText(badgeText))
+            }
         }
 
         appendSeparatorIfNeeded()
@@ -198,6 +201,20 @@ final class PostSummaryCellNode: ASCellNode, ThemeRefreshableNode {
         }
 
         return metadata
+    }
+
+    private static func authorBadgeAttributedText(_ rawText: String) -> NSAttributedString {
+        let text = rawText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard text.isEmpty == false else { return NSAttributedString() }
+        return NSAttributedString(
+            string: " \(text) ",
+            attributes: [
+                .font: AppTypography.font(basePointSize: 10, weight: .semibold),
+                .foregroundColor: UIColor.white,
+                .backgroundColor: PostListAuthorBadgeStyle.backgroundColor(for: text),
+                .baselineOffset: 1
+            ]
+        )
     }
 
     static func titleAttributedText(
@@ -359,8 +376,19 @@ enum PostListCellStyle {
 
     enum Layout {
         static var horizontalSpacing: CGFloat { AppDisplayScaleSettings.scaled(8) }
-        static var verticalContentInset: CGFloat { AppDisplayScaleSettings.scaled(5) }
+        static var verticalContentInset: CGFloat { AppDisplayScaleSettings.scaled(3) }
     }
 }
 
 typealias PostSummaryCellStyle = PostListCellStyle
+
+private enum PostListAuthorBadgeStyle {
+    static func backgroundColor(for text: String) -> UIColor {
+        let value = text.lowercased()
+        if value.contains("ai") { return .systemPurple }
+        if value.contains("lv") || value.contains("等级") || value.contains("level") { return .systemPink }
+        if value.contains("管理") || value.contains("admin") { return .systemRed }
+        if value.contains("好友") || value.contains("关注") { return .systemGreen }
+        return .systemIndigo
+    }
+}

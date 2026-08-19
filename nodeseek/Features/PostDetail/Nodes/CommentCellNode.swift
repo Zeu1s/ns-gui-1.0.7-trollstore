@@ -9,28 +9,35 @@ import AsyncDisplayKit
 import UIKit
 
 enum PostDetailContentLayout {
-    static let horizontalInset: CGFloat = 16
-    static let commentTopInset: CGFloat = 12
-    static let commentBottomInset: CGFloat = 12
-    static let avatarSize: CGFloat = 40
-    static let avatarCornerRadius: CGFloat = 8
-    static let avatarSpacing: CGFloat = 10
-    static let reactionActionHeight: CGFloat = 30
-    static let reactionActionMinWidth: CGFloat = 48
-    static let reactionIconReservedWidth: CGFloat = 16
-    static let reactionTitleSpacing: CGFloat = 3
-    static let reactionHorizontalWidthPadding: CGFloat = 16
-    static let reactionIconOnlyWidth: CGFloat = 36
-    static let reactionActionSpacing: CGFloat = 4
-    static let reactionSymbolPointSize: CGFloat = 14
+    static var horizontalInset: CGFloat { AppDisplayScaleSettings.scaled(16) }
+    static var commentTopInset: CGFloat { AppDisplayScaleSettings.scaled(10) }
+    static var commentBottomInset: CGFloat { AppDisplayScaleSettings.scaled(10) }
+    static var avatarSize: CGFloat { AppDisplayScaleSettings.scaled(40) }
+    static var avatarCornerRadius: CGFloat { AppDisplayScaleSettings.scaled(8) }
+    static var avatarSpacing: CGFloat { AppDisplayScaleSettings.scaled(10) }
+    static var reactionActionHeight: CGFloat { AppDisplayScaleSettings.scaled(30) }
+    static var reactionActionMinWidth: CGFloat { AppDisplayScaleSettings.scaled(48) }
+    static var reactionIconReservedWidth: CGFloat { AppDisplayScaleSettings.scaled(16) }
+    static var reactionTitleSpacing: CGFloat { AppDisplayScaleSettings.scaled(3) }
+    static var reactionHorizontalWidthPadding: CGFloat { AppDisplayScaleSettings.scaled(16) }
+    static var reactionIconOnlyWidth: CGFloat { AppDisplayScaleSettings.scaled(36) }
+    static var reactionActionSpacing: CGFloat { AppDisplayScaleSettings.scaled(4) }
+    static var reactionSymbolPointSize: CGFloat { AppDisplayScaleSettings.scaled(14) }
     static let inactiveReactionAlpha: CGFloat = 0.62
-    static let reactionContentEdgeInsets = UIEdgeInsets(top: 5, left: 7, bottom: 5, right: 7)
+    static var reactionContentEdgeInsets: UIEdgeInsets {
+        UIEdgeInsets(
+            top: AppDisplayScaleSettings.scaled(5),
+            left: AppDisplayScaleSettings.scaled(7),
+            bottom: AppDisplayScaleSettings.scaled(5),
+            right: AppDisplayScaleSettings.scaled(7)
+        )
+    }
 }
 
 final class CommentCellNode: ASCellNode, ThemeRefreshableNode {
     private enum Layout {
-        static let headerSpacing: CGFloat = 5
-        static let bodySpacing: CGFloat = 8
+        static var headerSpacing: CGFloat { AppDisplayScaleSettings.scaled(5) }
+        static var bodySpacing: CGFloat { AppDisplayScaleSettings.scaled(8) }
 
         static func textColumnWidth(for maxWidth: CGFloat, includingAvatar: Bool) -> CGFloat? {
             guard maxWidth.isFinite, maxWidth > 0 else { return nil }
@@ -213,7 +220,7 @@ final class CommentCellNode: ASCellNode, ThemeRefreshableNode {
         }
         if comment.floorText?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false {
             let floorStack = ASStackLayoutSpec.horizontal()
-            floorStack.spacing = 4
+            floorStack.spacing = AppDisplayScaleSettings.scaled(4)
             floorStack.alignItems = .center
             floorStack.children = comment.isHot ? [hotBadgeNode, floorNode] : [floorNode]
             floorStack.style.flexShrink = 0
@@ -223,7 +230,7 @@ final class CommentCellNode: ASCellNode, ThemeRefreshableNode {
 
         let hasTime = comment.createdAtText?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
         let headerBlockStack = ASStackLayoutSpec.vertical()
-        headerBlockStack.spacing = 3
+        headerBlockStack.spacing = AppDisplayScaleSettings.scaled(3)
         var headerBlockChildren: [ASLayoutElement] = []
         if headerChildren.isEmpty == false {
             headerBlockChildren.append(headerStack)
@@ -302,9 +309,14 @@ final class CommentCellNode: ASCellNode, ThemeRefreshableNode {
             ),
             for: .normal
         )
-        posterBadgeNode.contentEdgeInsets = UIEdgeInsets(top: 2, left: 5, bottom: 2, right: 5)
+        posterBadgeNode.contentEdgeInsets = UIEdgeInsets(
+            top: AppDisplayScaleSettings.scaled(2),
+            left: AppDisplayScaleSettings.scaled(5),
+            bottom: AppDisplayScaleSettings.scaled(2),
+            right: AppDisplayScaleSettings.scaled(5)
+        )
         posterBadgeNode.backgroundColor = .systemTeal
-        posterBadgeNode.cornerRadius = 4
+        posterBadgeNode.cornerRadius = AppDisplayScaleSettings.scaled(4)
         posterBadgeNode.isUserInteractionEnabled = false
         posterBadgeNode.accessibilityLabel = "楼主"
 
@@ -372,7 +384,12 @@ final class CommentCellNode: ASCellNode, ThemeRefreshableNode {
             ),
             for: .normal
         )
-        node.contentEdgeInsets = UIEdgeInsets(top: 2, left: 5, bottom: 2, right: 5)
+        node.contentEdgeInsets = UIEdgeInsets(
+            top: AppDisplayScaleSettings.scaled(2),
+            left: AppDisplayScaleSettings.scaled(5),
+            bottom: AppDisplayScaleSettings.scaled(2),
+            right: AppDisplayScaleSettings.scaled(5)
+        )
         node.cornerRadius = style.cornerRadius
         node.backgroundColor = style.backgroundColor
         node.borderWidth = 0

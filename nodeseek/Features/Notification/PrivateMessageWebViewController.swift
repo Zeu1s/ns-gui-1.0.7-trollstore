@@ -14,7 +14,7 @@ final class PrivateMessageWebViewController: BaseWebViewController {
     private let nodeImageAPIKeyStore: NodeImageAPIKeyStoring
     private let nodeImageUploadClient: NodeImageUploading
     private var imageUploadTask: Task<Void, Never>?
-    private var isConversationPage = false
+    private var isPrivateMessagePage = false
 
     private lazy var imageUploadButton: UIBarButtonItem = {
         let button = UIBarButtonItem(
@@ -39,7 +39,7 @@ final class PrivateMessageWebViewController: BaseWebViewController {
         self.nodeImageAPIKeyStore = nodeImageAPIKeyStore
         self.nodeImageUploadClient = nodeImageUploadClient
         super.init(initialURL: url, pageTitle: "私信")
-        isConversationPage = Self.isConversationURL(url)
+        isPrivateMessagePage = Self.isPrivateMessageURL(url)
     }
 
     required init?(coder: NSCoder) {
@@ -59,13 +59,13 @@ final class PrivateMessageWebViewController: BaseWebViewController {
 
     override func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         super.webView(webView, didFinish: navigation)
-        isConversationPage = Self.isConversationURL(webView.url ?? initialURL)
+        isPrivateMessagePage = Self.isPrivateMessageURL(webView.url ?? initialURL)
         updateImageUploadButton()
     }
 
     @objc private func uploadImageTapped() {
-        guard isConversationPage else {
-            showAlert(message: "请先进入一个私信会话，再发送图片。")
+        guard isPrivateMessagePage else {
+            showAlert(message: "请先进入私信页面，再发送图片。")
             return
         }
 
@@ -144,13 +144,13 @@ final class PrivateMessageWebViewController: BaseWebViewController {
     }
 
     private func setImageUploadInProgress(_ inProgress: Bool) {
-        imageUploadButton.isEnabled = !inProgress && isConversationPage
+        imageUploadButton.isEnabled = !inProgress && isPrivateMessagePage
         imageUploadButton.image = UIImage(systemName: inProgress ? "arrow.up.circle" : "photo.badge.plus")
         imageUploadButton.accessibilityLabel = inProgress ? "正在上传图片" : "通过图床发送图片"
     }
 
     private func updateImageUploadButton() {
-        imageUploadButton.isEnabled = isConversationPage && imageUploadTask == nil
+        imageUploadButton.isEnabled = isPrivateMessagePage && imageUploadTask == nil
     }
 
     private func showAlert(message: String) {
@@ -159,9 +159,8 @@ final class PrivateMessageWebViewController: BaseWebViewController {
         present(alert, animated: true)
     }
 
-    private static func isConversationURL(_ url: URL) -> Bool {
-        let fragment = url.fragment?.lowercased() ?? ""
-        return fragment.contains("/message") && fragment.contains("mode=talk")
+    private static func isPrivateMessageURL(_ url: URL) -> Bool {
+        url.absoluteString.lowercased().contains("/message")
     }
 
     private static func insertMarkdownJavaScript(_ markdown: String) -> String {

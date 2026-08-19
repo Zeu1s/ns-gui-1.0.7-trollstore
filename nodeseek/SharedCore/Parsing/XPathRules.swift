@@ -24,6 +24,7 @@ enum XPathRules {
     static let postLockBadge = ".//*[contains(@class, 'post-title')]//*[local-name()='use' and @*[local-name()='href' and .='#lock']]/ancestor::*[self::span or self::a][1]"
     static let postAvatar = ".//img[contains(@class, 'avatar') or contains(@src, '/avatar/')]"
     static let postAuthor = ".//*[contains(@class, 'post-author')] | .//*[contains(@class, 'info-author')]//a"
+    static let postAuthorBadges = ".//*[contains(@class, 'post-author') or contains(@class, 'info-author')]//*[contains(@class, 'nsk-badge') or contains(@class, 'role-tag')]"
     static let postNode = ".//*[contains(@class, 'post-node')] | .//*[contains(@class, 'post-category')]"
     static let viewCount = ".//*[contains(@class, 'info-views')]//span"
     static let replyCount = ".//*[contains(@class, 'reply-count')] | .//*[contains(@class, 'info-comments-count')]//span[last()]"

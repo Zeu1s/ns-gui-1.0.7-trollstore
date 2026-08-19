@@ -235,6 +235,7 @@ private extension PostListPresenter {
                 let unreadCount = try await notificationUnreadCountInteractor.loadUnreadCount()
                 guard Task.isCancelled == false else { return }
                 await MainActor.run { [weak self] in
+                    NodeSeekNotificationUnreadCountEvent.post(unreadCount)
                     self?.view?.renderNotificationUnreadBadge(isVisible: unreadCount.all > 0)
                 }
             } catch {

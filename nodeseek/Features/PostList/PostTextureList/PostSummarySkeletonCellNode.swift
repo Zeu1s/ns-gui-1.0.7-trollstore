@@ -11,7 +11,7 @@ import UIKit
 final class PostSummarySkeletonCellNode: ASCellNode {
 
     private enum Layout {
-        static var verticalSpacing: CGFloat { AppDisplayScaleSettings.scaled(4) }
+        static var verticalSpacing: CGFloat { AppDisplayScaleSettings.scaled(2) }
         static var titleHeight: CGFloat { AppDisplayScaleSettings.scaled(18) }
         static var metaHeight: CGFloat { AppDisplayScaleSettings.scaled(13) }
         static var contentInset: UIEdgeInsets {
@@ -65,7 +65,7 @@ final class PostSummarySkeletonCellNode: ASCellNode {
 
     override func layoutSpecThatFits(_ constrainedSize: ASSizeRange) -> ASLayoutSpec {
         let metaStack = ASStackLayoutSpec.horizontal()
-        metaStack.spacing = 8
+        metaStack.spacing = AppDisplayScaleSettings.scaled(6)
         metaStack.alignItems = .center
         metaStack.children = [metaPlaceholder1, metaPlaceholder2]
 

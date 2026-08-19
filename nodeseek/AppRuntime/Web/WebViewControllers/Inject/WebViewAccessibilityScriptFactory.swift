@@ -30,7 +30,7 @@ enum WebViewAccessibilityScriptFactory {
           if (host !== 'nodeseek.com' && !host.endsWith('.nodeseek.com')) return;
 
           const styleID = 'nodeseek-display-scale-style';
-          const ensureViewport = (scale) => {
+          const ensureViewport = () => {
             let viewport = document.querySelector('meta[name="viewport"]');
             if (!viewport) {
               viewport = document.createElement('meta');
@@ -40,31 +40,37 @@ enum WebViewAccessibilityScriptFactory {
             if (viewport) {
               viewport.setAttribute(
                 'content',
-                `width=device-width, initial-scale=${scale}, minimum-scale=${scale}, maximum-scale=${scale}, user-scalable=no, viewport-fit=cover`
+                'width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover'
               );
             }
           };
           const apply = (rawScale) => {
             const scale = Math.min(1.2, Math.max(0.7, Number(rawScale) || 1));
-            const inputFontSize = 16;
+            const inputFontSize = Math.max(16, 16 * scale);
             const messageFontSize = 17;
             const root = document.documentElement;
             if (!root) return;
             root.style.setProperty('--nodeseek-display-scale', String(scale));
-            root.style.setProperty('font-size', '16px', 'important');
+            root.classList.toggle(
+              'nodeseek-private-message-page',
+              `${window.location.pathname}${window.location.hash}`.toLowerCase().includes('/message')
+            );
             let style = document.getElementById(styleID);
             if (!style) {
               style = document.createElement('style');
               style.id = styleID;
               (document.head || root).appendChild(style);
             }
-            // iOS 会在输入控件字体小于 16px 时自动放大页面。保持控件最小字号可避免私信输入时跳变。
+            // CSS zoom 让网页中的间距、图片和控件与文字一起缩放；输入框仍保持 16px，避免 iOS 聚焦时自动放大页面。
             style.textContent = `
               html {
+                width: 100% !important;
                 overflow-x: hidden !important;
               }
               body {
-                zoom: 1 !important;
+                zoom: var(--nodeseek-display-scale) !important;
+                width: calc(100% / var(--nodeseek-display-scale)) !important;
+                min-height: calc(100% / var(--nodeseek-display-scale)) !important;
                 transform: none !important;
                 transform-origin: initial !important;
                 overflow-x: hidden !important;
@@ -106,6 +112,7 @@ enum WebViewAccessibilityScriptFactory {
               [class*="notification-tab"] > * {
                 min-height: 40px !important;
                 padding: 8px 12px !important;
+                font-size: 16px !important;
                 line-height: 1.35 !important;
                 white-space: nowrap !important;
                 box-sizing: border-box !important;
@@ -114,15 +121,31 @@ enum WebViewAccessibilityScriptFactory {
               [class*="message"] a,
               [id*="message"] p,
               [id*="message"] a,
+              [class*="chat"] p,
+              [class*="chat"] a,
               [class*="profile"] a,
               [class*="contact"] a {
                 font-size: ${messageFontSize}px !important;
                 line-height: 1.5 !important;
                 overflow-wrap: anywhere !important;
               }
+              html.nodeseek-private-message-page [class*="message"],
+              html.nodeseek-private-message-page [class*="chat"],
+              html.nodeseek-private-message-page [class*="conversation"] {
+                line-height: 1.5 !important;
+              }
+              html.nodeseek-private-message-page [class*="message"] :is(p, span, a, li),
+              html.nodeseek-private-message-page [class*="chat"] :is(p, span, a, li),
+              html.nodeseek-private-message-page [class*="conversation"] :is(p, span, a, li) {
+                font-size: ${messageFontSize}px !important;
+                line-height: 1.5 !important;
+              }
               [class*="message"] button,
               [class*="message"] input,
-              [class*="message"] textarea {
+              [class*="message"] textarea,
+              [class*="chat"] button,
+              [class*="chat"] input,
+              [class*="chat"] textarea {
                 min-height: 40px !important;
               }
               h1, h2, h3, h4, h5, h6 {
@@ -130,7 +153,7 @@ enum WebViewAccessibilityScriptFactory {
                 overflow-wrap: anywhere !important;
               }
             `;
-            ensureViewport(scale);
+            ensureViewport();
           };
           window.__nodeSeekApplyDisplayScale = apply;
           apply(\(normalizedScaleLiteral(scale)));

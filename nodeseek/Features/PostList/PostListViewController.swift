@@ -28,14 +28,10 @@ class PostListViewController: UIViewController {
         static let searchFadeWidth: CGFloat = 40
     }
 
-    private enum FloatingControlLayout {
-        static let sortToggleBottomInset: CGFloat = 204
-    }
-
     private enum BottomNavigationLayout {
-        static var horizontalInset: CGFloat { AppDisplayScaleSettings.scaled(14) }
+        static var horizontalInset: CGFloat { AppDisplayScaleSettings.scaled(18) }
         static var bottomInset: CGFloat { 0 }
-        static var height: CGFloat { AppDisplayScaleSettings.scaled(58) }
+        static var height: CGFloat { AppDisplayScaleSettings.scaled(64) }
         static var contentSpacing: CGFloat { AppDisplayScaleSettings.scaled(4) }
     }
 
@@ -55,6 +51,7 @@ class PostListViewController: UIViewController {
     private var notificationUnreadCountObserver: NSObjectProtocol?
     private var appForegroundObserver: NSObjectProtocol?
     private var displayScaleObserver: NSObjectProtocol?
+    private var notificationRefreshTimer: Timer?
     private var tabScrollTrailingToSafeAreaConstraint: NSLayoutConstraint?
     private var tabScrollTrailingToSearchButtonConstraint: NSLayoutConstraint?
     private var bottomNavigationLeadingConstraint: NSLayoutConstraint?
@@ -198,7 +195,7 @@ class PostListViewController: UIViewController {
         let stack = UIStackView()
         stack.axis = .horizontal
         stack.alignment = .fill
-        stack.spacing = 12
+        stack.spacing = 8
         stack.translatesAutoresizingMaskIntoConstraints = false
         return stack
     }()
@@ -242,6 +239,7 @@ class PostListViewController: UIViewController {
     }
 
     deinit {
+        notificationRefreshTimer?.invalidate()
         if let searchEntryObserver {
             NotificationCenter.default.removeObserver(searchEntryObserver)
         }
@@ -272,22 +270,14 @@ class PostListViewController: UIViewController {
         bottomNavigationView.setSelectedItem(.home)
         refreshAppearanceForCurrentTraits()
         applySearchEntryVisibility(animated: false)
+        startNotificationRefreshTimer()
         presenter.viewWillAppear()
     }
     
     override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
+        stopNotificationRefreshTimer()
         navigationController?.setNavigationBarHidden(false, animated: animated)
-    }
-
-    override func viewDidLayoutSubviews() {
-        super.viewDidLayoutSubviews()
-        floatingSortToggleContainer.updateFloatingEdgeInsets(
-            in: view,
-            topBoundary: pageContainerViewController.view.frame.minY,
-            horizontalAnchorView: sortToggleAnchorView
-        )
-        floatingSortToggleContainer.syncFrame(with: sortToggleAnchorView)
     }
 
     // MARK: - Setup UI
@@ -308,29 +298,14 @@ class PostListViewController: UIViewController {
         bottomNavigationView.onItemSelected = { [weak self] item in
             self?.bottomNavigationItemTapped(item)
         }
-        floatingSortToggleContainer.onAdsorbedEdgeChanged = { [weak self] edge in
-            self?.sortToggleButton.applyDockedEdge(edge)
-        }
-        floatingSortToggleContainer.hostControl(sortToggleButton)
-        floatingSortToggleContainer.isHidden = true
-        sortToggleButton.isHidden = true
         view.addSubview(pageContainerView)
         view.addSubview(compactTopButton)
-        view.addSubview(sortToggleAnchorView)
-        view.addSubview(floatingSortToggleContainer)
         view.addSubview(tabScrollView)
         view.addSubview(topSearchGradientView)
         view.addSubview(topSearchButton)
         view.addSubview(bottomNavigationView)
         tabScrollView.addSubview(tabStackView)
 
-        let sortToggleTrailingConstraint = sortToggleAnchorView.trailingAnchor.constraint(
-            equalTo: view.safeAreaLayoutGuide.trailingAnchor,
-            constant: PostListSortToggleButton.collapsedTrailing
-        )
-        let sortToggleWidthConstraint = sortToggleAnchorView.widthAnchor.constraint(
-            equalToConstant: PostListSortToggleButton.collapsedWidth
-        )
         let tabScrollTrailingToSafeAreaConstraint = tabScrollView.trailingAnchor.constraint(
             equalTo: view.safeAreaLayoutGuide.trailingAnchor,
             constant: -8
@@ -338,8 +313,6 @@ class PostListViewController: UIViewController {
         let tabScrollTrailingToSearchButtonConstraint = tabScrollView.trailingAnchor.constraint(
             equalTo: topSearchButton.leadingAnchor
         )
-        self.sortToggleTrailingConstraint = sortToggleTrailingConstraint
-        self.sortToggleWidthConstraint = sortToggleWidthConstraint
         self.tabScrollTrailingToSafeAreaConstraint = tabScrollTrailingToSafeAreaConstraint
         self.tabScrollTrailingToSearchButtonConstraint = tabScrollTrailingToSearchButtonConstraint
         let bottomNavigationLeadingConstraint = bottomNavigationView.leadingAnchor.constraint(
@@ -351,7 +324,7 @@ class PostListViewController: UIViewController {
             constant: -BottomNavigationLayout.horizontalInset
         )
         let bottomNavigationBottomConstraint = bottomNavigationView.bottomAnchor.constraint(
-            equalTo: view.safeAreaLayoutGuide.bottomAnchor,
+            equalTo: view.bottomAnchor,
             constant: BottomNavigationLayout.bottomInset
         )
         let bottomNavigationHeightConstraint = bottomNavigationView.heightAnchor.constraint(
@@ -396,14 +369,6 @@ class PostListViewController: UIViewController {
             topSearchGradientView.topAnchor.constraint(equalTo: topSearchButton.topAnchor),
             topSearchGradientView.widthAnchor.constraint(equalToConstant: TopBarLayout.searchFadeWidth),
             topSearchGradientView.heightAnchor.constraint(equalTo: topSearchButton.heightAnchor),
-
-            sortToggleTrailingConstraint,
-            sortToggleAnchorView.bottomAnchor.constraint(
-                equalTo: view.safeAreaLayoutGuide.bottomAnchor,
-                constant: -FloatingControlLayout.sortToggleBottomInset
-            ),
-            sortToggleWidthConstraint,
-            sortToggleAnchorView.heightAnchor.constraint(equalToConstant: PostListSortToggleButton.height),
 
             tabScrollView.leadingAnchor.constraint(equalTo: compactTopButton.trailingAnchor, constant: 8),
             tabScrollTrailingToSafeAreaConstraint,
@@ -606,6 +571,7 @@ class PostListViewController: UIViewController {
             queue: .main
         ) { [weak self] notification in
             guard let unreadCount = NodeSeekNotificationUnreadCountEvent.unreadCount(from: notification) else { return }
+            UIApplication.shared.applicationIconBadgeNumber = unreadCount.all
             self?.presenter.didReceiveNotificationUnreadCountUpdate(unreadCount)
         }
     }
@@ -619,6 +585,18 @@ class PostListViewController: UIViewController {
         ) { [weak self] _ in
             self?.presenter.didEnterForeground()
         }
+    }
+
+    private func startNotificationRefreshTimer() {
+        guard notificationRefreshTimer == nil else { return }
+        notificationRefreshTimer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
+            self?.presenter.didEnterForeground()
+        }
+    }
+
+    private func stopNotificationRefreshTimer() {
+        notificationRefreshTimer?.invalidate()
+        notificationRefreshTimer = nil
     }
 
     private func observeDisplayScaleSettings() {

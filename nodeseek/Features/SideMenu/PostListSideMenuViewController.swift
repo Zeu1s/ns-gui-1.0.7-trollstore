@@ -29,6 +29,8 @@ final class PostListSideMenuViewController: UIViewController {
     private var notificationUnreadCount: NodeSeekNotificationUnreadCount?
     private var notificationUnreadRefreshTask: Task<Void, Never>?
     private var notificationUnreadCountObserver: NSObjectProtocol?
+    private var extensionEntriesHeightConstraint: NSLayoutConstraint?
+    private var menuStackTopConstraint: NSLayoutConstraint?
 
     private static let defaultAvatarImage: UIImage? = {
         let configuration = UIImage.SymbolConfiguration(pointSize: 48, weight: .regular)
@@ -75,7 +77,7 @@ final class PostListSideMenuViewController: UIViewController {
     private let nameLabel: UILabel = {
         let label = UILabel()
         label.text = "未登录"
-        label.font = .systemFont(ofSize: 21, weight: .semibold)
+        label.font = .systemFont(ofSize: 19, weight: .semibold)
         label.textColor = .label
         label.numberOfLines = 1
         label.lineBreakMode = .byTruncatingTail
@@ -87,7 +89,7 @@ final class PostListSideMenuViewController: UIViewController {
     private let statsLabel: UILabel = {
         let label = UILabel()
         label.text = "登录后同步账号信息"
-        label.font = .systemFont(ofSize: 14, weight: .regular)
+        label.font = .systemFont(ofSize: 13, weight: .regular)
         label.textColor = .secondaryLabel
         label.numberOfLines = 2
         label.lineBreakMode = .byTruncatingTail
@@ -176,7 +178,7 @@ final class PostListSideMenuViewController: UIViewController {
         stackView.axis = .vertical
         stackView.alignment = .fill
         stackView.distribution = .fill
-        stackView.spacing = 4
+        stackView.spacing = 2
         stackView.accessibilityIdentifier = "post-list-side-menu-actions"
         stackView.translatesAutoresizingMaskIntoConstraints = false
         return stackView
@@ -223,16 +225,16 @@ final class PostListSideMenuViewController: UIViewController {
 
     private static func makeMenuButton(title: String, systemImageName: String) -> UIButton {
         let button = UIButton(type: .system)
-        let symbolConfiguration = UIImage.SymbolConfiguration(pointSize: 20, weight: .semibold)
+        let symbolConfiguration = UIImage.SymbolConfiguration(pointSize: 18, weight: .semibold)
         var configuration = UIButton.Configuration.plain()
         configuration.image = UIImage(systemName: systemImageName, withConfiguration: symbolConfiguration)
-        configuration.imagePadding = 12
+        configuration.imagePadding = 10
         configuration.baseForegroundColor = .label
-        configuration.contentInsets = NSDirectionalEdgeInsets(top: 12, leading: 12, bottom: 12, trailing: 12)
+        configuration.contentInsets = NSDirectionalEdgeInsets(top: 10, leading: 12, bottom: 10, trailing: 12)
         configuration.title = title
         configuration.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { incoming in
             var outgoing = incoming
-            outgoing.font = .systemFont(ofSize: 18, weight: .medium)
+            outgoing.font = .systemFont(ofSize: 16, weight: .medium)
             return outgoing
         }
         button.configuration = configuration
@@ -243,7 +245,7 @@ final class PostListSideMenuViewController: UIViewController {
 
     private static func makeExtensionEntryButton(label: String, systemImageName: String) -> UIButton {
         let button = UIButton(type: .system)
-        let symbolConfiguration = UIImage.SymbolConfiguration(pointSize: 11, weight: .regular)
+        let symbolConfiguration = UIImage.SymbolConfiguration(pointSize: 12, weight: .regular)
         var configuration = UIButton.Configuration.plain()
         configuration.image = UIImage(systemName: systemImageName, withConfiguration: symbolConfiguration)
         configuration.imagePadding = 2
@@ -251,7 +253,7 @@ final class PostListSideMenuViewController: UIViewController {
         configuration.title = label
         configuration.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { incoming in
             var outgoing = incoming
-            outgoing.font = .preferredFont(forTextStyle: .caption2)
+            outgoing.font = .systemFont(ofSize: 13, weight: .medium)
             return outgoing
         }
         configuration.baseForegroundColor = .secondaryLabel
@@ -276,11 +278,26 @@ final class PostListSideMenuViewController: UIViewController {
 
     func openAccountProfileOrLogin() {
         accountController.refreshIfNeeded()
-        guard accountController.isLoggedIn, let profileURL = accountController.profileURL else {
-            onLoginTapped?()
-            return
+        Task { [weak self] in
+            guard let self else { return }
+            if let account = await accountControllerStoredAccount(),
+               account.isLoggedIn,
+               let profileURL = account.profileURL {
+                renderAccount(account)
+                onAccountProfileTapped?(profileURL)
+                return
+            }
+
+            guard accountController.isLoggedIn, let profileURL = accountController.profileURL else {
+                onLoginTapped?()
+                return
+            }
+            onAccountProfileTapped?(profileURL)
         }
-        onAccountProfileTapped?(profileURL)
+    }
+
+    private func accountControllerStoredAccount() async -> AccountResponse? {
+        await accountController.currentAccountSnapshot()
     }
 
     private func renderAccount(_ account: AccountResponse) {
@@ -395,6 +412,14 @@ final class PostListSideMenuViewController: UIViewController {
         )
         self.sideMenuLeadingConstraint = sideMenuLeadingConstraint
 
+        let extensionEntriesHeightConstraint = extensionEntryStackView.heightAnchor.constraint(equalToConstant: 0)
+        let menuStackTopConstraint = menuStackView.topAnchor.constraint(
+            equalTo: extensionEntryStackView.bottomAnchor,
+            constant: 12
+        )
+        self.extensionEntriesHeightConstraint = extensionEntriesHeightConstraint
+        self.menuStackTopConstraint = menuStackTopConstraint
+
         NSLayoutConstraint.activate([
             backdropView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             backdropView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
@@ -426,7 +451,7 @@ final class PostListSideMenuViewController: UIViewController {
 
             extensionEntryStackView.leadingAnchor.constraint(equalTo: nameLabel.leadingAnchor),
             extensionEntryStackView.topAnchor.constraint(equalTo: statsLabel.bottomAnchor, constant: 4),
-            extensionEntryStackView.heightAnchor.constraint(equalToConstant: 24),
+            extensionEntriesHeightConstraint,
 
             postsEntryButton.heightAnchor.constraint(equalToConstant: 24),
             commentsEntryButton.heightAnchor.constraint(equalToConstant: 24),
@@ -434,15 +459,15 @@ final class PostListSideMenuViewController: UIViewController {
 
             menuStackView.leadingAnchor.constraint(equalTo: sideMenuView.leadingAnchor, constant: SideMenuLayout.horizontalInset),
             menuStackView.trailingAnchor.constraint(equalTo: sideMenuView.trailingAnchor, constant: -SideMenuLayout.horizontalInset),
-            menuStackView.topAnchor.constraint(equalTo: extensionEntryStackView.bottomAnchor, constant: 18),
+            menuStackTopConstraint,
             menuStackView.bottomAnchor.constraint(lessThanOrEqualTo: sideMenuView.safeAreaLayoutGuide.bottomAnchor, constant: -16),
 
-            newDiscussionButton.heightAnchor.constraint(equalToConstant: 52),
-            checkInButton.heightAnchor.constraint(equalToConstant: 52),
-            notificationButton.heightAnchor.constraint(equalToConstant: 52),
-            searchButton.heightAnchor.constraint(equalToConstant: 52),
-            recentVisitedButton.heightAnchor.constraint(equalToConstant: 52),
-            settingsButton.heightAnchor.constraint(equalToConstant: 52)
+            newDiscussionButton.heightAnchor.constraint(equalToConstant: 48),
+            checkInButton.heightAnchor.constraint(equalToConstant: 48),
+            notificationButton.heightAnchor.constraint(equalToConstant: 48),
+            searchButton.heightAnchor.constraint(equalToConstant: 48),
+            recentVisitedButton.heightAnchor.constraint(equalToConstant: 48),
+            settingsButton.heightAnchor.constraint(equalToConstant: 48)
         ])
     }
 
@@ -451,6 +476,9 @@ final class PostListSideMenuViewController: UIViewController {
         postsEntryButton.isHidden = !isVisible
         commentsEntryButton.isHidden = !isVisible
         favoritesEntryButton.isHidden = !isVisible
+        extensionEntriesHeightConstraint?.constant = isVisible ? 24 : 0
+        menuStackTopConstraint?.constant = isVisible ? 12 : 14
+        view.setNeedsLayout()
     }
 
     private func applyNotificationColor() {

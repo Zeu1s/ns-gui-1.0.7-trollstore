@@ -79,6 +79,11 @@ final class PostListSideMenuAccountController {
         }
     }
 
+    func currentAccountSnapshot() async -> AccountResponse? {
+        let snapshot = await currentAccountStore.snapshot()
+        return snapshot?.account
+    }
+
     private func observeSessionChanges() {
         loginCloseObserver = NotificationCenter.default.addObserver(
             forName: .nodeSeekLoginSessionDidClose,

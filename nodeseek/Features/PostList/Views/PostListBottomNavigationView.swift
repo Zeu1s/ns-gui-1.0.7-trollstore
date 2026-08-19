@@ -80,7 +80,7 @@ final class PostListBottomNavigationView: UIView {
     }
 
     func refreshDisplayScale() {
-        layer.cornerRadius = AppDisplayScaleSettings.scaled(16)
+        layer.cornerRadius = AppDisplayScaleSettings.scaled(18)
         stackLeadingConstraint?.constant = AppDisplayScaleSettings.scaled(5)
         stackTrailingConstraint?.constant = -AppDisplayScaleSettings.scaled(5)
         stackTopConstraint?.constant = AppDisplayScaleSettings.scaled(4)
@@ -95,7 +95,7 @@ final class PostListBottomNavigationView: UIView {
     private func configureView() {
         accessibilityIdentifier = "post-list-bottom-navigation"
         backgroundColor = .secondarySystemBackground
-        layer.cornerRadius = AppDisplayScaleSettings.scaled(16)
+        layer.cornerRadius = AppDisplayScaleSettings.scaled(18)
         layer.cornerCurve = .continuous
         translatesAutoresizingMaskIntoConstraints = false
 
