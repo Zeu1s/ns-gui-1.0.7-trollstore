@@ -42,6 +42,10 @@ final class PostTextureListHostPresenter: PostTextureListHostPresenterProtocol {
         sortMode
     }
 
+    var isReadyForDisplay: Bool {
+        hasLoadedFirstPage
+    }
+
     func viewDidLoad() {
         loadFirstPageIfNeeded()
     }
