@@ -384,11 +384,19 @@ enum WebViewAccessibilityScriptFactory {
               html.nodeseek-private-message-page [class*="message"] :is(article, [class*="bubble"], [class*="content"]),
               html.nodeseek-private-message-page [class*="conversation"] :is(article, [class*="bubble"], [class*="content"]) {
                 max-width: 78% !important;
-                margin: 6px 0 !important;
+                margin: 8px 0 !important;
                 border: 1px solid #d7dbe2 !important;
-                border-radius: 12px !important;
-                padding: 8px 12px !important;
+                border-radius: 14px !important;
+                padding: 10px 14px !important;
                 box-sizing: border-box !important;
+                box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05) !important;
+              }
+              html.nodeseek-private-message-page :is(form, [class*="editor"], [class*="toolbar"], [class*="footer"]) {
+                position: sticky !important;
+                bottom: 0 !important;
+                z-index: 20 !important;
+                background: #ffffff !important;
+                box-shadow: 0 -1px 4px rgba(0, 0, 0, 0.06) !important;
               }
               html.nodeseek-private-message-page [class*="message"][class*="self"],
               html.nodeseek-private-message-page [class*="message"][class*="own"],

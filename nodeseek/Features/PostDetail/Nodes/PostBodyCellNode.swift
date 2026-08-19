@@ -421,7 +421,7 @@ final class PostBodyCellNode: ASCellNode, ThemeRefreshableNode {
         )
         let image: UIImage?
         if let customImage {
-            image = customImage.withTintColor(color, renderingMode: .alwaysOriginal)
+            image = customImage.withTintColor(color, renderingMode: .alwaysTemplate)
         } else {
             image = UIImage(systemName: systemImageName, withConfiguration: configuration)?
                 .withTintColor(color, renderingMode: .alwaysOriginal)
