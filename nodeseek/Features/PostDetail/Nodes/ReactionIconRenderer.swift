@@ -23,7 +23,7 @@ enum ReactionIconRenderer {
 
             cg.saveGState()
             cg.translateBy(x: width * 0.48, y: height * 0.46)
-            cg.rotate(by: -.48)
+            cg.rotate(by: -0.48)
             let body = UIBezierPath(ovalIn: CGRect(
                 x: -width * 0.29,
                 y: -height * 0.36,
