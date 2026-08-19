@@ -4,14 +4,14 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "应用版本号，例如 1.0.7"
+        description: "应用版本号，例如 2.6.0"
         required: false
-        default: "2.4.0"
+        default: "2.6.0"
         type: string
       build_number:
         description: "构建号，仅允许数字"
         required: false
-        default: "1"
+        default: "26"
         type: string
 
 permissions:
@@ -64,6 +64,8 @@ jobs:
             clean archive
 
       - name: Sign and package IPA
+        env:
+          APP_VERSION: ${{ inputs.version }}
         run: |
           set -euo pipefail
           app_path="$RUNNER_TEMP/nodeseek.xcarchive/Products/Applications/nodeseek.app"
@@ -85,12 +87,12 @@ jobs:
           done < <(find build/Payload/nodeseek.app -type f -perm -111 -print0)
 
           ldid -S "$main_binary"
-          (cd build && zip -qry NS-Connect-2.4.0-trollstore.ipa Payload)
-          unzip -t build/NS-Connect-2.4.0-trollstore.ipa
+          (cd build && zip -qry "NS-Connect-${APP_VERSION}-trollstore.ipa" Payload)
+          unzip -t "build/NS-Connect-${APP_VERSION}-trollstore.ipa"
 
       - name: Upload TrollStore IPA
         uses: actions/upload-artifact@v4
         with:
-          name: NS-Connect-2.4.0-trollstore-ipa
-          path: build/NS-Connect-2.4.0-trollstore.ipa
+          name: NS-Connect-${{ inputs.version }}-trollstore-ipa
+          path: build/NS-Connect-${{ inputs.version }}-trollstore.ipa
           if-no-files-found: error
