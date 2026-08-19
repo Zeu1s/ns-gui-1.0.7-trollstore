@@ -37,6 +37,16 @@ jobs:
       - name: Resolve Swift packages
         run: xcodebuild -resolvePackageDependencies -project nodeseek.xcodeproj -scheme nodeseek
 
+      - name: Run focused unit tests
+        run: |
+          xcodebuild test \
+            -project nodeseek.xcodeproj \
+            -scheme nodeseek \
+            -destination 'platform=iOS Simulator,name=iPhone 16' \
+            -only-testing:nodeseekTests/PostDetailViewControllerTests \
+            -only-testing:nodeseekTests/NodeSeekSplashAnimatorTests \
+            -only-testing:nodeseekTests/PostSummaryCellNodeTests \
+            CODE_SIGNING_ALLOWED=NO
       - name: Build unsigned archive
         env:
           APP_VERSION: ${{ inputs.version }}

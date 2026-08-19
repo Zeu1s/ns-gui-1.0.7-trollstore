@@ -175,7 +175,6 @@ final class PostBodyCellNode: ASCellNode, ThemeRefreshableNode {
     }
 
     deinit {
-        cancelAvatarLoad()
         if let userInfoObserver {
             NotificationCenter.default.removeObserver(userInfoObserver)
         }
@@ -291,7 +290,7 @@ final class PostBodyCellNode: ASCellNode, ThemeRefreshableNode {
             right: AppDisplayScaleSettings.scaled(5)
         )
         levelDaysBadgeNode.cornerRadius = AppDisplayScaleSettings.scaled(4)
-        levelDaysBadgeNode.backgroundColor = .systemIndigo
+        levelDaysBadgeNode.backgroundColor = .systemGreen
         levelDaysBadgeNode.isUserInteractionEnabled = false
         levelDaysBadgeNode.isHidden = false
         levelDaysBadgeNode.accessibilityLabel = badgeText
@@ -424,7 +423,6 @@ final class PostBodyCellNode: ASCellNode, ThemeRefreshableNode {
         button.backgroundColor = UIColor.secondarySystemBackground.withAlphaComponent(0.55)
         button.cornerRadius = PostDetailContentLayout.reactionActionHeight / 2
         button.borderWidth = 1 / UIScreen.main.scale
-        button.layer.borderColor = UIColor.separator.cgColor
         let displayCount = count.flatMap { $0 > 0 ? $0 : nil }
         button.contentSpacing = displayCount == nil ? 0 : PostDetailContentLayout.reactionTitleSpacing
         button.contentEdgeInsets = PostDetailContentLayout.reactionContentEdgeInsets

@@ -410,7 +410,7 @@ private enum PostListAuthorBadgeStyle {
     static func backgroundColor(for text: String) -> UIColor {
         let value = text.lowercased()
         if value.contains("ai") { return .systemPurple }
-        if value.contains("lv") || value.contains("等级") || value.contains("level") { return .systemPink }
+        if value.contains("lv") || value.contains("等级") || value.contains("level") { return .systemGreen }
         if value.contains("管理") || value.contains("admin") { return .systemRed }
         if value.contains("好友") || value.contains("关注") { return .systemGreen }
         return .systemIndigo

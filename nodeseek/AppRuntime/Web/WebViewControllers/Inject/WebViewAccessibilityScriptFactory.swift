@@ -78,7 +78,7 @@ enum WebViewAccessibilityScriptFactory {
               (document.head || document.documentElement).appendChild(style);
             }
             style.textContent = `
-              .nodeseek-user-info-badge{display:inline-flex;align-items:center;margin-left:6px;padding:2px 7px;border-radius:999px;background:linear-gradient(135deg,#6366f1,#8b5cf6);color:#fff!important;font-size:11px;font-weight:600;line-height:16px;vertical-align:middle;white-space:nowrap;text-decoration:none!important;pointer-events:none}
+              .nodeseek-user-info-badge{display:inline-flex;align-items:center;margin-left:6px;padding:2px 7px;border-radius:999px;background:linear-gradient(135deg,#22c55e,#16a34a);color:#fff!important;font-size:11px;font-weight:600;line-height:16px;vertical-align:middle;white-space:nowrap;text-decoration:none!important;pointer-events:none}
               .info-author .nodeseek-user-info-badge{margin-left:4px}
             `;
           };
@@ -332,7 +332,17 @@ enum WebViewAccessibilityScriptFactory {
                 min-width: 0 !important;
                 box-sizing: border-box !important;
               }
-              html.nodeseek-private-message-page table,
+              html.nodeseek-private-message-page #nsk-body-left :is(div, section, article, form, table, ul, li, .content-item, [class*="panel"], [class*="card"]),
+              html.nodeseek-profile-page #nsk-body-left :is(div, section, article, form, table, ul, li, .content-item, [class*="panel"], [class*="card"]) {
+                max-width: 100% !important;
+                min-width: 0 !important;
+                box-sizing: border-box !important;
+              }
+              html.nodeseek-private-message-page #nsk-body-left img,
+              html.nodeseek-profile-page #nsk-body-left img {
+                max-width: 100% !important;
+                height: auto !important;
+              }              html.nodeseek-private-message-page table,
               html.nodeseek-profile-page table {
                 width: 100% !important;
                 max-width: 100% !important;

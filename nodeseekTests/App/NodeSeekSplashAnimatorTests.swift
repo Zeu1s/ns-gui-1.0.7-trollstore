@@ -21,6 +21,7 @@ struct NodeSeekSplashAnimatorTests {
         #expect(layerNames.contains("splash.nodeseek.core"))
         #expect(layerNames.contains("splash.nodeseek.eyes"))
         #expect(layerNames.contains("splash.nodeseek.wordmark"))
+        #expect(layerNames.contains("splash.nodeseek.image"))
         #expect(layerNames.contains("splash.nodeseek.wordmark.left"))
         #expect(layerNames.contains("splash.nodeseek.wordmark.right"))
         #expect(!layerNames.contains("splash.n.leftStroke"))

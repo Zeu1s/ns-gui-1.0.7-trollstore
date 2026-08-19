@@ -34,6 +34,7 @@ final class NodeSeekSplashAnimator: NSObject {
     private let leftWaveLayer = CAShapeLayer()
     private let nodeCoreLayer = CAShapeLayer()
     private let nodeEyesLayer = CAShapeLayer()
+    private let brandImageLayer = CALayer()
     private let rightWaveLayer = CAShapeLayer()
     private let wordmarkLayer = CATextLayer()
     private let wordmarkLeftLayer = CATextLayer()
@@ -57,6 +58,7 @@ final class NodeSeekSplashAnimator: NSObject {
         view.layer.addSublayer(rightWaveLayer)
         view.layer.addSublayer(nodeCoreLayer)
         view.layer.addSublayer(nodeEyesLayer)
+        view.layer.addSublayer(brandImageLayer)
         view.layer.addSublayer(wordmarkLeftLayer)
         view.layer.addSublayer(wordmarkRightLayer)
         view.layer.addSublayer(wordmarkLayer)
@@ -100,6 +102,7 @@ private extension NodeSeekSplashAnimator {
         leftWaveLayer.name = "splash.nodeseek.leftWaves"
         nodeCoreLayer.name = "splash.nodeseek.core"
         nodeEyesLayer.name = "splash.nodeseek.eyes"
+        brandImageLayer.name = "splash.nodeseek.image"
         rightWaveLayer.name = "splash.nodeseek.rightWaves"
         wordmarkLayer.name = "splash.nodeseek.wordmark"
         wordmarkLeftLayer.name = "splash.nodeseek.wordmark.left"
@@ -126,6 +129,17 @@ private extension NodeSeekSplashAnimator {
         nodeCoreLayer.frame = bounds
         nodeCoreLayer.path = UIBezierPath(ovalIn: coreFrame).cgPath
         nodeCoreLayer.contentsScale = UIScreen.main.scale
+
+        let brandSide = glyphWidth * 0.72
+        brandImageLayer.frame = CGRect(
+            x: glyphFrame.midX - brandSide / 2,
+            y: glyphFrame.midY - brandSide / 2,
+            width: brandSide,
+            height: brandSide
+        )
+        brandImageLayer.contents = UIImage(named: "SplashLogo")?.cgImage
+        brandImageLayer.contentsGravity = .resizeAspect
+        brandImageLayer.contentsScale = UIScreen.main.scale
 
         let eyeWidth = coreDiameter * 0.16
         let eyeHeight = coreDiameter * 0.25
@@ -205,7 +219,7 @@ private extension NodeSeekSplashAnimator {
         wordmarkRightLayer.alignmentMode = .left
         wordmarkRightLayer.contentsScale = UIScreen.main.scale
 
-        [leftWaveLayer, nodeCoreLayer, nodeEyesLayer, rightWaveLayer, wordmarkLayer, wordmarkLeftLayer, wordmarkRightLayer].forEach {
+        [leftWaveLayer, nodeCoreLayer, nodeEyesLayer, brandImageLayer, rightWaveLayer, wordmarkLayer, wordmarkLeftLayer, wordmarkRightLayer].forEach {
             $0.opacity = 0
             $0.transform = CATransform3DIdentity
         }
@@ -364,6 +378,7 @@ private extension NodeSeekSplashAnimator {
         animateBrandLayer(rightWaveLayer, beginTime: timelineBegin + 0.10, duration: 0.28)
         animateBrandLayer(nodeCoreLayer, beginTime: timelineBegin + 0.26, duration: 0.30)
         animateBrandLayer(nodeEyesLayer, beginTime: timelineBegin + 0.46, duration: 0.22)
+        animateBrandLayer(brandImageLayer, beginTime: timelineBegin + 0.30, duration: 0.34)
         animateConvergingWordmarkLayer(
             wordmarkLeftLayer,
             translationX: -containerViewWidth * 0.62,
@@ -388,7 +403,7 @@ private extension NodeSeekSplashAnimator {
     }
 
     func pinModelLayersToFinalFrame() {
-        [leftWaveLayer, nodeCoreLayer, nodeEyesLayer, rightWaveLayer, wordmarkLayer].forEach {
+        [leftWaveLayer, nodeCoreLayer, nodeEyesLayer, brandImageLayer, rightWaveLayer, wordmarkLayer].forEach {
             $0.opacity = 1
             $0.transform = CATransform3DIdentity
             $0.removeAllAnimations()
