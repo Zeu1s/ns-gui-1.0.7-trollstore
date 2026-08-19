@@ -477,14 +477,20 @@ final class CommentCellNode: ASCellNode, ThemeRefreshableNode {
         systemImageName: String,
         accessibilityLabel: String,
         count: Int? = nil,
-        color: UIColor = UIColor.secondaryLabel.withAlphaComponent(PostDetailContentLayout.inactiveReactionAlpha)
+        color: UIColor = UIColor.secondaryLabel.withAlphaComponent(PostDetailContentLayout.inactiveReactionAlpha),
+        customImage: UIImage? = nil
     ) {
         let configuration = UIImage.SymbolConfiguration(
             pointSize: PostDetailContentLayout.reactionSymbolPointSize,
             weight: .regular
         )
-        let image = UIImage(systemName: systemImageName, withConfiguration: configuration)?
-            .withTintColor(color, renderingMode: .alwaysOriginal)
+        let image: UIImage?
+        if let customImage {
+            image = customImage.withTintColor(color, renderingMode: .alwaysOriginal)
+        } else {
+            image = UIImage(systemName: systemImageName, withConfiguration: configuration)?
+                .withTintColor(color, renderingMode: .alwaysOriginal)
+        }
         button.setImage(image, for: .normal)
         button.backgroundColor = UIColor.secondarySystemBackground.withAlphaComponent(0.55)
         button.cornerRadius = PostDetailContentLayout.reactionActionHeight / 2
@@ -558,7 +564,8 @@ final class CommentCellNode: ASCellNode, ThemeRefreshableNode {
             systemImageName: "fork.knife",
             accessibilityLabel: "加鸡腿",
             count: count,
-            color: Self.chickenLegActionColor(isClicked: isClicked)
+            color: Self.chickenLegActionColor(isClicked: isClicked),
+            customImage: ReactionIconRenderer.chickenLeg(pointSize: PostDetailContentLayout.reactionSymbolPointSize)
         )
     }
 

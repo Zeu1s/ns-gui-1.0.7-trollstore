@@ -49,6 +49,7 @@ final class PostListBottomNavigationView: UIView {
     private var buttons: [PostListBottomNavigationItem: UIButton] = [:]
     private let messageUnreadBadge = UIView()
     private let backgroundBlurView = UIVisualEffectView(effect: UIBlurEffect(style: .systemMaterial))
+    private let selectionPillView = UIView()
     private var selectedItem: PostListBottomNavigationItem = .home
     private var stackLeadingConstraint: NSLayoutConstraint?
     private var stackTrailingConstraint: NSLayoutConstraint?
@@ -73,6 +74,12 @@ final class PostListBottomNavigationView: UIView {
         for currentItem in PostListBottomNavigationItem.allCases {
             configure(button: buttons[currentItem], for: currentItem, isSelected: currentItem == item)
         }
+        updateSelectionPill(animated: false)
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        updateSelectionPill(animated: false)
     }
 
     func setUnreadMessagesVisible(_ isVisible: Bool) {
@@ -82,6 +89,7 @@ final class PostListBottomNavigationView: UIView {
 
     func refreshDisplayScale() {
         layer.cornerRadius = AppDisplayScaleSettings.scaled(26)
+        selectionPillView.layer.cornerRadius = AppDisplayScaleSettings.scaled(16)
         messageUnreadBadge.layer.cornerRadius = AppDisplayScaleSettings.scaled(6)
         stackLeadingConstraint?.constant = AppDisplayScaleSettings.scaled(5)
         stackTrailingConstraint?.constant = -AppDisplayScaleSettings.scaled(5)
@@ -110,6 +118,13 @@ final class PostListBottomNavigationView: UIView {
             backgroundBlurView.topAnchor.constraint(equalTo: topAnchor),
             backgroundBlurView.bottomAnchor.constraint(equalTo: bottomAnchor)
         ])
+
+        selectionPillView.backgroundColor = UIColor.systemOrange.withAlphaComponent(0.16)
+        selectionPillView.layer.cornerRadius = AppDisplayScaleSettings.scaled(16)
+        selectionPillView.isUserInteractionEnabled = false
+        selectionPillView.translatesAutoresizingMaskIntoConstraints = true
+        selectionPillView.frame = .zero
+        addSubview(selectionPillView)
 
         let stackView = UIStackView()
         stackView.axis = .horizontal
@@ -187,12 +202,30 @@ final class PostListBottomNavigationView: UIView {
         setSelectedItem(.home)
     }
 
+    private func updateSelectionPill(animated: Bool) {
+        guard let button = buttons[selectedItem] else { return }
+        let target = button.convert(button.bounds, to: self)
+        let frame = target.insetBy(dx: -4, dy: 2)
+        let apply = { [weak self] in
+            self?.selectionPillView.frame = frame
+        }
+        if animated {
+            UIView.animate(
+                withDuration: 0.25,
+                delay: 0,
+                options: [.curveEaseOut, .allowUserInteraction],
+                animations: apply
+            )
+        } else {
+            apply()
+        }
+    }
+
     private func configure(
         button: UIButton?,
         for item: PostListBottomNavigationItem,
         isSelected: Bool
-    ) {
-        guard let button else { return }
+    ) {        guard let button else { return }
         let symbolConfiguration = UIImage.SymbolConfiguration(
             pointSize: AppDisplayScaleSettings.scaled(19),
             weight: isSelected ? .semibold : .regular

@@ -284,6 +284,11 @@ class PostListViewController: UIViewController {
         navigationController?.setNavigationBarHidden(false, animated: animated)
     }
 
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        navigationController?.interactivePopGestureRecognizer?.isEnabled = true
+    }
+
     // MARK: - Setup UI
     private func setupUI() {
         navigationItem.title = nil
@@ -432,12 +437,15 @@ class PostListViewController: UIViewController {
     private func bottomNavigationItemTapped(_ item: PostListBottomNavigationItem) {
         switch item {
         case .home:
+            if let navigationController, navigationController.viewControllers.count > 1 {
+                navigationController.popToRootViewController(animated: true)
+            }
             guard categories.contains(.all) else {
                 pageContainerViewController.scrollToTop(for: selectedCategory, animated: true)
                 return
             }
             selectedCategory = .all
-            applySelectedCategory(.all, syncPage: true, pageAnimated: true)
+            applySelectedCategory(.all, syncPage: true, pageAnimated: false)
             presenter.didSelectCategory(.all)
             pageContainerViewController.scrollToTop(for: .all, animated: true)
         case .history:
