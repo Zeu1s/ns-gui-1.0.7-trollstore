@@ -51,6 +51,10 @@ final class PostTextureListHostViewController: UIViewController {
         presenter.reloadFirstPage()
     }
 
+    func refreshFirstPageKeepingContent() {
+        presenter.refreshFirstPageKeepingContent()
+    }
+
     func scrollToTop(animated: Bool) {
         loadViewIfNeeded()
         listView.scrollToTop(animated: animated)

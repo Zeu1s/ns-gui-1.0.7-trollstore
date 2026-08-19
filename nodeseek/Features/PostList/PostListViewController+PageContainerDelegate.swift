@@ -32,7 +32,7 @@ extension PostListViewController: PostPageContainerViewControllerDelegate {
         syncSelectedCategoryFromPageContainerIfNeeded(category)
         renderSortMode(containerView.sortMode(for: category))
         if categoryChanged {
-            containerView.reloadFirstPage(for: category)
+            containerView.refreshFirstPageKeepingContent(for: category)
         }
     }
 

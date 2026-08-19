@@ -375,6 +375,33 @@ enum WebViewAccessibilityScriptFactory {
               html.nodeseek-private-message-page #nsk-body-left,
               html.nodeseek-profile-page #nsk-body-left {
                 min-height: 100vh !important;
+              }              html.nodeseek-private-message-page #nsk-body-left {
+                padding-bottom: 140px !important;
+              }
+              html.nodeseek-private-message-page [class*="message"] :is(article, [class*="bubble"], [class*="content"]),
+              html.nodeseek-private-message-page [class*="conversation"] :is(article, [class*="bubble"], [class*="content"]) {
+                max-width: 78% !important;
+                margin: 6px 0 !important;
+                border: 1px solid #d7dbe2 !important;
+                border-radius: 12px !important;
+                padding: 8px 12px !important;
+                box-sizing: border-box !important;
+              }
+              html.nodeseek-private-message-page [class*="message"][class*="self"],
+              html.nodeseek-private-message-page [class*="message"][class*="own"],
+              html.nodeseek-private-message-page [class*="message"][class*="mine"],
+              html.nodeseek-private-message-page [class*="bubble"][class*="right"],
+              html.nodeseek-private-message-page [class*="chat"] [class*="right"] {
+                align-self: flex-end !important;
+                margin-left: auto !important;
+                margin-right: 0 !important;
+              }
+              html.nodeseek-private-message-page [class*="message"][class*="self"] :is(article, [class*="bubble"], [class*="content"]),
+              html.nodeseek-private-message-page [class*="message"][class*="own"] :is(article, [class*="bubble"], [class*="content"]),
+              html.nodeseek-private-message-page [class*="message"][class*="mine"] :is(article, [class*="bubble"], [class*="content"]),
+              html.nodeseek-private-message-page [class*="chat"] [class*="right"] :is(article, [class*="bubble"], [class*="content"]) {
+                background: #95ec69 !important;
+                border-color: #7fd45a !important;
               }              html.nodeseek-private-message-page table,
               html.nodeseek-profile-page table {
                 width: 100% !important;

@@ -56,6 +56,16 @@ final class PostTextureListHostPresenter: PostTextureListHostPresenterProtocol {
         resetAndLoadFirstPage()
     }
 
+    func refreshFirstPageKeepingContent() {
+        guard hasLoadedFirstPage else {
+            loadFirstPageIfNeeded()
+            return
+        }
+        guard !isRefreshing, !isLoadingFirstPage, !isLoadingMore else { return }
+        isRefreshing = true
+        interactor.loadPosts(category: category, sortMode: sortMode)
+    }
+
     func didSelectPost(at index: Int) {
         guard items.indices.contains(index) else { return }
         let item = items[index]
@@ -222,7 +232,18 @@ private extension PostTextureListHostPresenter {
     }
 
     func postItems(for posts: [PostSummary]) -> [PostListItem] {
-        posts.map { post in
+        let filteredPosts: [PostSummary]
+        if category.isSpecialFollow {
+            let rules = SpecialFollowKeywordStore.shared.rules
+            filteredPosts = posts.filter { post in
+                rules.contains { rule in
+                    post.title.localizedCaseInsensitiveContains(rule.keyword)
+                }
+            }
+        } else {
+            filteredPosts = posts
+        }
+        return filteredPosts.map { post in
             PostListItem(post: post, isVisited: visitedStore.isVisited(postID: post.id))
         }
     }

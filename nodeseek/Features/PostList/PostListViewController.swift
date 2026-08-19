@@ -58,6 +58,8 @@ class PostListViewController: UIViewController {
     private var bottomNavigationTrailingConstraint: NSLayoutConstraint?
     private var bottomNavigationBottomConstraint: NSLayoutConstraint?
     private var bottomNavigationHeightConstraint: NSLayoutConstraint?
+    private var pageContainerBottomConstraint: NSLayoutConstraint?
+    private var didInstallGlobalBottomNavigation = false
     var isSortToggleExpanded = false
     let sideMenuViewController: PostListSideMenuViewController
     let menuButtonFeedbackGenerator = UIImpactFeedbackGenerator(style: .light)
@@ -262,11 +264,13 @@ class PostListViewController: UIViewController {
         super.viewDidLoad()
         setupUI()
         presenter.viewDidLoad()
+        installGlobalBottomNavigationIfNeeded()
     }
     
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
         navigationController?.setNavigationBarHidden(true, animated: animated)
+        installGlobalBottomNavigationIfNeeded()
         bottomNavigationView.setSelectedItem(.home)
         refreshAppearanceForCurrentTraits()
         applySearchEntryVisibility(animated: false)
@@ -327,6 +331,11 @@ class PostListViewController: UIViewController {
             equalTo: view.bottomAnchor,
             constant: BottomNavigationLayout.bottomInset
         )
+        let pageContainerBottomConstraint = pageContainerView.bottomAnchor.constraint(
+            equalTo: bottomNavigationView.topAnchor,
+            constant: -BottomNavigationLayout.contentSpacing
+        )
+        self.pageContainerBottomConstraint = pageContainerBottomConstraint
         let bottomNavigationHeightConstraint = bottomNavigationView.heightAnchor.constraint(
             equalToConstant: BottomNavigationLayout.height
         )
@@ -340,7 +349,7 @@ class PostListViewController: UIViewController {
             pageContainerView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             pageContainerView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             pageContainerView.topAnchor.constraint(equalTo: tabScrollView.bottomAnchor, constant: TopBarLayout.contentSpacing),
-            pageContainerView.bottomAnchor.constraint(equalTo: bottomNavigationView.topAnchor, constant: -BottomNavigationLayout.contentSpacing),
+            pageContainerBottomConstraint,
 
             bottomNavigationLeadingConstraint,
             bottomNavigationTrailingConstraint,
@@ -452,7 +461,7 @@ class PostListViewController: UIViewController {
         }
         selectedCategory = category
         applySelectedCategory(category, syncPage: true, pageAnimated: true)
-        pageContainerViewController.reloadFirstPage(for: category)
+        pageContainerViewController.refreshFirstPageKeepingContent(for: category)
         renderSortMode(pageContainerViewController.sortMode(for: category))
         presenter.didSelectCategory(category)
     }
@@ -620,6 +629,58 @@ class PostListViewController: UIViewController {
         bottomNavigationTrailingConstraint?.constant = -BottomNavigationLayout.horizontalInset
         bottomNavigationBottomConstraint?.constant = BottomNavigationLayout.bottomInset
         bottomNavigationHeightConstraint?.constant = BottomNavigationLayout.height
+        if didInstallGlobalBottomNavigation {
+            pageContainerBottomConstraint?.constant = -(BottomNavigationLayout.height + BottomNavigationLayout.contentSpacing)
+        }
+        view.setNeedsLayout()
+    }
+
+    private func installGlobalBottomNavigationIfNeeded() {
+        guard didInstallGlobalBottomNavigation == false else { return }
+        guard let navigationController else { return }
+
+        bottomNavigationLeadingConstraint?.isActive = false
+        bottomNavigationTrailingConstraint?.isActive = false
+        bottomNavigationBottomConstraint?.isActive = false
+        bottomNavigationHeightConstraint?.isActive = false
+        pageContainerBottomConstraint?.isActive = false
+
+        bottomNavigationView.removeFromSuperview()
+        navigationController.view.addSubview(bottomNavigationView)
+        let newLeading = bottomNavigationView.leadingAnchor.constraint(
+            equalTo: navigationController.view.safeAreaLayoutGuide.leadingAnchor,
+            constant: BottomNavigationLayout.horizontalInset
+        )
+        let newTrailing = bottomNavigationView.trailingAnchor.constraint(
+            equalTo: navigationController.view.safeAreaLayoutGuide.trailingAnchor,
+            constant: -BottomNavigationLayout.horizontalInset
+        )
+        let newBottom = bottomNavigationView.bottomAnchor.constraint(
+            equalTo: navigationController.view.bottomAnchor,
+            constant: BottomNavigationLayout.bottomInset
+        )
+        let newHeight = bottomNavigationView.heightAnchor.constraint(
+            equalToConstant: BottomNavigationLayout.height
+        )
+        self.bottomNavigationLeadingConstraint = newLeading
+        self.bottomNavigationTrailingConstraint = newTrailing
+        self.bottomNavigationBottomConstraint = newBottom
+        self.bottomNavigationHeightConstraint = newHeight
+
+        let newPageContainerBottom = pageContainerViewController.view!.bottomAnchor.constraint(
+            equalTo: view.bottomAnchor,
+            constant: -(BottomNavigationLayout.height + BottomNavigationLayout.contentSpacing)
+        )
+        self.pageContainerBottomConstraint = newPageContainerBottom
+
+        NSLayoutConstraint.activate([
+            newLeading,
+            newTrailing,
+            newBottom,
+            newHeight,
+            newPageContainerBottom
+        ])
+        didInstallGlobalBottomNavigation = true
         view.setNeedsLayout()
     }
 

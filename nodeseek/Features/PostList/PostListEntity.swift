@@ -8,6 +8,7 @@
 import Foundation
 
 nonisolated enum PostListCategory: String, CaseIterable, Codable, Sendable {
+    case specialFollow = "special-follow"
     case all
     case daily
     case tech
@@ -47,6 +48,7 @@ nonisolated enum PostListCategory: String, CaseIterable, Codable, Sendable {
 
     var title: String {
         switch self {
+        case .specialFollow: return "特别关注"
         case .all: return "全部"
         case .award: return "推荐阅读"
         case .daily: return "日常"
@@ -91,7 +93,7 @@ nonisolated enum PostListCategory: String, CaseIterable, Codable, Sendable {
     func pathComponents(page: Int) -> [String] {
         let normalized = max(1, page)
         switch self {
-        case .all:
+        case .all, .specialFollow:
             return ["page-\(normalized)"]
         case .award:
             return [categoryPathComponent, "page-\(normalized)"]
@@ -110,6 +112,7 @@ nonisolated struct PostListCategoryItem: Hashable, Codable, Sendable {
     }
 
     static var all: PostListCategoryItem { .builtin(.all) }
+    static var specialFollow: PostListCategoryItem { .builtin(.specialFollow) }
     static var daily: PostListCategoryItem { .builtin(.daily) }
     static var tech: PostListCategoryItem { .builtin(.tech) }
     static var info: PostListCategoryItem { .builtin(.info) }
@@ -137,6 +140,10 @@ nonisolated struct PostListCategoryItem: Hashable, Codable, Sendable {
 
     var isAll: Bool {
         category == .all
+    }
+
+    var isSpecialFollow: Bool {
+        category == .specialFollow
     }
 
     var title: String {

@@ -48,6 +48,7 @@ final class PostListBottomNavigationView: UIView {
 
     private var buttons: [PostListBottomNavigationItem: UIButton] = [:]
     private let messageUnreadBadge = UIView()
+    private let backgroundBlurView = UIVisualEffectView(effect: UIBlurEffect(style: .systemMaterial))
     private var selectedItem: PostListBottomNavigationItem = .home
     private var stackLeadingConstraint: NSLayoutConstraint?
     private var stackTrailingConstraint: NSLayoutConstraint?
@@ -95,10 +96,20 @@ final class PostListBottomNavigationView: UIView {
 
     private func configureView() {
         accessibilityIdentifier = "post-list-bottom-navigation"
-        backgroundColor = UIColor.secondarySystemBackground.withAlphaComponent(0.6)
+        backgroundColor = .clear
         layer.cornerRadius = AppDisplayScaleSettings.scaled(26)
         layer.cornerCurve = .continuous
+        layer.masksToBounds = true
         translatesAutoresizingMaskIntoConstraints = false
+
+        backgroundBlurView.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(backgroundBlurView)
+        NSLayoutConstraint.activate([
+            backgroundBlurView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            backgroundBlurView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            backgroundBlurView.topAnchor.constraint(equalTo: topAnchor),
+            backgroundBlurView.bottomAnchor.constraint(equalTo: bottomAnchor)
+        ])
 
         let stackView = UIStackView()
         stackView.axis = .horizontal

@@ -12,6 +12,10 @@ final class CategoryTabButton: UIButton {
 
     var category: PostListCategoryItem?
 
+    var isSpecialFollow: Bool {
+        category?.isSpecialFollow == true
+    }
+
     private let indicatorView: UIView = {
         let view = UIView()
         view.backgroundColor = .label
@@ -56,7 +60,13 @@ final class CategoryTabButton: UIButton {
             basePointSize: PostListTopBarStyle.Tab.pointSize,
             weight: isSelected ? PostListTopBarStyle.Tab.selectedWeight : PostListTopBarStyle.Tab.normalWeight
         )
-        setTitleColor(isSelected ? .label : .secondaryLabel, for: .normal)
+        if isSpecialFollow {
+            setTitleColor(isSelected ? .systemOrange : UIColor.systemOrange.withAlphaComponent(0.78), for: .normal)
+            indicatorView.backgroundColor = .systemOrange
+        } else {
+            setTitleColor(isSelected ? .label : .secondaryLabel, for: .normal)
+            indicatorView.backgroundColor = .label
+        }
         invalidateIntrinsicContentSize()
         indicatorView.isHidden = !isSelected
     }

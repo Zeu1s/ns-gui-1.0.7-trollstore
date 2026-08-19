@@ -130,7 +130,7 @@ private extension NodeSeekSplashAnimator {
         nodeCoreLayer.path = UIBezierPath(ovalIn: coreFrame).cgPath
         nodeCoreLayer.contentsScale = UIScreen.main.scale
 
-        let brandSide = glyphWidth * 0.84
+        let brandSide = min(bounds.width * 0.66, 300)
         brandImageLayer.frame = CGRect(
             x: glyphFrame.midX - brandSide / 2,
             y: glyphFrame.midY - brandSide / 2,
@@ -380,7 +380,7 @@ private extension NodeSeekSplashAnimator {
         animateBrandLayer(rightWaveLayer, beginTime: timelineBegin + 0.10, duration: 0.28)
         animateBrandLayer(nodeCoreLayer, beginTime: timelineBegin + 0.26, duration: 0.30)
         animateBrandLayer(nodeEyesLayer, beginTime: timelineBegin + 0.46, duration: 0.22)
-        animateBrandLayer(brandImageLayer, beginTime: timelineBegin + 0.30, duration: 0.34)
+        animateBrandImageLayer(beginTime: timelineBegin + 0.30, duration: 0.44)
         animateConvergingWordmarkLayer(
             wordmarkLeftLayer,
             translationX: -containerViewWidth * 0.62,
@@ -470,8 +470,20 @@ private extension NodeSeekSplashAnimator {
         dotLayer.add(scale, forKey: "dotPop")
     }
 
-    func animateBrandLayer(_ layer: CALayer, beginTime: CFTimeInterval, duration: CFTimeInterval) {
-        layer.opacity = 1
+    func animateBrandImageLayer(beginTime: CFTimeInterval, duration: CFTimeInterval) {
+        animateBrandLayer(brandImageLayer, beginTime: beginTime, duration: duration)
+        let scale = CABasicAnimation(keyPath: "transform.scale")
+        scale.fromValue = 0.82
+        scale.toValue = 1
+        scale.beginTime = beginTime
+        scale.duration = duration
+        scale.timingFunction = CAMediaTimingFunction(name: .easeOut)
+        scale.fillMode = .both
+        scale.isRemovedOnCompletion = false
+        brandImageLayer.add(scale, forKey: "brandImageScale")
+    }
+
+    func animateBrandLayer(_ layer: CALayer, beginTime: CFTimeInterval, duration: CFTimeInterval) {        layer.opacity = 1
         let fade = CABasicAnimation(keyPath: "opacity")
         fade.fromValue = 0
         fade.toValue = 1

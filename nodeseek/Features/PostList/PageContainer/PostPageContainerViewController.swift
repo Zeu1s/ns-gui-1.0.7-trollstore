@@ -93,6 +93,10 @@ final class PostPageContainerViewController: UIPageViewController {
         hostViewControllers[category]?.reloadFirstPage()
     }
 
+    func refreshFirstPageKeepingContent(for category: PostListCategoryItem) {
+        hostViewControllers[category]?.refreshFirstPageKeepingContent()
+    }
+
     func scrollToTop(for category: PostListCategoryItem, animated: Bool) {
         hostViewControllers[category]?.scrollToTop(animated: animated)
     }

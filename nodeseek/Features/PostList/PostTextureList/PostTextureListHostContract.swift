@@ -34,6 +34,7 @@ protocol PostTextureListHostPresenterProtocol: AnyObject {
     func viewDidLoad()
     func toggleSortMode() -> PostListSortMode
     func reloadFirstPage()
+    func refreshFirstPageKeepingContent()
     func didSelectPost(at index: Int)
     func didRequestRefresh()
     func didRequestFirstPageRetry()
