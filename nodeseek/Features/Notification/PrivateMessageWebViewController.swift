@@ -192,11 +192,25 @@ final class PrivateMessageWebViewController: BaseWebViewController {
                     window.webkit.messageHandlers.nodeSeekUploadImage.postMessage({});
                   }
                 });
-                const header = document.querySelector('[class*="chat"] [class*="header"], [class*="conversation"] [class*="header"], [class*="dialog"] [class*="header"], .layui-layer-title, [class*="title-bar"]');
+                const selectors = [
+                  '.layui-layer-title',
+                  '[class*="conversation"] [class*="header"]',
+                  '[class*="chat"] [class*="header"]',
+                  '[class*="dialog"] [class*="header"]',
+                  '[class*="message"] [class*="header"]',
+                  '[class*="talk"] [class*="header"]',
+                  '[class*="title-bar"]',
+                  '[class*="user-name"]',
+                  '[class*="username"]',
+                  '[class*="nickname"]'
+                ];
+                const header = selectors
+                  .map((selector) => document.querySelector(selector))
+                  .find((el) => el && el.offsetParent !== null && el.textContent.trim().length > 0);
                 if (header && header.parentElement) {
                   header.parentElement.appendChild(button);
                 } else {
-                  button.style.cssText = 'position:fixed;right:max(16px, env(safe-area-inset-right));bottom:max(120px, calc(env(safe-area-inset-bottom) + 96px));width:56px;height:56px;border-radius:28px;border:none;background:#1677ff;color:#fff;font-size:26px;display:flex;align-items:center;justify-content:center;line-height:1;box-shadow:0 4px 12px rgba(0,0,0,0.25);z-index:2147483647;touch-action:manipulation';
+                  button.style.cssText = 'position:fixed;top:max(12px, env(safe-area-inset-top) + 64px);right:max(12px, env(safe-area-inset-right));width:44px;height:44px;border-radius:22px;border:none;background:#1677ff;color:#fff;font-size:20px;display:flex;align-items:center;justify-content:center;line-height:1;box-shadow:0 4px 12px rgba(0,0,0,0.25);z-index:2147483647;touch-action:manipulation';
                   document.documentElement.appendChild(button);
                 }
               };
