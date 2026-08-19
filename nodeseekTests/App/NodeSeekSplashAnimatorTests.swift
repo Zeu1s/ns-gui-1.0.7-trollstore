@@ -81,6 +81,8 @@ struct NodeSeekSplashAnimatorTests {
         }
         #expect(wordmarkLeft?.animation(forKey: "wordmarkConvergence") != nil)
         #expect(wordmarkRight?.animation(forKey: "wordmarkConvergence") != nil)
+        #expect(wordmarkLeft?.animation(forKey: "wordmarkSegmentExit") != nil)
+        #expect(wordmarkRight?.animation(forKey: "wordmarkSegmentExit") != nil)
     }
 
     @Test func reduceMotionCompletesWithoutLongAnimation() async {
@@ -116,5 +118,7 @@ struct NodeSeekSplashAnimatorTests {
         #expect(layers.first { $0.name == "splash.nodeseek.core" }?.opacity == 1)
         #expect(layers.first { $0.name == "splash.nodeseek.eyes" }?.opacity == 1)
         #expect(layers.first { $0.name == "splash.nodeseek.wordmark" }?.opacity == 1)
+        #expect(layers.first { $0.name == "splash.nodeseek.wordmark.left" }?.opacity == 0)
+        #expect(layers.first { $0.name == "splash.nodeseek.wordmark.right" }?.opacity == 0)
     }
 }

@@ -377,6 +377,8 @@ private extension NodeSeekSplashAnimator {
             duration: 0.38
         )
         animateBrandLayer(wordmarkLayer, beginTime: timelineBegin + 1.02, duration: 0.12)
+        animateWordmarkSegmentExit(wordmarkLeftLayer, beginTime: timelineBegin + 1.02, duration: 0.12)
+        animateWordmarkSegmentExit(wordmarkRightLayer, beginTime: timelineBegin + 1.02, duration: 0.12)
 
         DispatchQueue.main.asyncAfter(deadline: .now() + animationDuration) { [weak self] in
             guard let self else { return }
@@ -386,8 +388,13 @@ private extension NodeSeekSplashAnimator {
     }
 
     func pinModelLayersToFinalFrame() {
-        [leftWaveLayer, nodeCoreLayer, nodeEyesLayer, rightWaveLayer, wordmarkLayer, wordmarkLeftLayer, wordmarkRightLayer].forEach {
+        [leftWaveLayer, nodeCoreLayer, nodeEyesLayer, rightWaveLayer, wordmarkLayer].forEach {
             $0.opacity = 1
+            $0.transform = CATransform3DIdentity
+            $0.removeAllAnimations()
+        }
+        [wordmarkLeftLayer, wordmarkRightLayer].forEach {
+            $0.opacity = 0
             $0.transform = CATransform3DIdentity
             $0.removeAllAnimations()
         }
@@ -479,6 +486,19 @@ private extension NodeSeekSplashAnimator {
         translation.fillMode = .both
         translation.isRemovedOnCompletion = false
         layer.add(translation, forKey: "wordmarkConvergence")
+    }
+
+    func animateWordmarkSegmentExit(_ layer: CALayer, beginTime: CFTimeInterval, duration: CFTimeInterval) {
+        layer.opacity = 0
+        let fade = CABasicAnimation(keyPath: "opacity")
+        fade.fromValue = 1
+        fade.toValue = 0
+        fade.beginTime = beginTime
+        fade.duration = duration
+        fade.timingFunction = CAMediaTimingFunction(name: .easeIn)
+        fade.fillMode = .both
+        fade.isRemovedOnCompletion = false
+        layer.add(fade, forKey: "wordmarkSegmentExit")
     }
 
 }
