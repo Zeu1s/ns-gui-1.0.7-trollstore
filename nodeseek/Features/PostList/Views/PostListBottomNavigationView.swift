@@ -48,7 +48,7 @@ final class PostListBottomNavigationView: UIView {
 
     private var buttons: [PostListBottomNavigationItem: UIButton] = [:]
     private let messageUnreadBadge = UIView()
-    private let backgroundBlurView = UIVisualEffectView(effect: UIBlurEffect(style: .systemMaterial))
+    private let backgroundBlurView = UIVisualEffectView(effect: nil)
     private let selectionPillView = UIView()
     private var selectedItem: PostListBottomNavigationItem = .home
     private var stackLeadingConstraint: NSLayoutConstraint?
@@ -88,11 +88,11 @@ final class PostListBottomNavigationView: UIView {
     }
 
     func refreshDisplayScale() {
-        layer.cornerRadius = AppDisplayScaleSettings.scaled(26)
-        selectionPillView.layer.cornerRadius = AppDisplayScaleSettings.scaled(12)
+        layer.cornerRadius = 0
+        selectionPillView.layer.cornerRadius = AppDisplayScaleSettings.scaled(18)
         messageUnreadBadge.layer.cornerRadius = AppDisplayScaleSettings.scaled(6)
-        stackLeadingConstraint?.constant = AppDisplayScaleSettings.scaled(5)
-        stackTrailingConstraint?.constant = -AppDisplayScaleSettings.scaled(5)
+        stackLeadingConstraint?.constant = 0
+        stackTrailingConstraint?.constant = 0
         stackTopConstraint?.constant = AppDisplayScaleSettings.scaled(4)
         stackBottomConstraint?.constant = -AppDisplayScaleSettings.scaled(4)
         unreadBadgeWidthConstraint?.constant = AppDisplayScaleSettings.scaled(12)
@@ -104,14 +104,14 @@ final class PostListBottomNavigationView: UIView {
 
     private func configureView() {
         accessibilityIdentifier = "post-list-bottom-navigation"
-        backgroundColor = .clear
-        layer.cornerRadius = AppDisplayScaleSettings.scaled(26)
-        layer.cornerCurve = .continuous
-        layer.masksToBounds = true
+        backgroundColor = .systemBackground
+        layer.cornerRadius = 0
+        layer.masksToBounds = false
         translatesAutoresizingMaskIntoConstraints = false
 
         backgroundBlurView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(backgroundBlurView)
+        backgroundBlurView.backgroundColor = .systemBackground
         NSLayoutConstraint.activate([
             backgroundBlurView.leadingAnchor.constraint(equalTo: leadingAnchor),
             backgroundBlurView.trailingAnchor.constraint(equalTo: trailingAnchor),
@@ -119,8 +119,8 @@ final class PostListBottomNavigationView: UIView {
             backgroundBlurView.bottomAnchor.constraint(equalTo: bottomAnchor)
         ])
 
-        selectionPillView.backgroundColor = UIColor.systemOrange.withAlphaComponent(0.16)
-        selectionPillView.layer.cornerRadius = AppDisplayScaleSettings.scaled(12)
+        selectionPillView.backgroundColor = UIColor.systemOrange.withAlphaComponent(0.22)
+        selectionPillView.layer.cornerRadius = AppDisplayScaleSettings.scaled(18)
         selectionPillView.isUserInteractionEnabled = false
         selectionPillView.translatesAutoresizingMaskIntoConstraints = true
         selectionPillView.frame = .zero
@@ -153,11 +153,11 @@ final class PostListBottomNavigationView: UIView {
 
         let stackLeadingConstraint = stackView.leadingAnchor.constraint(
             equalTo: leadingAnchor,
-            constant: AppDisplayScaleSettings.scaled(5)
+            constant: 0
         )
         let stackTrailingConstraint = stackView.trailingAnchor.constraint(
             equalTo: trailingAnchor,
-            constant: -AppDisplayScaleSettings.scaled(5)
+            constant: 0
         )
         let stackTopConstraint = stackView.topAnchor.constraint(
             equalTo: topAnchor,
@@ -205,7 +205,10 @@ final class PostListBottomNavigationView: UIView {
     private func updateSelectionPill(animated: Bool) {
         guard let button = buttons[selectedItem] else { return }
         let target = button.convert(button.bounds, to: self)
-        let frame = target.insetBy(dx: 1, dy: 4)
+        let frame = target.insetBy(
+            dx: AppDisplayScaleSettings.scaled(6),
+            dy: AppDisplayScaleSettings.scaled(6)
+        )
         let apply: () -> Void = { [weak self] in
             guard let self else { return }
             self.selectionPillView.frame = frame
