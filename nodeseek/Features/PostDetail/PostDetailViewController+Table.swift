@@ -213,11 +213,13 @@ extension PostDetailViewController: ASTableDataSource, ASTableDelegate {
 
             let comment = comments[commentIndex]
             let renderedBody = commentRenderedCache[comment.id]
+            let replyReference = CommentReplyReferenceResolver.reference(for: comment, among: comments)
             let imageSizeProvider = makeCurrentImageSizeProvider()
             return { [weak self] in
                 CommentCellNode(
                     comment: comment,
                     renderedBody: renderedBody,
+                    replyReference: replyReference,
                     onImageTapped: { imageURLs, initialIndex in
                         self?.presentPhotoBrowser(imageURLs: imageURLs, initialIndex: initialIndex)
                     },

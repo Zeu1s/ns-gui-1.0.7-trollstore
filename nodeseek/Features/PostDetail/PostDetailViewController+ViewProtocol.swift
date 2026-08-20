@@ -279,6 +279,14 @@ extension PostDetailViewController: PostDetailViewProtocol {
         updateReplyButtonVisibility()
     }
 
+    func focusComment(anchorID: String) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.scrollToCurrentPageAnchor(anchorID)
+            self.showToast(message: "已定位到我的回复")
+        }
+    }
+
     func updatePostBody(detail: PostDetail) {
         guard hasRenderedDetailContent else {
             render(detail: detail)

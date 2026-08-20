@@ -23,6 +23,7 @@ protocol PostTextureListHostPresenterDelegate: AnyObject {
     func postTextureListHostDidSelectPost(_ post: PostSummary, category: PostListCategoryItem)
     func postTextureListHostDidChangeSortMode(_ sortMode: PostListSortMode, category: PostListCategoryItem)
     func postTextureListHostDidLoadFirstPage(category: PostListCategoryItem)
+    func postTextureListHostDidFailInitialLoad(category: PostListCategoryItem)
 }
 
 // MARK: - Presenter Protocol (View -> Presenter)

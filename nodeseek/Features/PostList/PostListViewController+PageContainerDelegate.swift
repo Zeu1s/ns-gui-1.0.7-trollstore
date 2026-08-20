@@ -49,6 +49,19 @@ extension PostListViewController: PostPageContainerViewControllerDelegate {
         }
     }
 
+    func postPageContainerViewController(
+        _ containerView: PostPageContainerViewController,
+        didFailInitialLoadFor category: PostListCategoryItem
+    ) {
+        guard selectedCategory == category,
+              let visibleCategory = containerView.currentCategory else {
+            return
+        }
+        selectedCategory = visibleCategory
+        applySelectedCategory(visibleCategory, syncPage: false, pageAnimated: false)
+        presenter.didSelectCategory(visibleCategory)
+    }
+
     func postPageContainerViewControllerDidRequestLeadingSideMenu(_ containerView: PostPageContainerViewController) {
         menuButtonFeedbackGenerator.impactOccurred()
         sideMenuViewController.show(animated: true)

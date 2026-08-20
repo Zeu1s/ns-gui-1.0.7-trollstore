@@ -1858,6 +1858,62 @@ struct PostDetailViewControllerTests {
         #expect(resolvedURL.absoluteString == "https://www.nodeseek.com/post-704174-2#8")
     }
 
+    @Test func resolvesNodeSeekPrivateMessageFragmentToNativeConversation() throws {
+        let baseURL = try #require(URL(string: "https://www.nodeseek.com"))
+        let url = try #require(URL(string: "/notification#/message?mode=talk&to=24520", relativeTo: baseURL)?.absoluteURL)
+
+        let destination = try #require(PostDetailLinkResolver.destination(for: url, baseURL: baseURL))
+
+        guard case .nativePrivateMessage(let participantID) = destination else {
+            Issue.record("Expected native private message destination")
+            return
+        }
+        #expect(participantID == 24520)
+    }
+
+    @Test func resolvesHTMLescapedNodeSeekPrivateMessageFragmentToNativeConversation() throws {
+        let baseURL = try #require(URL(string: "https://www.nodeseek.com"))
+        let url = try #require(URL(string: "/notification#/message?mode=talk&amp;to=38355", relativeTo: baseURL)?.absoluteURL)
+
+        let destination = try #require(PostDetailLinkResolver.destination(for: url, baseURL: baseURL))
+
+        guard case .nativePrivateMessage(let participantID) = destination else {
+            Issue.record("Expected native private message destination")
+            return
+        }
+        #expect(participantID == 38355)
+    }
+
+    @Test func resolvesReplyReferenceToLoadedFloorAndKeepsLevelAndFloor() {
+        let original = Comment(
+            id: "original",
+            anchorID: "15",
+            authorName: "alpha",
+            avatarURL: nil,
+            authorBadgeTexts: ["Lv.9"],
+            floorText: "#15",
+            createdAtText: nil,
+            contentHTML: "<p>原楼的完整内容</p>"
+        )
+        let reply = Comment(
+            id: "reply",
+            anchorID: "16",
+            authorName: "beta",
+            avatarURL: nil,
+            floorText: "#16",
+            createdAtText: nil,
+            contentHTML: "<p>@alpha <a href=\"/post-703863-1#15\">#15</a> 回复内容</p>"
+        )
+
+        let reference = CommentReplyReferenceResolver.reference(for: reply, among: [original, reply])
+
+        #expect(reference?.referencedComment.id == "original")
+        #expect(reference?.displayText.contains("@alpha") == true)
+        #expect(reference?.displayText.contains("Lv.9") == true)
+        #expect(reference?.displayText.contains("#15") == true)
+        #expect(reference?.displayText.contains("原楼的完整内容") == true)
+    }
+
     @Test func resolvesNodeSeekPostLinksWithoutPageToNativeDetailPageOne() throws {
         let baseURL = try #require(URL(string: "https://www.nodeseek.com"))
         let url = try #require(URL(string: "/post-704174", relativeTo: baseURL)?.absoluteURL)

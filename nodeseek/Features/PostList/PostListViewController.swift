@@ -291,6 +291,12 @@ class PostListViewController: UIViewController {
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
         navigationController?.interactivePopGestureRecognizer?.isEnabled = true
+        recoverVisiblePageIfNeeded()
+    }
+
+    func recoverVisiblePageIfNeeded() {
+        guard isViewLoaded else { return }
+        pageContainerViewController.recoverVisiblePageIfNeeded()
     }
 
     // MARK: - Setup UI

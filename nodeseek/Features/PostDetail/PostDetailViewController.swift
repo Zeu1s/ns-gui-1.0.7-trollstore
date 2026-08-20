@@ -11,6 +11,7 @@ import AsyncDisplayKit
 enum PostDetailLinkDestination {
     case currentPageAnchor(String)
     case nativePost(postID: String, page: Int, url: URL)
+    case nativePrivateMessage(participantID: Int)
     case userProfile(URL)
     case web(URL)
     case safari(URL)
@@ -110,6 +111,10 @@ enum PostDetailLinkResolver {
             return .safari(resolvedURL)
         }
 
+        if let participantID = privateMessageParticipantID(from: resolvedURL) {
+            return .nativePrivateMessage(participantID: participantID)
+        }
+
         if let anchorID = normalizedAnchorID(from: resolvedURL),
            resolvedURL.path.isEmpty || resolvedURL.path == "/" {
             return .currentPageAnchor(anchorID)
@@ -156,6 +161,41 @@ enum PostDetailLinkResolver {
             return nil
         }
         return targetURL
+    }
+
+    private static func privateMessageParticipantID(from url: URL) -> Int? {
+        var components = [URLComponents(url: url, resolvingAgainstBaseURL: false)].compactMap { $0 }
+        if let decodedURL = URL(string: url.absoluteString.replacingOccurrences(of: "&amp;", with: "&")),
+           decodedURL != url,
+           let decodedComponents = URLComponents(url: decodedURL, resolvingAgainstBaseURL: false) {
+            components.append(decodedComponents)
+        }
+        if let fragment = url.fragment?.removingPercentEncoding?
+            .replacingOccurrences(of: "&amp;", with: "&")
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+           fragment.isEmpty == false {
+            let route = fragment.hasPrefix("/") ? fragment : "/\(fragment)"
+            if let fragmentComponents = URLComponents(string: "https://www.nodeseek.com\(route)") {
+                components.append(fragmentComponents)
+            }
+        }
+
+        for component in components {
+            let path = component.path.lowercased()
+            guard path == "/message" || path.hasSuffix("/message") else { continue }
+            let items = component.queryItems ?? []
+            let mode = items.first(where: { $0.name.lowercased() == "mode" })?.value?.lowercased()
+            guard mode == nil || mode == "talk" else { continue }
+            guard let value = items.first(where: {
+                ["to", "uid", "userid", "user_id"].contains($0.name.lowercased())
+            })?.value,
+            let participantID = Int(value),
+            participantID > 0 else {
+                continue
+            }
+            return participantID
+        }
+        return nil
     }
 
     private static func isHTTPURL(_ url: URL) -> Bool {
@@ -593,6 +633,12 @@ class PostDetailViewController: UIViewController {
         configureNavigationItems()
         setupUI()
         presenter.viewDidLoad()
+    }
+
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        navigationController?.interactivePopGestureRecognizer?.isEnabled =
+            (navigationController?.viewControllers.count ?? 0) > 1
     }
 
     override func viewSafeAreaInsetsDidChange() {

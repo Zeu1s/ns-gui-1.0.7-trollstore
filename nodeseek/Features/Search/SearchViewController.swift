@@ -48,6 +48,15 @@ final class SearchViewController: UIViewController {
     private var formTopConstraint: NSLayoutConstraint?
     private var loadTask: Task<Void, Never>?
 
+    private lazy var resultsBackGestureRecognizer: UIScreenEdgePanGestureRecognizer = {
+        let recognizer = UIScreenEdgePanGestureRecognizer(
+            target: self,
+            action: #selector(resultsBackGestureRecognized(_:))
+        )
+        recognizer.edges = .left
+        return recognizer
+    }()
+
     private let formContainerView: UIView = {
         let view = UIView()
         view.translatesAutoresizingMaskIntoConstraints = false
@@ -186,6 +195,7 @@ final class SearchViewController: UIViewController {
     private let listView: PostTextureListView = {
         let view = PostTextureListView()
         view.isHidden = true
+        view.accessibilityIdentifier = "search-results-list"
         view.translatesAutoresizingMaskIntoConstraints = false
         return view
     }()
@@ -249,6 +259,7 @@ final class SearchViewController: UIViewController {
         view.addSubview(recentSearchesContainerView)
         view.addSubview(listView)
         formContainerView.addSubview(formStackView)
+        view.addGestureRecognizer(resultsBackGestureRecognizer)
 
         let formTopConstraint = formContainerView.topAnchor.constraint(
             equalTo: view.safeAreaLayoutGuide.topAnchor,
@@ -335,6 +346,50 @@ final class SearchViewController: UIViewController {
         formTopConstraint?.constant = 16
         listView.isHidden = false
         recentSearchesContainerView.isHidden = true
+
+        UIView.animate(withDuration: 0.24, delay: 0, options: [.curveEaseOut, .beginFromCurrentState]) {
+            self.view.layoutIfNeeded()
+        }
+    }
+
+    @objc private func resultsBackGestureRecognized(_ recognizer: UIScreenEdgePanGestureRecognizer) {
+        guard hasSearched else { return }
+
+        if recognizer.state == .began {
+            view.endEditing(true)
+            return
+        }
+
+        guard recognizer.state == .ended else { return }
+        let translation = recognizer.translation(in: view).x
+        let velocity = recognizer.velocity(in: view).x
+        guard translation >= view.bounds.width * 0.20 || velocity >= 420 else { return }
+        returnToSearchMain()
+    }
+
+    func returnToSearchMain() {
+        guard hasSearched else { return }
+
+        loadTask?.cancel()
+        loadTask = nil
+        activeRequest = nil
+        items = []
+        loadedIDs = []
+        nextPage = 2
+        hasMorePages = true
+        isLoadingFirstPage = false
+        isRefreshing = false
+        isLoadingMore = false
+        hasSearched = false
+
+        listView.setItems([])
+        listView.hideLoadingSkeleton()
+        listView.hideFirstPageError()
+        listView.hideRefreshing()
+        listView.hideLoadingMore()
+        listView.isHidden = true
+        formTopConstraint?.constant = 104
+        renderRecentSearches()
 
         UIView.animate(withDuration: 0.24, delay: 0, options: [.curveEaseOut, .beginFromCurrentState]) {
             self.view.layoutIfNeeded()

@@ -84,6 +84,13 @@ extension PostDetailViewController {
                 initialAnchorID: NodeSeekPostRouteResolver.route(for: url, baseURL: baseURL)?.anchorID
             )
             showDetailDestination(viewController)
+        case .nativePrivateMessage(let participantID):
+            showDetailDestination(
+                PrivateMessageViewController(
+                    participantID: participantID,
+                    participantName: "私信"
+                )
+            )
         case .userProfile(let url):
             openUserInfo(profileURL: url)
         case .web(let url):

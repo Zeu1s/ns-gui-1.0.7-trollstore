@@ -12,6 +12,7 @@ protocol PostPageContainerViewControllerDelegate: AnyObject {
     func postPageContainerViewController(_ viewController: PostPageContainerViewController, didChangeSortMode sortMode: PostListSortMode, category: PostListCategoryItem)
     func postPageContainerViewController(_ viewController: PostPageContainerViewController, didScrollTo category: PostListCategoryItem)
     func postPageContainerViewController(_ viewController: PostPageContainerViewController, didLoadFirstPageFor category: PostListCategoryItem)
+    func postPageContainerViewController(_ viewController: PostPageContainerViewController, didFailInitialLoadFor category: PostListCategoryItem)
     func postPageContainerViewControllerDidRequestLeadingSideMenu(_ viewController: PostPageContainerViewController)
 }
 
@@ -106,6 +107,18 @@ final class PostPageContainerViewController: UIPageViewController {
         hostViewControllers.values.forEach { $0.refreshVisibleAppearanceForCurrentTraits() }
     }
 
+    func recoverVisiblePageIfNeeded() {
+        guard let category = currentCategory ?? categories.first else { return }
+        guard pendingCategory == nil else {
+            // A hidden parent tab must not leave this pager permanently locked.
+            pagingScrollView?.isScrollEnabled = true
+            return
+        }
+        setCurrentCategory(category, animated: false, notifyDelegate: false)
+        pagingScrollView?.isScrollEnabled = true
+        view.setNeedsLayout()
+    }
+
     private func setupPaging() {
         dataSource = self
         delegate = self
@@ -184,5 +197,12 @@ extension PostPageContainerViewController: PostTextureListHostPresenterDelegate 
         if shouldRevealPendingCategory {
             eventDelegate?.postPageContainerViewController(self, didScrollTo: category)
         }
+    }
+
+    func postTextureListHostDidFailInitialLoad(category: PostListCategoryItem) {
+        guard pendingCategory == category else { return }
+        pendingCategory = nil
+        pagingScrollView?.isScrollEnabled = true
+        eventDelegate?.postPageContainerViewController(self, didFailInitialLoadFor: category)
     }
 }

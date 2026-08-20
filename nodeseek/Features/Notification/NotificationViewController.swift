@@ -36,6 +36,7 @@ final class NotificationViewController: UIViewController {
     private var unreadCount: NodeSeekNotificationUnreadCount = .zero
     private var currentUserID: Int?
     private var loadToken = 0
+    private var tabContentOffsets: [NodeSeekNotificationTab: CGPoint] = [:]
 
     init(
         client: NodeSeekNotificationClientProtocol? = nil,
@@ -64,6 +65,7 @@ final class NotificationViewController: UIViewController {
         configureNavigationItems()
         configureSegmentedControl()
         configureTableView()
+        configureTabSwipeGestures()
         configureEmptyLabel()
 
         errorView.onRetry = { [weak self] in
@@ -149,6 +151,18 @@ final class NotificationViewController: UIViewController {
         tableView.register(NotificationMessageCell.self, forCellReuseIdentifier: NotificationMessageCell.reuseIdentifier)
         refreshControl.addTarget(self, action: #selector(refreshTriggered), for: .valueChanged)
         tableView.refreshControl = refreshControl
+    }
+
+    private func configureTabSwipeGestures() {
+        let swipeLeft = UISwipeGestureRecognizer(target: self, action: #selector(tabSwipeRecognized(_:)))
+        swipeLeft.direction = .left
+        swipeLeft.cancelsTouchesInView = false
+        tableView.addGestureRecognizer(swipeLeft)
+
+        let swipeRight = UISwipeGestureRecognizer(target: self, action: #selector(tabSwipeRecognized(_:)))
+        swipeRight.direction = .right
+        swipeRight.cancelsTouchesInView = false
+        tableView.addGestureRecognizer(swipeRight)
     }
 
     private func configureEmptyLabel() {
@@ -245,7 +259,7 @@ final class NotificationViewController: UIViewController {
         errorView.isHidden = true
         applyDisplayState()
         tableView.reloadData()
-        tableView.setContentOffset(CGPoint(x: 0, y: -tableView.adjustedContentInset.top), animated: false)
+        restoreContentOffset(for: tab)
         updateMarkAllButton()
     }
 
@@ -335,16 +349,36 @@ final class NotificationViewController: UIViewController {
               tab != selectedTab else {
             return
         }
+        selectTab(tab)
+    }
+
+    @objc private func tabSwipeRecognized(_ recognizer: UISwipeGestureRecognizer) {
+        let offset = recognizer.direction == .left ? 1 : -1
+        let nextIndex = selectedTab.rawValue + offset
+        guard let nextTab = NodeSeekNotificationTab(rawValue: nextIndex) else { return }
+        selectTab(nextTab)
+    }
+
+    private func selectTab(_ tab: NodeSeekNotificationTab) {
+        guard tab != selectedTab else { return }
+        tabContentOffsets[selectedTab] = tableView.contentOffset
         selectedTab = tab
+        segmentedControl.selectedSegmentIndex = tab.rawValue
         updateMarkAllButton()
         if loadedTabs.contains(tab) {
             displayMode = .content
             applyDisplayState()
             tableView.reloadData()
-            tableView.setContentOffset(CGPoint(x: 0, y: -tableView.adjustedContentInset.top), animated: false)
+            restoreContentOffset(for: tab)
         } else {
             loadSelectedTab(showLoading: true)
         }
+    }
+
+    private func restoreContentOffset(for tab: NodeSeekNotificationTab) {
+        let fallback = CGPoint(x: 0, y: -tableView.adjustedContentInset.top)
+        let offset = tabContentOffsets[tab] ?? fallback
+        tableView.setContentOffset(offset, animated: false)
     }
 
     @objc private func refreshTriggered() {
@@ -511,16 +545,36 @@ final class NotificationViewController: UIViewController {
     }
 
     private func openMessageConversation(_ record: NodeSeekMessageConversationRecord) {
-        if record.isViewed == false {
-            markRead(id: record.maxID, tab: .message, rollbackOnFailure: false, showFailure: false)
+        Task { [weak self] in
+            guard let self else { return }
+            let resolvedCurrentUserID: Int?
+            if let currentUserID {
+                resolvedCurrentUserID = currentUserID
+            } else {
+                resolvedCurrentUserID = await currentAccountStore.snapshot()?.account.nodeSeekUID
+                currentUserID = resolvedCurrentUserID
+            }
+            guard let resolvedCurrentUserID else {
+                showErrorMessage("登录后才能打开私信。")
+                return
+            }
+
+            let participantID = record.participantID(currentUserID: resolvedCurrentUserID)
+            guard participantID > 0, participantID != resolvedCurrentUserID else {
+                showErrorMessage("无法识别私信会话对象，请刷新后重试。")
+                return
+            }
+            if record.isViewed == false {
+                markRead(id: record.maxID, tab: .message, rollbackOnFailure: false, showFailure: false)
+            }
+            navigationController?.pushViewController(
+                PrivateMessageViewController(
+                    participantID: participantID,
+                    participantName: record.participantName(currentUserID: resolvedCurrentUserID)
+                ),
+                animated: true
+            )
         }
-        navigationController?.pushViewController(
-            PrivateMessageViewController(
-                participantID: record.participantID(currentUserID: currentUserID),
-                participantName: record.participantName(currentUserID: currentUserID)
-            ),
-            animated: true
-        )
     }
 
     private func openWebURL(_ url: URL) {

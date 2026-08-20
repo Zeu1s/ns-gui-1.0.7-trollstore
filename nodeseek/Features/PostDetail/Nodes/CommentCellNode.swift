@@ -6,6 +6,7 @@
 //
 
 import AsyncDisplayKit
+import Foundation
 import UIKit
 
 enum PostDetailContentLayout {
@@ -31,6 +32,106 @@ enum PostDetailContentLayout {
             bottom: AppDisplayScaleSettings.scaled(5),
             right: AppDisplayScaleSettings.scaled(7)
         )
+    }
+}
+
+struct CommentReplyReference: Equatable {
+    let referencedComment: Comment
+    let summary: String
+
+    var displayText: String {
+        let author = AuthorDisplayPolicy.displayName(from: referencedComment.authorName) ?? "用户"
+        let badges = referencedComment.authorBadgeTexts
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { $0.isEmpty == false }
+        let floor = referencedComment.floorText?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let header = (["@\(author)"] + badges + [floor])
+            .filter { $0.isEmpty == false }
+            .joined(separator: "  ")
+        return summary.isEmpty ? header : "\(header)\n\(summary)"
+    }
+}
+
+enum CommentReplyReferenceResolver {
+    private static let hrefPattern = try! NSRegularExpression(
+        pattern: #"<a\b[^>]*\bhref\s*=\s*(?:\"([^\"]+)\"|'([^']+)'|([^\s>]+))"#,
+        options: [.caseInsensitive]
+    )
+    private static let tagPattern = try! NSRegularExpression(pattern: #"<[^>]+>"#, options: [])
+
+    static func reference(for comment: Comment, among comments: [Comment]) -> CommentReplyReference? {
+        for anchorID in referencedAnchorIDs(in: comment.contentHTML) {
+            guard let referencedComment = comments.first(where: {
+                normalizedAnchorID($0.anchorID) == anchorID
+                    || normalizedAnchorID($0.floorText) == anchorID
+            }), referencedComment.id != comment.id else {
+                continue
+            }
+            return CommentReplyReference(
+                referencedComment: referencedComment,
+                summary: summary(from: referencedComment.contentHTML)
+            )
+        }
+        return nil
+    }
+
+    static func referencedAnchorIDs(in contentHTML: String) -> [String] {
+        let range = NSRange(contentHTML.startIndex..., in: contentHTML)
+        var seen = Set<String>()
+        return hrefPattern.matches(in: contentHTML, options: [], range: range).compactMap { match in
+            let candidateRange = (1...3).first { match.range(at: $0).location != NSNotFound }
+            guard let candidateRange,
+                  let swiftRange = Range(match.range(at: candidateRange), in: contentHTML) else {
+                return nil
+            }
+            let href = String(contentHTML[swiftRange]).replacingOccurrences(of: "&amp;", with: "&")
+            guard let anchorID = anchorID(from: href), seen.insert(anchorID).inserted else {
+                return nil
+            }
+            return anchorID
+        }
+    }
+
+    private static func anchorID(from href: String) -> String? {
+        let fragment: String?
+        if let url = URL(string: href), let urlFragment = url.fragment {
+            fragment = urlFragment.removingPercentEncoding
+        } else if let hashIndex = href.lastIndex(of: "#") {
+            fragment = String(href[href.index(after: hashIndex)...]).removingPercentEncoding
+        } else {
+            fragment = nil
+        }
+        return normalizedAnchorID(fragment)
+    }
+
+    private static func normalizedAnchorID(_ value: String?) -> String? {
+        guard var value = value?.trimmingCharacters(in: .whitespacesAndNewlines), value.isEmpty == false else {
+            return nil
+        }
+        while value.hasPrefix("#") {
+            value.removeFirst()
+        }
+        return value.isEmpty ? nil : value
+    }
+
+    private static func summary(from html: String) -> String {
+        var text = html
+            .replacingOccurrences(of: "<br>", with: " ", options: .caseInsensitive)
+            .replacingOccurrences(of: "<br/>", with: " ", options: .caseInsensitive)
+            .replacingOccurrences(of: "</p>", with: " ", options: .caseInsensitive)
+        let range = NSRange(text.startIndex..., in: text)
+        text = tagPattern.stringByReplacingMatches(in: text, options: [], range: range, withTemplate: " ")
+        for (entity, replacement) in [
+            "&nbsp;": " ", "&amp;": "&", "&lt;": "<", "&gt;": ">", "&quot;": "\"", "&#39;": "'"
+        ] {
+            text = text.replacingOccurrences(of: entity, with: replacement, options: .caseInsensitive)
+        }
+        let collapsed = text.components(separatedBy: .whitespacesAndNewlines)
+            .filter { $0.isEmpty == false }
+            .joined(separator: " ")
+        guard collapsed.count > 140 else { return collapsed }
+        let endIndex = collapsed.index(collapsed.startIndex, offsetBy: 140)
+        return "\(collapsed[..<endIndex])..."
     }
 }
 
@@ -66,6 +167,7 @@ final class CommentCellNode: ASCellNode, ThemeRefreshableNode {
     private let onReplyTapped: (Comment) -> Void
     private let onQuoteTapped: (Comment) -> Void
     private let onTextLayoutInvalidated: () -> Void
+    private let replyReference: CommentReplyReference?
     private let avatarLoader = AvatarImageLoader.shared
     private weak var avatarImageView: UIImageView?
     private var hasRequestedAvatar = false
@@ -90,6 +192,9 @@ final class CommentCellNode: ASCellNode, ThemeRefreshableNode {
     private let replyButtonNode = ASButtonNode()
     private let quoteButtonNode = ASButtonNode()
     private let separatorNode = ASDisplayNode()
+    private let replyReferenceBackgroundNode = ASDisplayNode()
+    private let replyReferenceAccentNode = ASDisplayNode()
+    private let replyReferenceTextNode = ASTextNode()
     private let bodyNodes: [ASDisplayNode]
     private(set) var debugActionsAreDisplayedBelowBody = false
     private(set) var debugHeaderTimeIsOnSecondLine = false
@@ -120,6 +225,7 @@ final class CommentCellNode: ASCellNode, ThemeRefreshableNode {
     init(
         comment: Comment,
         renderedBody: [RenderedContentBlock]?,
+        replyReference: CommentReplyReference? = nil,
         onImageTapped: @escaping ([URL], Int) -> Void,
         onLinkTapped: @escaping (URL) -> Void = { _ in },
         onSignatureLinkCandidatesTapped: @escaping ([DetailLinkCandidate]) -> Void = { _ in },
@@ -136,6 +242,7 @@ final class CommentCellNode: ASCellNode, ThemeRefreshableNode {
         onImageHeightReduced: @escaping () -> Void = {}
     ) {
         self.comment = comment
+        self.replyReference = replyReference
         self.onImageTapped = onImageTapped
         self.onLinkTapped = onLinkTapped
         self.onSignatureLinkCandidatesTapped = onSignatureLinkCandidatesTapped
@@ -228,18 +335,27 @@ final class CommentCellNode: ASCellNode, ThemeRefreshableNode {
         if comment.isPoster {
             identityChildren.append(posterBadgeNode)
         }
-        identityChildren.append(contentsOf: authorBadgeNodes)
-        identityChildren.append(levelDaysBadgeNode)
         identityStack.children = identityChildren
         identityStack.style.flexGrow = 1
         identityStack.style.flexShrink = 1
 
-        let headerStack = ASStackLayoutSpec.horizontal()
-        headerStack.alignItems = .start
-        headerStack.justifyContent = .spaceBetween
-        var headerChildren: [ASLayoutElement] = []
-        if identityChildren.isEmpty == false {
-            headerChildren.append(identityStack)
+        let badgeStack = ASStackLayoutSpec.horizontal()
+        badgeStack.spacing = Layout.headerSpacing
+        badgeStack.alignItems = .center
+        var badgeChildren: [ASLayoutElement] = authorBadgeNodes
+        if levelDaysBadgeNode.isHidden == false {
+            badgeChildren.append(levelDaysBadgeNode)
+        }
+        badgeStack.children = badgeChildren
+        badgeStack.style.flexShrink = 1
+
+        let metadataStack = ASStackLayoutSpec.horizontal()
+        metadataStack.alignItems = .center
+        metadataStack.justifyContent = .spaceBetween
+        var metadataChildren: [ASLayoutElement] = []
+        let hasTime = comment.createdAtText?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+        if hasTime {
+            metadataChildren.append(timeNode)
         }
         if comment.floorText?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false {
             let floorStack = ASStackLayoutSpec.horizontal()
@@ -247,24 +363,29 @@ final class CommentCellNode: ASCellNode, ThemeRefreshableNode {
             floorStack.alignItems = .center
             floorStack.children = comment.isHot ? [hotBadgeNode, floorNode] : [floorNode]
             floorStack.style.flexShrink = 0
-            headerChildren.append(floorStack)
+            metadataChildren.append(floorStack)
         }
-        headerStack.children = headerChildren
+        metadataStack.children = metadataChildren
 
-        let hasTime = comment.createdAtText?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
         let headerBlockStack = ASStackLayoutSpec.vertical()
         headerBlockStack.spacing = AppDisplayScaleSettings.scaled(3)
         var headerBlockChildren: [ASLayoutElement] = []
-        if headerChildren.isEmpty == false {
-            headerBlockChildren.append(headerStack)
+        if identityChildren.isEmpty == false {
+            headerBlockChildren.append(identityStack)
         }
-        if hasTime {
-            headerBlockChildren.append(timeNode)
+        if badgeChildren.isEmpty == false {
+            headerBlockChildren.append(badgeStack)
+        }
+        if metadataChildren.isEmpty == false {
+            headerBlockChildren.append(metadataStack)
         }
         headerBlockStack.children = headerBlockChildren
-        debugHeaderTimeIsOnSecondLine = headerChildren.isEmpty == false && hasTime
+        debugHeaderTimeIsOnSecondLine = headerBlockChildren.isEmpty == false && hasTime
 
         var textChildren: [ASLayoutElement] = headerBlockChildren.isEmpty ? [] : [headerBlockStack]
+        if replyReference != nil {
+            textChildren.append(makeReplyReferenceCard())
+        }
         for bodyNode in bodyNodes {
             textChildren.append(bodyNode)
         }
@@ -344,6 +465,7 @@ final class CommentCellNode: ASCellNode, ThemeRefreshableNode {
         posterBadgeNode.accessibilityLabel = "楼主"
 
         configureLevelDaysBadge()
+        configureReplyReference()
 
         hotBadgeNode.image = UIImage(
             systemName: "flame.fill",
@@ -407,6 +529,59 @@ final class CommentCellNode: ASCellNode, ThemeRefreshableNode {
         levelDaysBadgeNode.isUserInteractionEnabled = false
         levelDaysBadgeNode.isHidden = false
         levelDaysBadgeNode.accessibilityLabel = badgeText
+    }
+
+    private func configureReplyReference() {
+        guard let replyReference else {
+            replyReferenceTextNode.attributedText = nil
+            return
+        }
+        replyReferenceBackgroundNode.backgroundColor = .secondarySystemBackground
+        replyReferenceBackgroundNode.cornerRadius = AppDisplayScaleSettings.scaled(6)
+        replyReferenceAccentNode.backgroundColor = .systemOrange
+        replyReferenceAccentNode.cornerRadius = AppDisplayScaleSettings.scaled(1.5)
+        replyReferenceTextNode.maximumNumberOfLines = 4
+        replyReferenceTextNode.truncationMode = .byTruncatingTail
+        let text = NSMutableAttributedString(
+            string: replyReference.displayText,
+            attributes: [
+                .font: AppTypography.commentMetadataFont(),
+                .foregroundColor: UIColor.secondaryLabel
+            ]
+        )
+        let headerRange = (replyReference.displayText as NSString).range(of: "\n")
+        let titleLength = headerRange.location == NSNotFound ? text.length : headerRange.location
+        if titleLength > 0 {
+            text.addAttributes([
+                .font: UIFont.preferredFont(forTextStyle: .caption1).withSize(AppDisplayScaleSettings.scaled(13)),
+                .foregroundColor: UIColor.label
+            ], range: NSRange(location: 0, length: titleLength))
+        }
+        replyReferenceTextNode.attributedText = text
+        replyReferenceTextNode.accessibilityLabel = "引用 \(replyReference.displayText)"
+    }
+
+    private func makeReplyReferenceCard() -> ASLayoutSpec {
+        replyReferenceAccentNode.style.width = ASDimension(unit: .points, value: AppDisplayScaleSettings.scaled(3))
+        replyReferenceAccentNode.style.alignSelf = .stretch
+        replyReferenceTextNode.style.flexGrow = 1
+        replyReferenceTextNode.style.flexShrink = 1
+
+        let row = ASStackLayoutSpec.horizontal()
+        row.spacing = AppDisplayScaleSettings.scaled(8)
+        row.alignItems = .stretch
+        row.children = [replyReferenceAccentNode, replyReferenceTextNode]
+
+        let inset = ASInsetLayoutSpec(
+            insets: UIEdgeInsets(
+                top: AppDisplayScaleSettings.scaled(7),
+                left: AppDisplayScaleSettings.scaled(8),
+                bottom: AppDisplayScaleSettings.scaled(7),
+                right: AppDisplayScaleSettings.scaled(8)
+            ),
+            child: row
+        )
+        return ASBackgroundLayoutSpec(child: inset, background: replyReferenceBackgroundNode)
     }
 
     private func configureActions() {
@@ -645,11 +820,19 @@ final class CommentCellNode: ASCellNode, ThemeRefreshableNode {
             parts.append(posterBadgeNode.attributedTitle(for: .normal)?.string ?? "")
         }
         parts.append(contentsOf: debugAuthorBadgeTexts)
+        if let levelBadgeText = levelDaysBadgeNode.attributedTitle(for: .normal)?.string,
+           levelBadgeText.isEmpty == false {
+            parts.append(levelBadgeText)
+        }
         if let floorText = comment.floorText?.trimmingCharacters(in: .whitespacesAndNewlines),
            floorText.isEmpty == false {
             parts.append(floorText)
         }
         return parts.filter { $0.isEmpty == false }.joined(separator: " ")
+    }
+
+    var debugReplyReferenceText: String? {
+        replyReferenceTextNode.attributedText?.string
     }
 
     var debugHeaderTimeLineText: String {

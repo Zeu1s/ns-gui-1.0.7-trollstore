@@ -187,14 +187,14 @@ private extension NodeSeekSplashAnimator {
         rightWaveLayer.lineCap = .round
         rightWaveLayer.contentsScale = UIScreen.main.scale
 
-        let wordmarkWidth = min(bounds.width * 0.62, 238)
+        let wordmarkWidth = min(bounds.width * 0.66, 252)
         let wordmarkFrame = CGRect(
             x: bounds.midX - wordmarkWidth / 2,
-            y: glyphFrame.maxY + glyphHeight * 0.42,
+            y: glyphFrame.maxY + glyphHeight * 0.54,
             width: wordmarkWidth,
-            height: 42
+            height: 46
         )
-        let wordmarkFont = UIFont.systemFont(ofSize: 28, weight: .semibold)
+        let wordmarkFont = UIFont.systemFont(ofSize: 31, weight: .semibold)
         wordmarkLayer.frame = wordmarkFrame
         wordmarkLayer.string = "NodeSeek"
         wordmarkLayer.fontSize = wordmarkFont.pointSize
@@ -376,8 +376,18 @@ private extension NodeSeekSplashAnimator {
 private extension NodeSeekSplashAnimator {
     func startAnimationTimeline() {
         let timelineBegin = CACurrentMediaTime()
-        animateBrandLayer(leftWaveLayer, beginTime: timelineBegin, duration: 0.28)
-        animateBrandLayer(rightWaveLayer, beginTime: timelineBegin + 0.10, duration: 0.28)
+        animateConvergingWaveLayer(
+            leftWaveLayer,
+            translationX: -containerViewWidth * 0.28,
+            beginTime: timelineBegin,
+            duration: 0.36
+        )
+        animateConvergingWaveLayer(
+            rightWaveLayer,
+            translationX: containerViewWidth * 0.28,
+            beginTime: timelineBegin + 0.10,
+            duration: 0.36
+        )
         animateBrandLayer(nodeCoreLayer, beginTime: timelineBegin + 0.26, duration: 0.30)
         animateBrandLayer(nodeEyesLayer, beginTime: timelineBegin + 0.46, duration: 0.22)
         animateBrandImageLayer(beginTime: timelineBegin + 0.30, duration: 0.44)
@@ -493,6 +503,24 @@ private extension NodeSeekSplashAnimator {
         fade.fillMode = .both
         fade.isRemovedOnCompletion = false
         layer.add(fade, forKey: "brandFade")
+    }
+
+    func animateConvergingWaveLayer(
+        _ layer: CALayer,
+        translationX: CGFloat,
+        beginTime: CFTimeInterval,
+        duration: CFTimeInterval
+    ) {
+        animateBrandLayer(layer, beginTime: beginTime, duration: duration * 0.55)
+        let translation = CABasicAnimation(keyPath: "transform.translation.x")
+        translation.fromValue = translationX
+        translation.toValue = 0
+        translation.beginTime = beginTime
+        translation.duration = duration
+        translation.timingFunction = CAMediaTimingFunction(name: .easeOut)
+        translation.fillMode = .both
+        translation.isRemovedOnCompletion = false
+        layer.add(translation, forKey: "waveConvergence")
     }
 
     var containerViewWidth: CGFloat {

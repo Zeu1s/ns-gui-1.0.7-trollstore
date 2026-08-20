@@ -78,7 +78,15 @@ struct NotificationViewControllerTests {
         defer {
             NotificationCenter.default.removeObserver(observer)
         }
-        let viewController = NotificationViewController(client: client, currentAccountStore: makeCurrentAccountStore())
+        let currentAccountStore = makeCurrentAccountStore()
+        await currentAccountStore.save(
+            AccountResponse(
+                displayName: "mistj",
+                isLoggedIn: true,
+                profileURL: URL(string: "https://www.nodeseek.com/space/31037")
+            )
+        )
+        let viewController = NotificationViewController(client: client, currentAccountStore: currentAccountStore)
         let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
         let navigationController = UINavigationController(rootViewController: viewController)
         window.rootViewController = navigationController
@@ -109,7 +117,10 @@ struct NotificationViewControllerTests {
         try await waitUntil {
             publishedUnreadCounts.values.last == .zero
         }
-        #expect(navigationController.topViewController is NodeSeekWebViewController)
+        try await waitUntil {
+            navigationController.topViewController is PrivateMessageViewController
+        }
+        #expect(navigationController.topViewController is PrivateMessageViewController)
     }
 }
 

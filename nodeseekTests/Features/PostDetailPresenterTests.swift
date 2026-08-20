@@ -621,6 +621,57 @@ struct PostDetailPresenterTests {
 
         #expect(view.renderedDetails.count == 1)
         #expect(view.refreshedCommentPageDetails.map(\.page) == [2])
+        #expect(view.focusedCommentAnchorIDs == ["2"])
+    }
+
+    @Test func replySubmissionNavigatesToKnownLastPageAndFocusesNewFloor() async throws {
+        let interactor = SpyPostDetailInteractor()
+        let router = SpyPostDetailRouter()
+        let presenter = PostDetailPresenter(interactor: interactor, router: router, initialPage: 2)
+        let view = SpyPostDetailView()
+        presenter.setView(view)
+        presenter.didLoadPostDetail(PostDetailResponse(detail: PostDetail(
+            id: "706958",
+            title: "标题",
+            authorName: "mist",
+            avatarURL: nil,
+            metadataText: nil,
+            contentHTML: "<p>正文</p>",
+            comments: [],
+            page: 2,
+            pagination: PostDetailPagination(
+                currentPage: 2,
+                items: [
+                    PostDetailPageItem(page: 1, url: nil, isCurrent: false),
+                    PostDetailPageItem(page: 2, url: nil, isCurrent: true),
+                    PostDetailPageItem(page: 3, url: nil, isCurrent: false)
+                ],
+                previousPage: 1,
+                nextPage: 3
+            )
+        )))
+
+        presenter.didTapSendReply(content: "测试回复")
+        presenter.didSubmitReply(PostDetailSubmitReplyResponse(message: "已发布"))
+        try await waitForReplyRefresh(in: interactor, page: 3)
+
+        presenter.didLoadPostDetail(PostDetailResponse(detail: PostDetail(
+            id: "706958",
+            title: "标题",
+            authorName: "mist",
+            avatarURL: nil,
+            metadataText: nil,
+            contentHTML: "<p>正文</p>",
+            comments: [
+                Comment(id: "new", anchorID: "31", authorName: "me", avatarURL: nil, floorText: "#31", createdAtText: nil, contentHTML: "<p>我的回复</p>")
+            ],
+            page: 3,
+            isLastPage: true
+        )))
+
+        #expect(interactor.loadedPages == [3])
+        #expect(view.renderedDetails.map(\.page) == [2, 3])
+        #expect(view.focusedCommentAnchorIDs == ["31"])
     }
 
     @Test func cancelledRefreshAfterReplySubmissionDoesNotShowError() async throws {
@@ -1312,6 +1363,7 @@ private final class SpyPostDetailView: PostDetailViewProtocol {
     private(set) var hideLoadingCount = 0
     private(set) var renderedDetails: [PostDetail] = []
     private(set) var refreshedCommentPageDetails: [PostDetail] = []
+    private(set) var focusedCommentAnchorIDs: [String] = []
     private(set) var appendedCommentPageDetails: [PostDetail] = []
     private(set) var updatedPostBodyDetails: [PostDetail] = []
     private(set) var updatedCommentLikeEvents: [(commentID: String, count: Int?, isClicked: Bool)] = []
@@ -1334,6 +1386,7 @@ private final class SpyPostDetailView: PostDetailViewProtocol {
     func finishReplySubmission() { finishReplySubmissionCount += 1 }
     func render(detail: PostDetail) { renderedDetails.append(detail) }
     func refreshCurrentCommentPage(detail: PostDetail) { refreshedCommentPageDetails.append(detail) }
+    func focusComment(anchorID: String) { focusedCommentAnchorIDs.append(anchorID) }
     func appendCommentPage(detail: PostDetail) { appendedCommentPageDetails.append(detail) }
     func updatePostBody(detail: PostDetail) { updatedPostBodyDetails.append(detail) }
     func updateCommentLike(commentID: String, count: Int?, isClicked: Bool) {

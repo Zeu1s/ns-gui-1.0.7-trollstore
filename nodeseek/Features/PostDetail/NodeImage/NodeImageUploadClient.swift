@@ -118,6 +118,7 @@ struct NodeImageUploadClient: NodeImageUploading {
         var request = URLRequest(url: endpoint)
         request.httpMethod = "POST"
         request.setValue(apiKey, forHTTPHeaderField: "X-API-Key")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
         request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
         request.httpBody = Self.multipartBody(
             data: data,
@@ -134,7 +135,7 @@ struct NodeImageUploadClient: NodeImageUploading {
         guard (200..<300).contains(httpResponse.statusCode) else {
             let message = NodeImageUploadResponseParser.errorMessage(from: responseData)
                 ?? "NodeImage 上传失败，状态码 \(httpResponse.statusCode)。"
-            throw NodeImageUploadError.uploadFailed(message)
+            throw NodeImageUploadError.uploadFailed("NodeImage 官方图床：\(message)")
         }
 
         guard let result = NodeImageUploadResponseParser.uploadResult(from: responseData) else {

@@ -70,6 +70,23 @@ struct PostTextureListInteractorTests {
 
         #expect(delegate.loadedFirstPageCategories == [.all])
     }
+
+    @Test func failedInitialLoadNotifiesHostDelegate() {
+        let interactor = SpyPostTextureListHostInteractor()
+        let view = SpyPostTextureListHostView()
+        let delegate = SpyPostTextureListHostPresenterDelegate()
+        let presenter = PostTextureListHostPresenter(
+            category: .all,
+            interactor: interactor,
+            visitedStore: EmptyVisitedPostStore()
+        )
+        presenter.setView(view)
+        presenter.delegate = delegate
+
+        presenter.didFailLoadPosts(error: "加载失败", category: .all, sortMode: .replyTime)
+
+        #expect(delegate.failedInitialLoadCategories == [.all])
+    }
 }
 
 @MainActor
@@ -105,6 +122,7 @@ private final class SpyPostTextureListHostInteractor: PostTextureListHostInterac
 @MainActor
 private final class SpyPostTextureListHostPresenterDelegate: PostTextureListHostPresenterDelegate {
     private(set) var loadedFirstPageCategories: [PostListCategoryItem] = []
+    private(set) var failedInitialLoadCategories: [PostListCategoryItem] = []
 
     func postTextureListHostDidSelectPost(_ post: PostSummary, category: PostListCategoryItem) {}
 
@@ -112,6 +130,10 @@ private final class SpyPostTextureListHostPresenterDelegate: PostTextureListHost
 
     func postTextureListHostDidLoadFirstPage(category: PostListCategoryItem) {
         loadedFirstPageCategories.append(category)
+    }
+
+    func postTextureListHostDidFailInitialLoad(category: PostListCategoryItem) {
+        failedInitialLoadCategories.append(category)
     }
 }
 

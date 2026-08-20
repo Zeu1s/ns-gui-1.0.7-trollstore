@@ -160,6 +160,7 @@ extension PostTextureListHostPresenter: PostTextureListHostInteractorOutput {
     func didFailLoadPosts(error: String, category: PostListCategoryItem, sortMode: PostListSortMode) {
         guard category == self.category else { return }
         guard sortMode == self.sortMode else { return }
+        let failedInitialLoad = hasLoadedFirstPage == false
         isLoadingFirstPage = false
         isRefreshing = false
         isLoadingMore = false
@@ -168,6 +169,9 @@ extension PostTextureListHostPresenter: PostTextureListHostInteractorOutput {
         view?.hideLoadingMore()
         if items.isEmpty {
             view?.showFirstPageError(message: error)
+        }
+        if failedInitialLoad {
+            delegate?.postTextureListHostDidFailInitialLoad(category: category)
         }
     }
 

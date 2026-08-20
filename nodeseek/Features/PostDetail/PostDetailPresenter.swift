@@ -117,6 +117,11 @@ class PostDetailPresenter: PostDetailPresenterProtocol {
         let usedFallback: Bool
     }
 
+    private struct ReplyRefreshTracking {
+        let page: Int
+        let knownCommentIDs: Set<String>
+    }
+
     private enum ReactionKind {
         case like
         case chickenLeg
@@ -175,6 +180,7 @@ class PostDetailPresenter: PostDetailPresenterProtocol {
     private var activeCommentPageRequest: CommentPageRequest?
     private var commentPageTracker = CommentPageTracker()
     private var currentDetail: PostDetail?
+    private var replyRefreshTracking: ReplyRefreshTracking?
     private var fallbackFavoriteCollectedState = false
     private var isSubmittingReply = false
     private var isSubmittingFavorite = false
@@ -696,9 +702,21 @@ extension PostDetailPresenter: PostDetailInteractorOutput {
             )
 
         case .replyRefresh(let page) where page == loadedPage:
-            let replaceResult = replacingCurrentCommentPage(with: detail, page: loadedPage)
-            view?.refreshCurrentCommentPage(detail: detail)
-            AppLog.info(.postDetail, "回复后详情评论当前页刷新完成: page=\(loadedPage), count=\(detail.comments.count)")
+            let tracking = replyRefreshTracking
+            replyRefreshTracking = nil
+            let targetComment = replyTargetComment(in: detail, tracking: tracking)
+            let replaceResult: CommentPageReplaceResult
+            if currentPage == loadedPage {
+                replaceResult = replacingCurrentCommentPage(with: detail, page: loadedPage)
+                view?.refreshCurrentCommentPage(detail: detail)
+            } else {
+                replaceResult = CommentPageReplaceResult(detail: detail, usedFallback: true)
+                view?.render(detail: detail)
+            }
+            if let anchorID = replyTargetAnchorID(from: targetComment) {
+                view?.focusComment(anchorID: anchorID)
+            }
+            AppLog.info(.postDetail, "回复后详情评论刷新并定位完成: page=\(loadedPage), count=\(detail.comments.count)")
             return CommentPageResponseHandling(
                 renderedDetail: replaceResult.detail,
                 shouldReplaceLoadedPages: replaceResult.usedFallback,
@@ -751,6 +769,7 @@ extension PostDetailPresenter: PostDetailInteractorOutput {
         }
         view?.hideLoading()
         if case .replyRefresh = failedRequest {
+            replyRefreshTracking = nil
             return
         } else {
             view?.showError(message: error)
@@ -765,6 +784,9 @@ extension PostDetailPresenter: PostDetailInteractorOutput {
             return
         }
         view?.hideLoading()
+        if case .replyRefresh = cancelledRequest {
+            replyRefreshTracking = nil
+        }
     }
 
     func didSubmitReply(_ response: PostDetailSubmitReplyResponse) {
@@ -776,7 +798,7 @@ extension PostDetailPresenter: PostDetailInteractorOutput {
         view?.finishReplySubmission()
 
         let responseMessage = response.message?.trimmingCharacters(in: .whitespacesAndNewlines)
-        if currentDetail?.isLastPage == true {
+        if let destinationPage = replyDestinationPage() {
             let toastMessage: String
             if let responseMessage, responseMessage.isEmpty == false {
                 toastMessage = responseMessage
@@ -784,7 +806,7 @@ extension PostDetailPresenter: PostDetailInteractorOutput {
                 toastMessage = "评论已发布"
             }
             view?.showToast(message: toastMessage)
-            scheduleCurrentPageRefreshAfterReplySubmission()
+            scheduleReplyRefreshAfterSubmission(destinationPage: destinationPage)
         } else {
             view?.showToast(message: "评论已发布，可到最后一页查看")
         }
@@ -798,8 +820,15 @@ extension PostDetailPresenter: PostDetailInteractorOutput {
         view?.showError(message: error)
     }
 
-    private func scheduleCurrentPageRefreshAfterReplySubmission() {
-        let page = currentPage
+    private func scheduleReplyRefreshAfterSubmission(destinationPage: Int) {
+        let page = max(1, destinationPage)
+        let knownCommentIDs: Set<String>
+        if page == currentPage {
+            knownCommentIDs = Set(currentDetail?.comments.map(\.id) ?? [])
+        } else {
+            knownCommentIDs = []
+        }
+        replyRefreshTracking = ReplyRefreshTracking(page: page, knownCommentIDs: knownCommentIDs)
         AppLog.info(.postDetail, "回复提交成功后调度当前页刷新: page=\(page), delayNs=\(Self.replyRefreshDelayNanoseconds)")
         Task { [weak self] in
             try? await Task.sleep(nanoseconds: Self.replyRefreshDelayNanoseconds)
@@ -812,6 +841,33 @@ extension PostDetailPresenter: PostDetailInteractorOutput {
             AppLog.info(.postDetail, "回复提交成功后开始刷新当前页: page=\(page)")
             self.interactor.loadPostDetail(page: page)
         }
+    }
+
+    private func replyDestinationPage() -> Int? {
+        guard let currentDetail else { return nil }
+        if currentDetail.isLastPage {
+            return max(currentPage, currentDetail.page)
+        }
+        return currentDetail.pagination?.items.map(\.page).max()
+    }
+
+    private func replyTargetComment(
+        in detail: PostDetail,
+        tracking: ReplyRefreshTracking?
+    ) -> Comment? {
+        let knownCommentIDs = tracking?.page == detail.page ? tracking?.knownCommentIDs ?? [] : []
+        return detail.comments.last(where: { knownCommentIDs.contains($0.id) == false }) ?? detail.comments.last
+    }
+
+    private func replyTargetAnchorID(from comment: Comment?) -> String? {
+        if let anchorID = comment?.anchorID?.trimmingCharacters(in: .whitespacesAndNewlines), anchorID.isEmpty == false {
+            return anchorID
+        }
+        guard let floorText = comment?.floorText?.trimmingCharacters(in: .whitespacesAndNewlines),
+              floorText.isEmpty == false else {
+            return nil
+        }
+        return floorText.trimmingCharacters(in: CharacterSet(charactersIn: "#"))
     }
 
     func didAddFavorite(_ response: PostCollectionResponse) {

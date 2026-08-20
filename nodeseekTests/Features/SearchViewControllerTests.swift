@@ -157,6 +157,36 @@ struct SearchViewControllerTests {
         #expect(store.records().first?.category == .all)
         #expect(preferenceStore.category() == .all)
     }
+
+    @Test func rightSwipeBackRestoresTheSearchMainInterface() throws {
+        let store = makeSearchHistoryStore()
+        store.record(query: "已有记录", category: .all)
+        let service = NodeSeekService(
+            htmlClient: StaticSearchHTMLClient(html: "<html><body></body></html>"),
+            parser: EmptyPostListParser()
+        )
+        let viewController = SearchViewController(service: service, searchHistoryStore: store)
+        viewController.loadViewIfNeeded()
+        viewController.view.frame = CGRect(x: 0, y: 0, width: 390, height: 844)
+        viewController.view.layoutIfNeeded()
+
+        let keywordTextField = try #require(viewController.view.firstTextField(accessibilityIdentifier: "search-keyword-text-field"))
+        let searchButton = try #require(viewController.view.firstButton(accessibilityIdentifier: "search-submit-button"))
+        let historyContainer = try #require(viewController.view.firstView(accessibilityIdentifier: "search-history-container"))
+        let resultsList = try #require(viewController.view.firstView(accessibilityIdentifier: "search-results-list"))
+        keywordTextField.text = "Swift"
+        searchButton.sendActions(for: .touchUpInside)
+
+        #expect(resultsList.isHidden == false)
+        #expect(historyContainer.isHidden == true)
+        #expect(viewController.view.gestureRecognizers?.contains(where: { ($0 as? UIScreenEdgePanGestureRecognizer)?.edges == .left }) == true)
+
+        viewController.returnToSearchMain()
+
+        #expect(keywordTextField.text == "Swift")
+        #expect(resultsList.isHidden == true)
+        #expect(historyContainer.isHidden == false)
+    }
 }
 
 private func makeSearchHistoryStore() -> SearchHistoryStore {
@@ -265,6 +295,20 @@ private extension UIView {
 
         for subview in subviews {
             if let matched = subview.firstLabel(text: text) {
+                return matched
+            }
+        }
+
+        return nil
+    }
+
+    func firstView(accessibilityIdentifier: String) -> UIView? {
+        if self.accessibilityIdentifier == accessibilityIdentifier {
+            return self
+        }
+
+        for subview in subviews {
+            if let matched = subview.firstView(accessibilityIdentifier: accessibilityIdentifier) {
                 return matched
             }
         }

@@ -102,13 +102,13 @@ final class PostListBottomNavigationView: UIView {
         layer.cornerRadius = 0
         selectionPillView.layer.cornerRadius = AppDisplayScaleSettings.scaled(18)
         messageUnreadBadge.layer.cornerRadius = AppDisplayScaleSettings.scaled(6)
-        stackLeadingConstraint?.constant = 0
-        stackTrailingConstraint?.constant = 0
+        stackLeadingConstraint?.constant = AppDisplayScaleSettings.scaled(8)
+        stackTrailingConstraint?.constant = -AppDisplayScaleSettings.scaled(8)
         stackTopConstraint?.constant = AppDisplayScaleSettings.scaled(4)
         stackBottomConstraint?.constant = -AppDisplayScaleSettings.scaled(4)
         unreadBadgeWidthConstraint?.constant = AppDisplayScaleSettings.scaled(12)
         unreadBadgeHeightConstraint?.constant = AppDisplayScaleSettings.scaled(12)
-        unreadBadgeTopConstraint?.constant = AppDisplayScaleSettings.scaled(8)
+        unreadBadgeTopConstraint?.constant = AppDisplayScaleSettings.scaled(9)
         unreadBadgeCenterXConstraint?.constant = AppDisplayScaleSettings.scaled(13)
         setSelectedItem(selectedItem)
     }
@@ -163,19 +163,19 @@ final class PostListBottomNavigationView: UIView {
         addSubview(messageUnreadBadge)
 
         let stackLeadingConstraint = stackView.leadingAnchor.constraint(
-            equalTo: leadingAnchor,
-            constant: 0
+            equalTo: safeAreaLayoutGuide.leadingAnchor,
+            constant: AppDisplayScaleSettings.scaled(8)
         )
         let stackTrailingConstraint = stackView.trailingAnchor.constraint(
-            equalTo: trailingAnchor,
-            constant: 0
+            equalTo: safeAreaLayoutGuide.trailingAnchor,
+            constant: -AppDisplayScaleSettings.scaled(8)
         )
         let stackTopConstraint = stackView.topAnchor.constraint(
-            equalTo: topAnchor,
+            equalTo: safeAreaLayoutGuide.topAnchor,
             constant: AppDisplayScaleSettings.scaled(4)
         )
         let stackBottomConstraint = stackView.bottomAnchor.constraint(
-            equalTo: bottomAnchor,
+            equalTo: safeAreaLayoutGuide.bottomAnchor,
             constant: -AppDisplayScaleSettings.scaled(4)
         )
         let unreadBadgeWidthConstraint = messageUnreadBadge.widthAnchor.constraint(
@@ -185,8 +185,8 @@ final class PostListBottomNavigationView: UIView {
             equalToConstant: AppDisplayScaleSettings.scaled(12)
         )
         let unreadBadgeTopConstraint = messageUnreadBadge.topAnchor.constraint(
-            equalTo: topAnchor,
-            constant: AppDisplayScaleSettings.scaled(8)
+            equalTo: safeAreaLayoutGuide.topAnchor,
+            constant: AppDisplayScaleSettings.scaled(9)
         )
         let unreadBadgeCenterXConstraint = messageUnreadBadge.centerXAnchor.constraint(
             equalTo: buttons[.messages]!.centerXAnchor,
@@ -254,10 +254,10 @@ final class PostListBottomNavigationView: UIView {
         configuration.imagePlacement = .top
         configuration.imagePadding = AppDisplayScaleSettings.scaled(2)
         configuration.contentInsets = NSDirectionalEdgeInsets(
-            top: AppDisplayScaleSettings.scaled(1),
-            leading: AppDisplayScaleSettings.scaled(1),
-            bottom: AppDisplayScaleSettings.scaled(1),
-            trailing: AppDisplayScaleSettings.scaled(1)
+            top: AppDisplayScaleSettings.scaled(5),
+            leading: AppDisplayScaleSettings.scaled(2),
+            bottom: AppDisplayScaleSettings.scaled(5),
+            trailing: AppDisplayScaleSettings.scaled(2)
         )
         configuration.baseForegroundColor = isSelected ? Style.selectedForeground : .label
         configuration.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { incoming in

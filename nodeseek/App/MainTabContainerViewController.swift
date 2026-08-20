@@ -18,6 +18,7 @@ final class MainTabContainerViewController: UIViewController {
     private var currentItem: PostListBottomNavigationItem = .home
     private var unreadBadgeVisible = false
     private var displayScaleObserver: NSObjectProtocol?
+    private var bottomNavigationHeightConstraint: NSLayoutConstraint?
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -36,9 +37,12 @@ final class MainTabContainerViewController: UIViewController {
 
             bottomNavigationView.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: Layout.horizontalInset),
             bottomNavigationView.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -Layout.horizontalInset),
-            bottomNavigationView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-            bottomNavigationView.heightAnchor.constraint(equalToConstant: Layout.height)
+            bottomNavigationView.bottomAnchor.constraint(equalTo: view.bottomAnchor)
         ])
+        bottomNavigationHeightConstraint = bottomNavigationView.heightAnchor.constraint(
+            equalToConstant: bottomNavigationHeight
+        )
+        bottomNavigationHeightConstraint?.isActive = true
 
         bottomNavigationView.onItemSelected = { [weak self] item in
             self?.select(item)
@@ -47,6 +51,16 @@ final class MainTabContainerViewController: UIViewController {
 
         select(.home)
         observeDisplayScaleChanges()
+    }
+
+    override func viewSafeAreaInsetsDidChange() {
+        super.viewSafeAreaInsetsDidChange()
+        updateBottomNavigationLayout()
+    }
+
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        recoverVisibleContent(in: stack(for: currentItem))
     }
 
     deinit {
@@ -61,17 +75,31 @@ final class MainTabContainerViewController: UIViewController {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            self?.bottomNavigationView.refreshDisplayScale()
+            self?.updateBottomNavigationLayout()
         }
     }
 
     private func select(_ item: PostListBottomNavigationItem) {
+        let reselectedCurrentItem = item == currentItem
         let stack = stack(for: item)
         currentItem = item
         show(stack)
-        resetToTop(of: stack)
+        if reselectedCurrentItem {
+            resetToTop(of: stack)
+        } else {
+            recoverVisibleContent(in: stack)
+        }
         bottomNavigationView.setSelectedItem(item)
         bottomNavigationView.setUnreadMessagesVisible(unreadBadgeVisible)
+    }
+
+    private var bottomNavigationHeight: CGFloat {
+        Layout.height + view.safeAreaInsets.bottom
+    }
+
+    private func updateBottomNavigationLayout() {
+        bottomNavigationHeightConstraint?.constant = bottomNavigationHeight
+        bottomNavigationView.refreshDisplayScale()
     }
 
     private func stack(for item: PostListBottomNavigationItem) -> UINavigationController {
@@ -98,10 +126,17 @@ final class MainTabContainerViewController: UIViewController {
         }
 
         for child in children {
-            child.view.isHidden = child !== stack
+            child.view.isHidden = false
+            child.view.alpha = child === stack ? 1 : 0
+            child.view.isUserInteractionEnabled = child === stack
         }
-        stack.view.isHidden = false
         containerView.bringSubviewToFront(stack.view)
+    }
+
+    private func recoverVisibleContent(in stack: UINavigationController) {
+        stack.view.setNeedsLayout()
+        stack.view.layoutIfNeeded()
+        (stack.viewControllers.first as? PostListViewController)?.recoverVisiblePageIfNeeded()
     }
 
     private func resetToTop(of stack: UINavigationController) {

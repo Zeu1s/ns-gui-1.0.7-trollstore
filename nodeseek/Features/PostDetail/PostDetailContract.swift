@@ -21,6 +21,7 @@ protocol PostDetailViewProtocol: AnyObject {
     func finishReplySubmission()
     func render(detail: PostDetail)
     func refreshCurrentCommentPage(detail: PostDetail)
+    func focusComment(anchorID: String)
     func appendCommentPage(detail: PostDetail)
     func updatePostBody(detail: PostDetail)
     func updateCommentLike(commentID: String, count: Int?, isClicked: Bool)
