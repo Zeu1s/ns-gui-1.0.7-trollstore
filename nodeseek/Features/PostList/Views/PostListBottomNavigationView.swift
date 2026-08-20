@@ -217,7 +217,7 @@ final class PostListBottomNavigationView: UIView {
     }
 
     private var selectionPillHeight: CGFloat {
-        AppDisplayScaleSettings.scaled(40)
+        AppDisplayScaleSettings.scaled(42)
     }
 
     private func updateSelectionPill(animated: Bool) {

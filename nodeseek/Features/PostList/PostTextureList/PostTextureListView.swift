@@ -322,35 +322,35 @@ final class PostTextureListView: UIView {
 
     private func animateStreamAppearance(_ cells: [UITableViewCell], generation: Int) {
         guard generation == streamGeneration else { return }
+        tableNode.view.layoutIfNeeded()
         shouldStreamContentAppearance = false
-
-        // 在同一帧内先统一隐藏可见行，再揭示表格并开始逐行动画，
-        // 避免任何一帧先画出完整内容、随后才被动画覆盖。
-        UIView.performWithoutAnimation {
-            for cell in cells {
-                cell.alpha = 0
-                cell.transform = CGAffineTransform(translationX: 0, y: 14).scaledBy(x: 0.985, y: 0.985)
-            }
-        }
-        tableNode.view.alpha = 1
-
         for (index, cell) in cells.enumerated() {
+            cell.alpha = 0
+            cell.transform = CGAffineTransform(translationX: 0, y: 14).scaledBy(x: 0.985, y: 0.985)
+            if index == 0 {
+                tableNode.view.alpha = 1
+            }
             UIView.animate(
-                withDuration: 0.32,
-                delay: Double(index) * 0.028,
-                options: [.curveEaseOut, .allowUserInteraction]
+                withDuration: 0.36,
+                delay: Double(index) * 0.026,
+                usingSpringWithDamping: 0.88,
+                initialSpringVelocity: 0.35,
+                options: [.curveEaseOut, .allowUserInteraction, .beginFromCurrentState]
             ) {
                 cell.alpha = 1
                 cell.transform = .identity
+            } completion: { [weak self] _ in
+                guard let self, generation == self.streamGeneration else { return }
+                if index == cells.count - 1 {
+                    self.completeStreamAppearance(for: generation)
+                }
             }
         }
 
-        let safetyDelay = Double(cells.count) * 0.028 + 0.6
+        let safetyDelay = Double(cells.count) * 0.026 + 0.55
         DispatchQueue.main.asyncAfter(deadline: .now() + safetyDelay) { [weak self] in
             guard let self, generation == self.streamGeneration else { return }
-            // 只结束动画状态，不强制复位任何行：动画已把可见行带到最终状态，
-            // 强制复位会让整屏在完成瞬间闪跳一下。
-            self.isStreamAnimating = false
+            self.completeStreamAppearance(for: generation)
         }
     }
 
@@ -358,6 +358,10 @@ final class PostTextureListView: UIView {
         guard generation == streamGeneration else { return }
         isStreamAnimating = false
         tableNode.view.alpha = 1
+        for cell in tableNode.view.visibleCells {
+            cell.alpha = 1
+            cell.transform = .identity
+        }
     }
 
     private func cancelStreamAppearance() {
