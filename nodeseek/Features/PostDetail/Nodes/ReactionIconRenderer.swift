@@ -7,8 +7,8 @@ import UIKit
 
 enum ReactionIconRenderer {
     static func chickenLeg(pointSize: CGFloat) -> UIImage? {
-        // 与点赞/踩 SF Symbol 风格统一：实心、圆润、饱满的鼓槌造型，
-        // 肉块+骨柄+末端关节，模板图跟随状态色（未点灰、已点橙）。
+        // 中间空心版本：圆润的鼓槌轮廓（只描边不填充）+ 骨柄 + 末端关节，
+        // 与点赞/踩 SF Symbol 的笔画粗细一致，模板图跟随状态色（未点灰、已点橙）。
         let width = max(20, pointSize * 1.30)
         let height = max(18, pointSize * 1.02)
         let format = UIGraphicsImageRendererFormat()
@@ -21,7 +21,7 @@ enum ReactionIconRenderer {
             cg.setLineCap(.round)
             cg.setLineJoin(.round)
 
-            // 肉块：实心填充，圆角轮廓与点赞/踩的粗壮笔画呼应
+            // 鼓槌肉块：闭合轮廓描边，中间留空
             let meat = UIBezierPath()
             meat.move(to: CGPoint(x: width * 0.10, y: height * 0.36))
             meat.addCurve(
@@ -45,15 +45,14 @@ enum ReactionIconRenderer {
                 controlPoint2: CGPoint(x: width * 0.05, y: height * 0.49)
             )
             meat.close()
-            meat.lineWidth = max(1.6, height * 0.075)
+            meat.lineWidth = max(1.9, height * 0.095)
             meat.lineJoinStyle = .round
             meat.lineCapStyle = .round
-            meat.fill()
             meat.stroke()
 
             // 骨柄：圆头粗线向右下延伸
-            let boneWidth = max(2.1, height * 0.115)
-            let boneStart = CGPoint(x: width * 0.58, y: height * 0.58)
+            let boneWidth = max(1.9, height * 0.095)
+            let boneStart = CGPoint(x: width * 0.58, y: height * 0.60)
             let boneEnd = CGPoint(x: width * 0.86, y: height * 0.88)
             let bone = UIBezierPath()
             bone.move(to: boneStart)
@@ -63,7 +62,7 @@ enum ReactionIconRenderer {
             bone.stroke()
 
             // 末端关节
-            let endRadius = boneWidth * 0.85
+            let endRadius = boneWidth * 0.78
             cg.fillEllipse(
                 in: CGRect(
                     x: boneEnd.x - endRadius,

@@ -148,6 +148,7 @@ private final class SpyPostTextureListHostView: PostTextureListHostViewProtocol 
     func showLoadingMore() {}
     func hideLoadingMore() {}
     func updateVisitedState(at index: Int, isVisited: Bool) {}
+    func replayStreamAppearance() {}
 }
 
 @MainActor

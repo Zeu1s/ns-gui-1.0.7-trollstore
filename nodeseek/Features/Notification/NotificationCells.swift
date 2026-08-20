@@ -18,10 +18,12 @@ final class NotificationMentionCell: UITableViewCell {
     private let actionLabel = UILabel()
     private let titleLabel = UILabel()
     private let contentLabel = UILabel()
+    private let floorLabel = UILabel()
     private let timeLabel = UILabel()
     private let markReadButton = UIButton(type: .system)
     private var onProfileTapped: (() -> Void)?
     private var onMarkReadTapped: (() -> Void)?
+    private var onContentTapped: (() -> Void)?
     private var representedID: Int?
 
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
@@ -49,10 +51,13 @@ final class NotificationMentionCell: UITableViewCell {
         actionLabel.text = nil
         titleLabel.text = nil
         contentLabel.text = nil
+        contentLabel.isHidden = true
+        floorLabel.text = nil
         timeLabel.text = nil
         markReadButton.isHidden = true
         onProfileTapped = nil
         onMarkReadTapped = nil
+        onContentTapped = nil
     }
 
     func configure(
@@ -60,18 +65,20 @@ final class NotificationMentionCell: UITableViewCell {
         tab: NodeSeekNotificationTab,
         timeText: String,
         onProfileTapped: @escaping () -> Void,
-        onMarkReadTapped: @escaping () -> Void
+        onMarkReadTapped: @escaping () -> Void,
+        onContentTapped: (() -> Void)? = nil
     ) {
         representedID = record.id
         self.onProfileTapped = onProfileTapped
         self.onMarkReadTapped = onMarkReadTapped
+        self.onContentTapped = onContentTapped
         nameButton.setTitle(record.commenterName, for: .normal)
         actionLabel.text = tab == .atMe ? "在帖子中@了我" : "回复了我的帖子"
         titleLabel.text = record.title
         let content = record.content?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         contentLabel.text = content.isEmpty ? nil : content
         contentLabel.isHidden = content.isEmpty
-        timeLabel.text = timeText
+        floorLabel.text = \
         configureUnreadBadge(record.displayUnreadCount)
         markReadButton.isHidden = record.isViewed
         accessibilityLabel = [
@@ -135,6 +142,9 @@ final class NotificationMentionCell: UITableViewCell {
         contentLabel.adjustsFontForContentSizeCategory = true
         contentLabel.numberOfLines = 2
         contentLabel.isHidden = true
+        contentLabel.isUserInteractionEnabled = true
+        let contentTap = UITapGestureRecognizer(target: self, action: #selector(contentTapped))
+        contentLabel.addGestureRecognizer(contentTap)
 
         timeLabel.font = .preferredFont(forTextStyle: .caption1)
         timeLabel.textColor = .secondaryLabel
@@ -154,7 +164,14 @@ final class NotificationMentionCell: UITableViewCell {
         metaRow.alignment = .firstBaseline
         metaRow.spacing = 5
 
-        let textStack = UIStackView(arrangedSubviews: [metaRow, titleLabel, contentLabel, timeLabel])
+        floorLabel.font = .preferredFont(forTextStyle: .caption2)
+        floorLabel.textColor = .systemOrange
+        floorLabel.adjustsFontForContentSizeCategory = true
+        floorLabel.isUserInteractionEnabled = true
+        let floorTap = UITapGestureRecognizer(target: self, action: #selector(contentTapped))
+        floorLabel.addGestureRecognizer(floorTap)
+
+        let textStack = UIStackView(arrangedSubviews: [metaRow, titleLabel, contentLabel, floorLabel, timeLabel])
         textStack.translatesAutoresizingMaskIntoConstraints = false
         textStack.axis = .vertical
         textStack.alignment = .fill
@@ -201,6 +218,10 @@ final class NotificationMentionCell: UITableViewCell {
 
     @objc private func markReadTapped() {
         onMarkReadTapped?()
+    }
+
+    @objc private func contentTapped() {
+        onContentTapped?()
     }
 
     private func configureUnreadBadge(_ count: Int) {

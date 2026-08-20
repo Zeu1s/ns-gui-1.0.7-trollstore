@@ -55,6 +55,11 @@ final class RecentVisitedPostsViewController: UIViewController {
         reloadRecords()
     }
 
+    /// 切回历史 tab 时重播流式呈现。
+    func replayStreamAppearance() {
+        listView.replayStreamAppearance()
+    }
+
     private func configureList() {
         listView.delegate = self
         listView.translatesAutoresizingMaskIntoConstraints = false

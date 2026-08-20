@@ -229,13 +229,22 @@ private struct NotificationListResponse: Decodable {
     private enum CodingKeys: String, CodingKey {
         case success
         case data
+        case atList
+        case replyList
+        case notifications
+        case list
         case message
     }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         success = try container.decode(Bool.self, forKey: .success)
-        data = try container.decodeIfPresent([NodeSeekNotificationRecord].self, forKey: .data) ?? []
+        data = try container.decodeIfPresent([NodeSeekNotificationRecord].self, forKey: .data)
+            ?? container.decodeIfPresent([NodeSeekNotificationRecord].self, forKey: .atList)
+            ?? container.decodeIfPresent([NodeSeekNotificationRecord].self, forKey: .replyList)
+            ?? container.decodeIfPresent([NodeSeekNotificationRecord].self, forKey: .notifications)
+            ?? container.decodeIfPresent([NodeSeekNotificationRecord].self, forKey: .list)
+            ?? []
         message = try container.decodeIfPresent(String.self, forKey: .message)
     }
 }

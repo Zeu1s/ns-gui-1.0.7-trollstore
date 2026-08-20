@@ -77,6 +77,13 @@ final class PostTextureListHostPresenter: PostTextureListHostPresenterProtocol {
         interactor.loadPosts(category: category, sortMode: sortMode)
     }
 
+    /// 板块/tab 重新进入时，若当前没有正在进行的刷新/加载，则重播流式呈现。
+    func replayStreamAppearance() {
+        guard hasLoadedFirstPage, items.isEmpty == false else { return }
+        guard !isRefreshing, !isLoadingFirstPage, !isLoadingMore else { return }
+        view?.replayStreamAppearance()
+    }
+
     func didSelectPost(at index: Int) {
         guard items.indices.contains(index) else { return }
         let item = items[index]

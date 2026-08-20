@@ -56,12 +56,15 @@ final class PostListBottomNavigationView: UIView {
     }
 
     var onItemSelected: ((PostListBottomNavigationItem) -> Void)?
+    var onItemDoubleTapped: ((PostListBottomNavigationItem) -> Void)?
 
     private var buttons: [PostListBottomNavigationItem: UIButton] = [:]
     private let messageUnreadBadge = UIView()
     private let backgroundBlurView = UIVisualEffectView(effect: nil)
     private let selectionPillView = UIView()
     private var selectedItem: PostListBottomNavigationItem = .home
+    private var lastTapItem: PostListBottomNavigationItem?
+    private var lastTapTime: TimeInterval = 0
     private var stackLeadingConstraint: NSLayoutConstraint?
     private var stackTrailingConstraint: NSLayoutConstraint?
     private var stackTopConstraint: NSLayoutConstraint?
@@ -100,12 +103,12 @@ final class PostListBottomNavigationView: UIView {
 
     func refreshDisplayScale() {
         layer.cornerRadius = 0
-        selectionPillView.layer.cornerRadius = AppDisplayScaleSettings.scaled(13)
+        selectionPillView.layer.cornerRadius = AppDisplayScaleSettings.scaled(11)
         messageUnreadBadge.layer.cornerRadius = AppDisplayScaleSettings.scaled(6)
         stackLeadingConstraint?.constant = AppDisplayScaleSettings.scaled(8)
         stackTrailingConstraint?.constant = -AppDisplayScaleSettings.scaled(8)
-        stackTopConstraint?.constant = AppDisplayScaleSettings.scaled(3)
-        stackBottomConstraint?.constant = -AppDisplayScaleSettings.scaled(3)
+        stackTopConstraint?.constant = AppDisplayScaleSettings.scaled(2)
+        stackBottomConstraint?.constant = -AppDisplayScaleSettings.scaled(2)
         unreadBadgeWidthConstraint?.constant = AppDisplayScaleSettings.scaled(12)
         unreadBadgeHeightConstraint?.constant = AppDisplayScaleSettings.scaled(12)
         unreadBadgeTopConstraint?.constant = AppDisplayScaleSettings.scaled(8)
@@ -131,7 +134,7 @@ final class PostListBottomNavigationView: UIView {
         ])
 
         selectionPillView.backgroundColor = Style.selectedBackground
-        selectionPillView.layer.cornerRadius = AppDisplayScaleSettings.scaled(13)
+        selectionPillView.layer.cornerRadius = AppDisplayScaleSettings.scaled(11)
         selectionPillView.isUserInteractionEnabled = false
         selectionPillView.translatesAutoresizingMaskIntoConstraints = true
         selectionPillView.frame = .zero
@@ -172,11 +175,11 @@ final class PostListBottomNavigationView: UIView {
         )
         let stackTopConstraint = stackView.topAnchor.constraint(
             equalTo: topAnchor,
-            constant: AppDisplayScaleSettings.scaled(1)
+            constant: AppDisplayScaleSettings.scaled(2)
         )
         let stackBottomConstraint = stackView.bottomAnchor.constraint(
             equalTo: bottomAnchor,
-            constant: -AppDisplayScaleSettings.scaled(1)
+            constant: -AppDisplayScaleSettings.scaled(2)
         )
         let unreadBadgeWidthConstraint = messageUnreadBadge.widthAnchor.constraint(
             equalToConstant: AppDisplayScaleSettings.scaled(12)
@@ -217,7 +220,7 @@ final class PostListBottomNavigationView: UIView {
         guard let button = buttons[selectedItem] else { return }
         let target = button.convert(button.bounds, to: self)
         let frame = target.insetBy(
-            dx: AppDisplayScaleSettings.scaled(6),
+            dx: AppDisplayScaleSettings.scaled(12),
             dy: AppDisplayScaleSettings.scaled(1)
         )
         let apply: () -> Void = { [weak self] in
@@ -254,9 +257,9 @@ final class PostListBottomNavigationView: UIView {
         configuration.imagePlacement = .top
         configuration.imagePadding = AppDisplayScaleSettings.scaled(1)
         configuration.contentInsets = NSDirectionalEdgeInsets(
-            top: AppDisplayScaleSettings.scaled(3),
+            top: AppDisplayScaleSettings.scaled(2),
             leading: AppDisplayScaleSettings.scaled(2),
-            bottom: AppDisplayScaleSettings.scaled(3),
+            bottom: AppDisplayScaleSettings.scaled(2),
             trailing: AppDisplayScaleSettings.scaled(2)
         )
         configuration.baseForegroundColor = isSelected ? Style.selectedForeground : .label
@@ -276,6 +279,16 @@ final class PostListBottomNavigationView: UIView {
         guard let item = PostListBottomNavigationItem.allCases.first(where: { itemIndex($0) == sender.tag }) else {
             return
         }
+        let now = Date().timeIntervalSinceReferenceDate
+        if lastTapItem == item, now - lastTapTime < 0.4 {
+            lastTapItem = nil
+            lastTapTime = 0
+            setSelectedItem(item)
+            onItemDoubleTapped?(item)
+            return
+        }
+        lastTapItem = item
+        lastTapTime = now
         setSelectedItem(item)
         onItemSelected?(item)
     }

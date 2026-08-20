@@ -9,8 +9,8 @@ import UIKit
 final class MainTabContainerViewController: UIViewController {
     private enum Layout {
         static let horizontalInset: CGFloat = 0
-        // 底栏总高度固定为 50pt；子视图自己避开底部安全区。
-        static let height: CGFloat = 50
+        // 底栏总高度固定为 44pt；子视图自己避开底部安全区。
+        static let height: CGFloat = 44
     }
 
     private let containerView = UIView()
@@ -49,6 +49,9 @@ final class MainTabContainerViewController: UIViewController {
 
         bottomNavigationView.onItemSelected = { [weak self] item in
             self?.select(item)
+        }
+        bottomNavigationView.onItemDoubleTapped = { [weak self] item in
+            self?.doubleTapRefresh(item)
         }
         bottomNavigationView.setSelectedItem(.home)
 
@@ -98,6 +101,7 @@ final class MainTabContainerViewController: UIViewController {
         } else {
             recoverVisibleContent(in: stack)
         }
+        replayStreamAppearanceIfNeeded(for: item)
         bottomNavigationView.setSelectedItem(item)
         bottomNavigationView.setUnreadMessagesVisible(unreadBadgeVisible)
     }
@@ -198,6 +202,39 @@ final class MainTabContainerViewController: UIViewController {
             return
         }
         history.refreshFromTabSelection()
+    }
+
+    /// 切回板块/tab 时，对已展示的列表重播流式输出（正在加载/刷新时由数据到达后的 setItems 负责）。
+    private func replayStreamAppearanceIfNeeded(for item: PostListBottomNavigationItem) {
+        guard let root = stacks[item]?.viewControllers.first else { return }
+        switch item {
+        case .home:
+            (root as? PostListViewController)?.replayStreamAppearanceIfNeeded()
+        case .history:
+            (root as? RecentVisitedPostsViewController)?.replayStreamAppearance()
+        case .search:
+            (root as? SearchViewController)?.replayStreamAppearance()
+        case .messages, .profile:
+            break
+        }
+    }
+
+    /// 双击底栏按钮：只刷新当前页面的内容。
+    private func doubleTapRefresh(_ item: PostListBottomNavigationItem) {
+        let stack = stack(for: item)
+        guard let root = stack.viewControllers.first else { return }
+        switch item {
+        case .home:
+            (root as? PostListViewController)?.refreshVisibleFirstPageIfNeeded()
+        case .history:
+            (root as? RecentVisitedPostsViewController)?.refreshFromTabSelection()
+        case .search:
+            (root as? SearchViewController)?.refreshFromDoubleTap()
+        case .messages:
+            (root as? NotificationViewController)?.refreshFromDoubleTap()
+        case .profile:
+            (root as? ProfileTabViewController)?.refreshFromDoubleTap()
+        }
     }
 
     private func refreshHomeListIfVisible(in stack: UINavigationController) {

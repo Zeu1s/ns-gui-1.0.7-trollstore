@@ -247,6 +247,17 @@ final class SearchViewController: UIViewController {
         navigationController?.interactivePopGestureRecognizer?.isEnabled = true
     }
 
+    /// 双击搜索 tab：有已搜索内容时重新拉取第一页，否则无操作。
+    func refreshFromDoubleTap() {
+        guard activeRequest != nil else { return }
+        reloadFirstPageForActiveRequest(isRefresh: true)
+    }
+
+    /// 切回搜索 tab 时重播流式呈现。
+    func replayStreamAppearance() {
+        listView.replayStreamAppearance()
+    }
+
     private func setupUI() {
         title = "搜一搜"
         view.backgroundColor = .systemBackground

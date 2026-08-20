@@ -404,6 +404,12 @@ final class NotificationViewController: UIViewController {
         loadSelectedTab(showLoading: false)
     }
 
+    /// 双击消息 tab：重新拉取当前板块（@我/回复主题/私信）。
+    func refreshFromDoubleTap() {
+        loadUnreadCount()
+        loadSelectedTab(showLoading: false)
+    }
+
     @objc private func openInBrowserTapped() {
         openWebURL(selectedTab.webURL)
     }
@@ -642,6 +648,9 @@ extension NotificationViewController: UITableViewDataSource {
                 onProfileTapped: { [weak self] in self?.openProfile(record) },
                 onMarkReadTapped: { [weak self] in
                     self?.markRead(id: record.id, tab: .atMe, rollbackOnFailure: true, showFailure: true)
+                },
+                onContentTapped: { [weak self] in
+                    self?.openNotificationRecord(record, tab: .atMe)
                 }
             )
             return cell
@@ -658,6 +667,9 @@ extension NotificationViewController: UITableViewDataSource {
                 onProfileTapped: { [weak self] in self?.openProfile(record) },
                 onMarkReadTapped: { [weak self] in
                     self?.markRead(id: record.id, tab: .reply, rollbackOnFailure: true, showFailure: true)
+                },
+                onContentTapped: { [weak self] in
+                    self?.openNotificationRecord(record, tab: .reply)
                 }
             )
             return cell

@@ -69,6 +69,11 @@ final class PostTextureListHostViewController: UIViewController {
         guard isViewLoaded else { return }
         listView.refreshVisibleAppearanceForCurrentTraits()
     }
+
+    func replayStreamAppearanceIfNeeded() {
+        guard isViewLoaded else { return }
+        presenter.replayStreamAppearance()
+    }
 }
 
 extension PostTextureListHostViewController: PostTextureListViewDelegate {
@@ -124,5 +129,9 @@ extension PostTextureListHostViewController: PostTextureListHostViewProtocol {
 
     func updateVisitedState(at index: Int, isVisited: Bool) {
         listView.updateVisitedState(at: index, isVisited: isVisited)
+    }
+
+    func replayStreamAppearance() {
+        listView.replayStreamAppearance()
     }
 }

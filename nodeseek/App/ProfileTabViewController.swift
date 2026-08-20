@@ -205,6 +205,11 @@ final class ProfileTabViewController: UIViewController {
         loadProfile()
     }
 
+    /// 双击我的 tab：重新加载当前资料页。
+    func refreshFromDoubleTap() {
+        loadProfile()
+    }
+
     @objc private func refreshTriggered() {
         loadProfile()
     }

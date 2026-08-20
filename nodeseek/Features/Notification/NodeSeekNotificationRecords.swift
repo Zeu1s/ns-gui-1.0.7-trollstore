@@ -168,14 +168,30 @@ nonisolated struct NodeSeekNotificationRecord: Decodable, Equatable, Sendable {
         case id
         case viewed
         case commentID = "comment_id"
+        case replyID = "reply_id"
         case floorID = "floor_id"
+        case floor
+        case floorIDCamel = "floorId"
         case createdAt = "created_at"
         case commenterID = "commenter_id"
+        case memberID = "member_id"
+        case senderID = "sender_id"
+        case uid
         case title
+        case postTitle = "post_title"
+        case discussionTitle = "discussion_title"
         case postID = "post_id"
+        case postIDCamel = "postId"
+        case discussionID = "discussion_id"
         case firstCommentID = "first_comment_id"
         case commenterName = "commenter_name"
+        case username
+        case senderName = "sender_name"
+        case name
         case content
+        case commentContent = "comment_content"
+        case excerpt
+        case message
         case unread
         case unreadCount = "unread_count"
         case count
@@ -185,8 +201,8 @@ nonisolated struct NodeSeekNotificationRecord: Decodable, Equatable, Sendable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         id = try container.decode(Int.self, forKey: .id)
         viewed = try container.decode(Int.self, forKey: .viewed)
-        commentID = try container.decode(Int.self, forKey: .commentID)
-        floorID = try container.decode(Int.self, forKey: .floorID)
+        commentID = Self.optionalInt(in: container, keys: [.commentID, .replyID]) ?? 0
+        floorID = Self.optionalInt(in: container, keys: [.floorID, .floor, .floorIDCamel]) ?? 1
         let createdAtText = try container.decode(String.self, forKey: .createdAt)
         guard let parsedDate = NodeSeekNotificationDateParser.date(from: createdAtText) else {
             throw DecodingError.dataCorruptedError(
@@ -196,12 +212,12 @@ nonisolated struct NodeSeekNotificationRecord: Decodable, Equatable, Sendable {
             )
         }
         createdAt = parsedDate
-        commenterID = try container.decode(Int.self, forKey: .commenterID)
-        title = try container.decode(String.self, forKey: .title)
-        postID = try container.decode(Int.self, forKey: .postID)
-        firstCommentID = try container.decode(Int.self, forKey: .firstCommentID)
-        commenterName = try container.decode(String.self, forKey: .commenterName)
-        content = Self.optionalString(in: container, keys: [.content])
+        commenterID = Self.optionalInt(in: container, keys: [.commenterID, .memberID, .senderID, .uid]) ?? 0
+        title = Self.optionalString(in: container, keys: [.title, .postTitle, .discussionTitle]) ?? ""
+        postID = Self.optionalInt(in: container, keys: [.postID, .postIDCamel, .discussionID]) ?? 0
+        firstCommentID = Self.optionalInt(in: container, keys: [.firstCommentID]) ?? 0
+        commenterName = Self.optionalString(in: container, keys: [.commenterName, .username, .senderName, .name]) ?? ""
+        content = Self.optionalString(in: container, keys: [.content, .commentContent, .excerpt, .message])
         unreadCount = Self.optionalInt(in: container, keys: [.unread, .unreadCount, .count])
     }
 

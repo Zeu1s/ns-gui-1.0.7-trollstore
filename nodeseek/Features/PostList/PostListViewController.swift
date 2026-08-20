@@ -305,6 +305,11 @@ class PostListViewController: UIViewController {
         pageContainerViewController.refreshFirstPageKeepingContent(for: selectedCategory)
     }
 
+    func replayStreamAppearanceIfNeeded() {
+        guard isViewLoaded else { return }
+        pageContainerViewController.replayStreamAppearanceIfNeeded()
+    }
+
     // MARK: - Setup UI
     private func setupUI() {
         navigationItem.title = nil

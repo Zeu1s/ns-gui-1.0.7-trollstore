@@ -107,6 +107,11 @@ final class PostPageContainerViewController: UIPageViewController {
         hostViewControllers.values.forEach { $0.refreshVisibleAppearanceForCurrentTraits() }
     }
 
+    func replayStreamAppearanceIfNeeded() {
+        guard let category = currentCategory ?? categories.first else { return }
+        hostViewControllers[category]?.replayStreamAppearanceIfNeeded()
+    }
+
     func recoverVisiblePageIfNeeded() {
         guard let category = currentCategory ?? categories.first else { return }
         guard pendingCategory == nil else {

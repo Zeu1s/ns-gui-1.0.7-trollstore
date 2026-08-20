@@ -16,6 +16,7 @@ protocol PostTextureListHostViewProtocol: AnyObject {
     func showLoadingMore()
     func hideLoadingMore()
     func updateVisitedState(at index: Int, isVisited: Bool)
+    func replayStreamAppearance()
 }
 
 // MARK: - Presenter Delegate (Presenter -> Parent)
@@ -41,6 +42,7 @@ protocol PostTextureListHostPresenterProtocol: AnyObject {
     func didRequestRefresh()
     func didRequestFirstPageRetry()
     func didApproachBottom(at index: Int, totalCount: Int)
+    func replayStreamAppearance()
 }
 
 // MARK: - Interactor Input (Presenter -> Interactor)
