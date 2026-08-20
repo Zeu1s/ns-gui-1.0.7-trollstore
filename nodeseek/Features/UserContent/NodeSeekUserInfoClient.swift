@@ -9,15 +9,43 @@ nonisolated struct NodeSeekUserInfo: Equatable, Sendable {
     let userID: Int
     let username: String?
     let createdAt: Date?
-    let bio: String? = nil
+    let bio: String?
     let joinDays: Int
     let level: Int
     let coin: Int
     let stardust: Int
     let nPost: Int
     let nComment: Int
-    let follows: Int = 0
-    let fans: Int = 0
+    let follows: Int
+    let fans: Int
+
+    init(
+        userID: Int,
+        username: String?,
+        createdAt: Date?,
+        bio: String? = nil,
+        joinDays: Int,
+        level: Int,
+        coin: Int,
+        stardust: Int,
+        nPost: Int,
+        nComment: Int,
+        follows: Int = 0,
+        fans: Int = 0
+    ) {
+        self.userID = userID
+        self.username = username
+        self.createdAt = createdAt
+        self.bio = bio
+        self.joinDays = joinDays
+        self.level = level
+        self.coin = coin
+        self.stardust = stardust
+        self.nPost = nPost
+        self.nComment = nComment
+        self.follows = follows
+        self.fans = fans
+    }
 
     var badgeText: String {
         "Lv \(level) · \(joinDays)天"

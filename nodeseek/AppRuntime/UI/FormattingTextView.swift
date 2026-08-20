@@ -510,8 +510,8 @@ final class FormattingTextView: UITextView {
         return TextStyle(
             isBold: isBold,
             isItalic: isItalic,
-            isUnderlined: underline != NSUnderlineStyle.none.rawValue,
-            isStruckThrough: strikethrough != NSUnderlineStyle.none.rawValue,
+            isUnderlined: underline != 0,
+            isStruckThrough: strikethrough != 0,
             indentationLevel: indentationLevel(from: paragraphStyle)
         )
     }
