@@ -224,6 +224,8 @@ class PostDetailViewController: UIViewController {
     enum Layout {
         static let horizontalInset: CGFloat = PostDetailContentLayout.horizontalInset
         static let replyButtonBottomInset: CGFloat = 112
+        static let floatingActionWidth: CGFloat = 52
+        static let floatingActionHeight: CGFloat = 88
     }
 
     let presenter: PostDetailPresenterProtocol
@@ -385,19 +387,48 @@ class PostDetailViewController: UIViewController {
         configuration.background.backgroundColor = .clear
         configuration.contentInsets = NSDirectionalEdgeInsets(top: 10, leading: 14, bottom: 10, trailing: 12)
         button.configuration = configuration
-        button.backgroundColor = .label
         button.accessibilityIdentifier = "post-detail-reply-button"
         button.accessibilityLabel = "评论"
         button.isHidden = true
-        button.alpha = 0.48
-        button.layer.cornerRadius = 22
-        button.layer.cornerCurve = .continuous
-        button.layer.maskedCorners = [.layerMinXMinYCorner, .layerMinXMaxYCorner]
-        button.layer.borderWidth = 0.5
-        button.layer.borderColor = UIColor.separator.cgColor
-        button.clipsToBounds = true
         button.translatesAutoresizingMaskIntoConstraints = false
         return button
+    }()
+
+    let scrollToTopButton: UIButton = {
+        let button = UIButton(type: .system)
+        var configuration = UIButton.Configuration.plain()
+        let symbolConfiguration = UIImage.SymbolConfiguration(pointSize: 17, weight: .semibold)
+        configuration.image = UIImage(systemName: "arrow.up", withConfiguration: symbolConfiguration)
+        configuration.baseForegroundColor = .systemBackground
+        configuration.contentInsets = NSDirectionalEdgeInsets(top: 10, leading: 14, bottom: 10, trailing: 12)
+        button.configuration = configuration
+        button.accessibilityIdentifier = "post-detail-scroll-to-top-button"
+        button.accessibilityLabel = "回到顶部"
+        button.isHidden = true
+        button.translatesAutoresizingMaskIntoConstraints = false
+        return button
+    }()
+
+    let floatingReplyPanel: UIView = {
+        let view = UIView()
+        view.backgroundColor = .label
+        view.alpha = 0.42
+        view.layer.cornerRadius = 22
+        view.layer.cornerCurve = .continuous
+        view.layer.borderWidth = 0.5
+        view.layer.borderColor = UIColor.separator.cgColor
+        view.clipsToBounds = true
+        view.isHidden = true
+        view.translatesAutoresizingMaskIntoConstraints = false
+        view.accessibilityIdentifier = "post-detail-floating-action-panel"
+        return view
+    }()
+
+    let floatingActionDivider: UIView = {
+        let view = UIView()
+        view.backgroundColor = UIColor.systemBackground.withAlphaComponent(0.30)
+        view.translatesAutoresizingMaskIntoConstraints = false
+        return view
     }()
 
     private let replyButtonAnchorView: UIView = {
@@ -776,8 +807,8 @@ class PostDetailViewController: UIViewController {
 
             replyButtonAnchorView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             replyButtonAnchorView.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -Layout.replyButtonBottomInset),
-            replyButtonAnchorView.widthAnchor.constraint(equalToConstant: 52),
-            replyButtonAnchorView.heightAnchor.constraint(equalToConstant: 44),
+            replyButtonAnchorView.widthAnchor.constraint(equalToConstant: Layout.floatingActionWidth),
+            replyButtonAnchorView.heightAnchor.constraint(equalToConstant: Layout.floatingActionHeight),
 
             replyEditorBackdrop.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             replyEditorBackdrop.trailingAnchor.constraint(equalTo: view.trailingAnchor),
@@ -891,10 +922,30 @@ class PostDetailViewController: UIViewController {
 
     func configureReplyEditor() {
         replyButton.addTarget(self, action: #selector(replyButtonTapped), for: .touchUpInside)
+        scrollToTopButton.addTarget(self, action: #selector(scrollToTopTapped), for: .touchUpInside)
         floatingReplyButtonContainer.onAdsorbedEdgeChanged = { [weak self] edge in
-            self?.replyButton.applyFloatingDockedCorners(for: edge)
+            self?.floatingReplyPanel.applyFloatingDockedCorners(for: edge)
         }
-        floatingReplyButtonContainer.hostControl(replyButton)
+        floatingReplyPanel.addSubview(scrollToTopButton)
+        floatingReplyPanel.addSubview(floatingActionDivider)
+        floatingReplyPanel.addSubview(replyButton)
+        NSLayoutConstraint.activate([
+            scrollToTopButton.leadingAnchor.constraint(equalTo: floatingReplyPanel.leadingAnchor),
+            scrollToTopButton.trailingAnchor.constraint(equalTo: floatingReplyPanel.trailingAnchor),
+            scrollToTopButton.topAnchor.constraint(equalTo: floatingReplyPanel.topAnchor),
+            scrollToTopButton.heightAnchor.constraint(equalToConstant: Layout.floatingActionHeight / 2),
+
+            floatingActionDivider.leadingAnchor.constraint(equalTo: floatingReplyPanel.leadingAnchor, constant: 8),
+            floatingActionDivider.trailingAnchor.constraint(equalTo: floatingReplyPanel.trailingAnchor, constant: -8),
+            floatingActionDivider.centerYAnchor.constraint(equalTo: floatingReplyPanel.centerYAnchor),
+            floatingActionDivider.heightAnchor.constraint(equalToConstant: 1 / UIScreen.main.scale),
+
+            replyButton.leadingAnchor.constraint(equalTo: floatingReplyPanel.leadingAnchor),
+            replyButton.trailingAnchor.constraint(equalTo: floatingReplyPanel.trailingAnchor),
+            replyButton.bottomAnchor.constraint(equalTo: floatingReplyPanel.bottomAnchor),
+            replyButton.heightAnchor.constraint(equalToConstant: Layout.floatingActionHeight / 2)
+        ])
+        floatingReplyButtonContainer.hostControl(floatingReplyPanel)
         view.addSubview(replyButtonAnchorView)
         view.addSubview(floatingReplyButtonContainer)
         replyEditorBackdrop.addTarget(self, action: #selector(dismissReplyEditor), for: .touchUpInside)

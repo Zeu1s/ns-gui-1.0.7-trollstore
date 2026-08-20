@@ -3192,24 +3192,27 @@ struct PostDetailLoginViewControllerTests {
 
         let floatingReplyButton = try #require(viewController.view.firstButton(accessibilityIdentifier: "post-detail-reply-button"))
         #expect(floatingReplyButton.isHidden == false)
+        let scrollToTopButton = try #require(viewController.view.firstButton(accessibilityIdentifier: "post-detail-scroll-to-top-button"))
+        #expect(scrollToTopButton.isHidden == false)
         let floatingContainer = try #require(
             viewController.view.firstView(accessibilityIdentifier: "post-detail-floating-reply-button") as? FloatingControlContainerView
         )
-        let panGesture = try #require(floatingReplyButton.gestureRecognizers?.first { $0 is UIPanGestureRecognizer })
-        let replyButtonFrame = floatingReplyButton.convert(floatingReplyButton.bounds, to: viewController.view)
+        let floatingPanel = try #require(viewController.view.firstView(accessibilityIdentifier: "post-detail-floating-action-panel"))
+        let panGesture = try #require(floatingPanel.gestureRecognizers?.first { $0 is UIPanGestureRecognizer })
+        let panelFrame = floatingPanel.convert(floatingPanel.bounds, to: viewController.view)
 
-        #expect(panGesture.view === floatingReplyButton)
+        #expect(panGesture.view === floatingPanel)
         #expect(panGesture.cancelsTouchesInView)
-        #expect(floatingReplyButton.superview === floatingContainer)
+        #expect(floatingPanel.superview === floatingContainer)
         #expect(floatingReplyButton.configuration?.baseForegroundColor == .systemBackground)
-        #expect(floatingReplyButton.backgroundColor == .label)
-        #expect(floatingReplyButton.alpha == 0.48)
-        #expect(floatingReplyButton.layer.borderWidth == 0.5)
-        #expect(abs(replyButtonFrame.maxY - (viewController.view.safeAreaLayoutGuide.layoutFrame.maxY - PostDetailViewController.Layout.replyButtonBottomInset)) < 1)
+        #expect(floatingPanel.backgroundColor == .label)
+        #expect(floatingPanel.alpha == 0.42)
+        #expect(floatingPanel.layer.borderWidth == 0.5)
+        #expect(abs(panelFrame.maxY - (viewController.view.safeAreaLayoutGuide.layoutFrame.maxY - PostDetailViewController.Layout.replyButtonBottomInset)) < 1)
 
         floatingContainer.frame.origin.x = 0
         floatingContainer.floatingViewDidEndDragging(panGestureRecognizer: UIPanGestureRecognizer())
-        #expect(floatingReplyButton.layer.maskedCorners == [.layerMaxXMinYCorner, .layerMaxXMaxYCorner])
+        #expect(floatingPanel.layer.maskedCorners == [.layerMaxXMinYCorner, .layerMaxXMaxYCorner])
     }
 
     @Test func detailReplyButtonRestoresLastDraggedPosition() async throws {
@@ -3261,11 +3264,11 @@ struct PostDetailLoginViewControllerTests {
         let restoredContainer = try #require(
             secondViewController.view.firstView(accessibilityIdentifier: "post-detail-floating-reply-button") as? FloatingControlContainerView
         )
-        let restoredButton = try #require(secondViewController.view.firstButton(accessibilityIdentifier: "post-detail-reply-button"))
+        let restoredPanel = try #require(secondViewController.view.firstView(accessibilityIdentifier: "post-detail-floating-action-panel"))
 
         #expect(abs(restoredContainer.frame.minX) < 0.5)
         #expect(abs(restoredContainer.frame.minY - firstContainer.frame.minY) < 1)
-        #expect(restoredButton.layer.maskedCorners == [.layerMaxXMinYCorner, .layerMaxXMaxYCorner])
+        #expect(restoredPanel.layer.maskedCorners == [.layerMaxXMinYCorner, .layerMaxXMaxYCorner])
     }
 
     @Test func restrictedDetailHidesReplyEntry() async throws {

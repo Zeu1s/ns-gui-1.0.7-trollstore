@@ -77,7 +77,19 @@ extension PostDetailViewController {
     func updateReplyButtonVisibility() {
         let isHidden = showsReplyEntry == false || displayMode != .content || replyEditorContainer.isHidden == false
         replyButton.isHidden = isHidden
+        scrollToTopButton.isHidden = isHidden
+        floatingReplyPanel.isHidden = isHidden
         floatingReplyButtonContainer.isHidden = isHidden
+    }
+
+    @objc
+    func scrollToTopTapped() {
+        let tableView = tableNode.view
+        let topOffset = CGPoint(
+            x: -tableView.adjustedContentInset.left,
+            y: -tableView.adjustedContentInset.top
+        )
+        tableView.setContentOffset(topOffset, animated: true)
     }
 
     func presentReplyEditor(mode: CommentComposerMode) {
