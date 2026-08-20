@@ -103,7 +103,7 @@ final class PostListBottomNavigationView: UIView {
 
     func refreshDisplayScale() {
         layer.cornerRadius = 0
-        selectionPillView.layer.cornerRadius = AppDisplayScaleSettings.scaled(16)
+        selectionPillView.layer.cornerRadius = selectionPillHeight / 2
         messageUnreadBadge.layer.cornerRadius = AppDisplayScaleSettings.scaled(6)
         stackLeadingConstraint?.constant = AppDisplayScaleSettings.scaled(8)
         stackTrailingConstraint?.constant = -AppDisplayScaleSettings.scaled(8)
@@ -217,13 +217,14 @@ final class PostListBottomNavigationView: UIView {
     }
 
     private var selectionPillHeight: CGFloat {
-        AppDisplayScaleSettings.scaled(32)
+        AppDisplayScaleSettings.scaled(40)
     }
 
     private func updateSelectionPill(animated: Bool) {
         guard let button = buttons[selectedItem] else { return }
         let target = button.convert(button.bounds, to: self)
-        let insetX = AppDisplayScaleSettings.scaled(12)
+        selectionPillView.layer.cornerRadius = selectionPillHeight / 2
+        let insetX = AppDisplayScaleSettings.scaled(8)
         let frame = CGRect(
             x: target.minX + insetX,
             y: target.midY - selectionPillHeight / 2,
@@ -254,7 +255,7 @@ final class PostListBottomNavigationView: UIView {
         isSelected: Bool
     ) {        guard let button else { return }
         let symbolConfiguration = UIImage.SymbolConfiguration(
-            pointSize: AppDisplayScaleSettings.scaled(15),
+            pointSize: AppDisplayScaleSettings.scaled(19),
             weight: isSelected ? .semibold : .regular
         )
         var configuration = UIButton.Configuration.plain()
@@ -264,18 +265,18 @@ final class PostListBottomNavigationView: UIView {
         )
         configuration.title = item.title
         configuration.imagePlacement = .top
-        configuration.imagePadding = AppDisplayScaleSettings.scaled(1)
+        configuration.imagePadding = AppDisplayScaleSettings.scaled(2)
         configuration.contentInsets = NSDirectionalEdgeInsets(
-            top: AppDisplayScaleSettings.scaled(2),
-            leading: AppDisplayScaleSettings.scaled(2),
-            bottom: AppDisplayScaleSettings.scaled(2),
-            trailing: AppDisplayScaleSettings.scaled(2)
+            top: AppDisplayScaleSettings.scaled(3),
+            leading: AppDisplayScaleSettings.scaled(4),
+            bottom: AppDisplayScaleSettings.scaled(3),
+            trailing: AppDisplayScaleSettings.scaled(4)
         )
         configuration.baseForegroundColor = isSelected ? Style.selectedForeground : .label
         configuration.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { incoming in
             var outgoing = incoming
             outgoing.font = UIFont.systemFont(
-                ofSize: AppDisplayScaleSettings.scaled(9),
+                ofSize: AppDisplayScaleSettings.scaled(10.5),
                 weight: isSelected ? .semibold : .medium
             )
             return outgoing

@@ -667,27 +667,26 @@ private final class ProfileMetricView: UIView {
         imageView.contentMode = .scaleAspectFit
 
         textLabel.translatesAutoresizingMaskIntoConstraints = false
-        textLabel.font = .preferredFont(forTextStyle: .body)
+        textLabel.font = .preferredFont(forTextStyle: .subheadline)
         textLabel.textColor = .label
+        textLabel.textAlignment = .center
         textLabel.adjustsFontForContentSizeCategory = true
         textLabel.adjustsFontSizeToFitWidth = true
         textLabel.minimumScaleFactor = 0.72
-        textLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
         contentStack.translatesAutoresizingMaskIntoConstraints = false
         contentStack.axis = .horizontal
         contentStack.alignment = .center
-        contentStack.spacing = 8
+        contentStack.spacing = 6
         contentStack.addArrangedSubview(imageView)
         contentStack.addArrangedSubview(textLabel)
         addSubview(contentStack)
         NSLayoutConstraint.activate([
             contentStack.centerXAnchor.constraint(equalTo: centerXAnchor),
             contentStack.centerYAnchor.constraint(equalTo: centerYAnchor),
-            contentStack.leadingAnchor.constraint(greaterThanOrEqualTo: leadingAnchor, constant: 4),
-            contentStack.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -4),
-            imageView.widthAnchor.constraint(equalToConstant: 20),
-            imageView.heightAnchor.constraint(equalToConstant: 20)
+            imageView.widthAnchor.constraint(equalToConstant: 22),
+            imageView.heightAnchor.constraint(equalToConstant: 22),
+            textLabel.widthAnchor.constraint(equalToConstant: 84)
         ])
     }
 }
