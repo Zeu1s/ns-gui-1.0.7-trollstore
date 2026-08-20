@@ -499,12 +499,12 @@ extension NewDiscussionViewController: PHPickerViewControllerDelegate {
             DispatchQueue.main.async {
                 guard let self else { return }
                 guard let data else {
-                    presentError(error?.localizedDescription ?? "无法读取图片。")
+                    self.presentError(error?.localizedDescription ?? "无法读取图片。")
                     return
                 }
                 let fileName = provider.suggestedName ?? "nodeseek-image.jpg"
                 let type = UTType(filenameExtension: URL(fileURLWithPath: fileName).pathExtension) ?? .jpeg
-                uploadImage(data: data, fileName: fileName, mimeType: type.preferredMIMEType ?? "image/jpeg")
+                self.uploadImage(data: data, fileName: fileName, mimeType: type.preferredMIMEType ?? "image/jpeg")
             }
         }
     }

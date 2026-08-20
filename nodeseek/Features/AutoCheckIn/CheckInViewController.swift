@@ -17,8 +17,8 @@ final class CheckInViewController: UIViewController {
     private var boardState: AutoCheckInBoardState?
     private var isLoading = false
 
-    init(automator: AutoCheckInWebAutomating = HTTPAutoCheckInAutomator()) {
-        self.automator = automator
+    init(automator: AutoCheckInWebAutomating? = nil) {
+        self.automator = automator ?? HTTPAutoCheckInAutomator()
         super.init(nibName: nil, bundle: nil)
         title = "签到"
     }

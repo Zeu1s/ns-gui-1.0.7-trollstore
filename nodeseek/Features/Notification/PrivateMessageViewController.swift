@@ -510,7 +510,7 @@ private final class PrivateMessageCell: UITableViewCell {
         representedID = message.id
         let avatarURL = isOutgoing ? ownAvatarURL : message.senderAvatarURL
         ImageLoad.url(avatarURL)
-            .toAvatar(requestID: "message-\(isOutgoing ? "self" : message.senderID)")
+            .toAvatar(requestID: "message-\(isOutgoing ? "self" : String(message.senderID))")
             .into(avatarImageView)
 
         let imageURL = Self.markdownImageURL(in: message.content)
