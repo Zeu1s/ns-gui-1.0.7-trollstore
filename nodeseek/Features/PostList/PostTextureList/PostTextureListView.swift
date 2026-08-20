@@ -40,6 +40,7 @@ final class PostTextureListView: UIView {
     private var lastBatchFetchRequestedItemCount: Int?
     private var shouldStreamContentAppearance = false
     private var isStreamAnimating = false
+    private var streamGeneration = 0
 
     private let loadMoreIndicator: UIActivityIndicatorView = {
         let indicator = UIActivityIndicatorView(style: .medium)
@@ -271,8 +272,6 @@ final class PostTextureListView: UIView {
 
     private func streamVisibleRowsIfNeeded() {
         guard shouldStreamContentAppearance else { return }
-        // 页面尚未挂到窗口时（例如板块在后台加载完成）不消耗标志，
-        // 等 didMoveToWindow 上屏后再触发流式输出，避免切换后直接闪现完整列表。
         guard window != nil else { return }
         tableNode.view.layoutIfNeeded()
         let cells = tableNode.view.visibleCells
@@ -284,31 +283,37 @@ final class PostTextureListView: UIView {
             return
         }
         shouldStreamContentAppearance = false
-        // 同步隐藏首帧，下一帧再做错峰淡入，避免加载完成后内容整体闪一下。
-        for cell in cells {
+        isStreamAnimating = true
+        streamGeneration += 1
+        let generation = streamGeneration
+
+        for (index, cell) in cells.enumerated() {
             cell.alpha = 0
-            cell.transform = CGAffineTransform(translationX: 0, y: 10)
-        }
-        DispatchQueue.main.async { [weak self] in
-            guard let self else { return }
-            let cells = self.tableNode.view.visibleCells
-                .sorted { $0.frame.minY < $1.frame.minY }
-            guard cells.isEmpty == false else { return }
-            self.isStreamAnimating = true
-            let lastIndex = cells.count - 1
-            for (index, cell) in cells.enumerated() {
-                UIView.animate(
-                    withDuration: 0.22,
-                    delay: Double(index) * 0.03,
-                    options: [.curveEaseOut, .allowUserInteraction]
-                ) {
-                    cell.alpha = 1
-                    cell.transform = .identity
-                } completion: { _ in
-                    if index == lastIndex {
-                        self.isStreamAnimating = false
-                    }
+            cell.transform = CGAffineTransform(translationX: 0, y: 14).scaledBy(x: 0.985, y: 0.985)
+            UIView.animate(
+                withDuration: 0.36,
+                delay: Double(index) * 0.026,
+                usingSpringWithDamping: 0.88,
+                initialSpringVelocity: 0.35,
+                options: [.curveEaseOut, .allowUserInteraction, .beginFromCurrentState]
+            ) {
+                cell.alpha = 1
+                cell.transform = .identity
+            } completion: { [weak self] _ in
+                guard let self, generation == self.streamGeneration else { return }
+                if index == cells.count - 1 {
+                    self.isStreamAnimating = false
                 }
+            }
+        }
+
+        let safetyDelay = Double(cells.count) * 0.026 + 0.55
+        DispatchQueue.main.asyncAfter(deadline: .now() + safetyDelay) { [weak self] in
+            guard let self, generation == self.streamGeneration else { return }
+            self.isStreamAnimating = false
+            for cell in self.tableNode.view.visibleCells {
+                cell.alpha = 1
+                cell.transform = .identity
             }
         }
     }

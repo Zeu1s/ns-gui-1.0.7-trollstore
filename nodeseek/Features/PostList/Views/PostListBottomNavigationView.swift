@@ -103,7 +103,7 @@ final class PostListBottomNavigationView: UIView {
 
     func refreshDisplayScale() {
         layer.cornerRadius = 0
-        selectionPillView.layer.cornerRadius = AppDisplayScaleSettings.scaled(11)
+        selectionPillView.layer.cornerRadius = AppDisplayScaleSettings.scaled(16)
         messageUnreadBadge.layer.cornerRadius = AppDisplayScaleSettings.scaled(6)
         stackLeadingConstraint?.constant = AppDisplayScaleSettings.scaled(8)
         stackTrailingConstraint?.constant = -AppDisplayScaleSettings.scaled(8)
@@ -134,7 +134,7 @@ final class PostListBottomNavigationView: UIView {
         ])
 
         selectionPillView.backgroundColor = Style.selectedBackground
-        selectionPillView.layer.cornerRadius = AppDisplayScaleSettings.scaled(11)
+        selectionPillView.layer.cornerRadius = AppDisplayScaleSettings.scaled(16)
         selectionPillView.isUserInteractionEnabled = false
         selectionPillView.translatesAutoresizingMaskIntoConstraints = true
         selectionPillView.frame = .zero
@@ -216,12 +216,19 @@ final class PostListBottomNavigationView: UIView {
         setSelectedItem(.home)
     }
 
+    private var selectionPillHeight: CGFloat {
+        AppDisplayScaleSettings.scaled(32)
+    }
+
     private func updateSelectionPill(animated: Bool) {
         guard let button = buttons[selectedItem] else { return }
         let target = button.convert(button.bounds, to: self)
-        let frame = target.insetBy(
-            dx: AppDisplayScaleSettings.scaled(12),
-            dy: AppDisplayScaleSettings.scaled(1)
+        let insetX = AppDisplayScaleSettings.scaled(12)
+        let frame = CGRect(
+            x: target.minX + insetX,
+            y: target.midY - selectionPillHeight / 2,
+            width: target.width - insetX * 2,
+            height: selectionPillHeight
         )
         let apply: () -> Void = { [weak self] in
             guard let self else { return }
@@ -229,8 +236,10 @@ final class PostListBottomNavigationView: UIView {
         }
         if animated {
             UIView.animate(
-                withDuration: 0.25,
+                withDuration: 0.28,
                 delay: 0,
+                usingSpringWithDamping: 0.85,
+                initialSpringVelocity: 0.6,
                 options: [.curveEaseOut, .allowUserInteraction],
                 animations: apply
             )

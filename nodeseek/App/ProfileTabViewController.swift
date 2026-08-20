@@ -386,11 +386,11 @@ extension ProfileTabViewController: UITableViewDataSource, UITableViewDelegate {
 }
 
 private final class ProfileHeaderView: UIView {
-    static let preferredHeight: CGFloat = 252
+    static let preferredHeight: CGFloat = 322
 
-    /// 依据操作按钮是否可见动态计算头部高度：本人页面隐藏按钮，减少主题帖上方的空白。
+    /// 根据操作按钮是否可见计算头部高度，头像/账号/等级/指标整体居中。
     var preferredHeight: CGFloat {
-        actionStack.isHidden ? 196 : 252
+        actionStack.isHidden ? 268 : 322
     }
 
     var onHeightNeedsUpdate: (() -> Void)?
@@ -497,16 +497,19 @@ private final class ProfileHeaderView: UIView {
         nameLabel.translatesAutoresizingMaskIntoConstraints = false
         nameLabel.font = .preferredFont(forTextStyle: .title2)
         nameLabel.textColor = .label
+        nameLabel.textAlignment = .center
         nameLabel.adjustsFontForContentSizeCategory = true
 
         levelLabel.translatesAutoresizingMaskIntoConstraints = false
         levelLabel.font = .preferredFont(forTextStyle: .subheadline)
         levelLabel.textColor = .systemOrange
+        levelLabel.textAlignment = .center
         levelLabel.adjustsFontForContentSizeCategory = true
 
         statusLabel.translatesAutoresizingMaskIntoConstraints = false
         statusLabel.font = .preferredFont(forTextStyle: .subheadline)
         statusLabel.textColor = .secondaryLabel
+        statusLabel.textAlignment = .center
         statusLabel.adjustsFontForContentSizeCategory = true
         statusLabel.numberOfLines = 2
 
@@ -544,26 +547,27 @@ private final class ProfileHeaderView: UIView {
         addSubview(metricContainer)
         addSubview(actionStack)
         NSLayoutConstraint.activate([
-            avatarImageView.leadingAnchor.constraint(equalTo: layoutMarginsGuide.leadingAnchor),
+            avatarImageView.centerXAnchor.constraint(equalTo: centerXAnchor),
             avatarImageView.topAnchor.constraint(equalTo: topAnchor, constant: 12),
             avatarImageView.widthAnchor.constraint(equalToConstant: 72),
             avatarImageView.heightAnchor.constraint(equalToConstant: 72),
 
-            nameLabel.leadingAnchor.constraint(equalTo: avatarImageView.trailingAnchor, constant: 14),
-            nameLabel.topAnchor.constraint(equalTo: avatarImageView.topAnchor, constant: 2),
-            nameLabel.trailingAnchor.constraint(equalTo: layoutMarginsGuide.trailingAnchor),
+            nameLabel.centerXAnchor.constraint(equalTo: centerXAnchor),
+            nameLabel.topAnchor.constraint(equalTo: avatarImageView.bottomAnchor, constant: 10),
+            nameLabel.leadingAnchor.constraint(greaterThanOrEqualTo: layoutMarginsGuide.leadingAnchor, constant: 16),
+            nameLabel.trailingAnchor.constraint(lessThanOrEqualTo: layoutMarginsGuide.trailingAnchor, constant: -16),
 
-            levelLabel.leadingAnchor.constraint(equalTo: nameLabel.leadingAnchor),
-            levelLabel.topAnchor.constraint(equalTo: nameLabel.bottomAnchor, constant: 4),
-            levelLabel.trailingAnchor.constraint(equalTo: layoutMarginsGuide.trailingAnchor),
+            levelLabel.centerXAnchor.constraint(equalTo: centerXAnchor),
+            levelLabel.topAnchor.constraint(equalTo: nameLabel.bottomAnchor, constant: 3),
 
-            statusLabel.leadingAnchor.constraint(equalTo: nameLabel.leadingAnchor),
+            statusLabel.centerXAnchor.constraint(equalTo: centerXAnchor),
             statusLabel.topAnchor.constraint(equalTo: levelLabel.bottomAnchor, constant: 4),
-            statusLabel.trailingAnchor.constraint(equalTo: layoutMarginsGuide.trailingAnchor),
+            statusLabel.leadingAnchor.constraint(greaterThanOrEqualTo: layoutMarginsGuide.leadingAnchor, constant: 24),
+            statusLabel.trailingAnchor.constraint(lessThanOrEqualTo: layoutMarginsGuide.trailingAnchor, constant: -24),
 
             metricContainer.leadingAnchor.constraint(equalTo: layoutMarginsGuide.leadingAnchor),
             metricContainer.trailingAnchor.constraint(equalTo: layoutMarginsGuide.trailingAnchor),
-            metricContainer.topAnchor.constraint(equalTo: avatarImageView.bottomAnchor, constant: 12),
+            metricContainer.topAnchor.constraint(equalTo: statusLabel.bottomAnchor, constant: 14),
             metricContainer.heightAnchor.constraint(equalToConstant: 80),
 
             metricStack.leadingAnchor.constraint(equalTo: metricContainer.layoutMarginsGuide.leadingAnchor),
