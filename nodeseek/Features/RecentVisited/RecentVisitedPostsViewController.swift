@@ -13,7 +13,7 @@ final class RecentVisitedPostsViewController: UITableViewController {
     private let visitedStore: VisitedPostStoreProtocol
     private var records: [VisitedPostRecord] = []
     private var hasMoreRecords = true
-    private let refreshControl = UIRefreshControl()
+    private let historyRefreshControl = UIRefreshControl()
     private let relativeDateFormatter: RelativeDateTimeFormatter = {
         let formatter = RelativeDateTimeFormatter()
         formatter.locale = Locale(identifier: "zh_CN")
@@ -38,8 +38,8 @@ final class RecentVisitedPostsViewController: UITableViewController {
         tableView.register(RecentVisitedPostCell.self, forCellReuseIdentifier: Self.cellIdentifier)
         tableView.rowHeight = UITableView.automaticDimension
         tableView.estimatedRowHeight = 72
-        refreshControl.addTarget(self, action: #selector(refreshTriggered), for: .valueChanged)
-        tableView.refreshControl = refreshControl
+        historyRefreshControl.addTarget(self, action: #selector(refreshTriggered), for: .valueChanged)
+        tableView.refreshControl = historyRefreshControl
         navigationItem.largeTitleDisplayMode = .never
         navigationItem.hidesBackButton = true
         navigationItem.rightBarButtonItem = UIBarButtonItem(
@@ -106,7 +106,7 @@ final class RecentVisitedPostsViewController: UITableViewController {
     @objc private func refreshTriggered() {
         reloadRecords()
         DispatchQueue.main.async { [weak self] in
-            self?.refreshControl.endRefreshing()
+            self?.historyRefreshControl.endRefreshing()
         }
     }
 
