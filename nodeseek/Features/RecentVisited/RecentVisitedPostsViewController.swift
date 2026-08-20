@@ -13,6 +13,7 @@ final class RecentVisitedPostsViewController: UITableViewController {
     private let visitedStore: VisitedPostStoreProtocol
     private var records: [VisitedPostRecord] = []
     private var hasMoreRecords = true
+    private let refreshControl = UIRefreshControl()
     private let relativeDateFormatter: RelativeDateTimeFormatter = {
         let formatter = RelativeDateTimeFormatter()
         formatter.locale = Locale(identifier: "zh_CN")
@@ -37,6 +38,8 @@ final class RecentVisitedPostsViewController: UITableViewController {
         tableView.register(RecentVisitedPostCell.self, forCellReuseIdentifier: Self.cellIdentifier)
         tableView.rowHeight = UITableView.automaticDimension
         tableView.estimatedRowHeight = 72
+        refreshControl.addTarget(self, action: #selector(refreshTriggered), for: .valueChanged)
+        tableView.refreshControl = refreshControl
         navigationItem.largeTitleDisplayMode = .never
         navigationItem.hidesBackButton = true
         navigationItem.rightBarButtonItem = UIBarButtonItem(
@@ -48,6 +51,10 @@ final class RecentVisitedPostsViewController: UITableViewController {
         navigationItem.rightBarButtonItem?.accessibilityLabel = "清扫浏览记录"
         loadNextPageIfNeeded()
         renderEmptyStateIfNeeded()
+    }
+
+    func refreshFromTabSelection() {
+        reloadRecords()
     }
 
     override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
@@ -96,11 +103,26 @@ final class RecentVisitedPostsViewController: UITableViewController {
         present(alert, animated: true)
     }
 
+    @objc private func refreshTriggered() {
+        reloadRecords()
+        DispatchQueue.main.async { [weak self] in
+            self?.refreshControl.endRefreshing()
+        }
+    }
+
     private func clearAllRecords() {
         visitedStore.clearAll()
         records.removeAll()
         hasMoreRecords = false
         tableView.reloadData()
+        renderEmptyStateIfNeeded()
+    }
+
+    private func reloadRecords() {
+        hasMoreRecords = true
+        records.removeAll()
+        tableView.reloadData()
+        loadNextPageIfNeeded()
         renderEmptyStateIfNeeded()
     }
 

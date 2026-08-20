@@ -36,9 +36,10 @@ final class MainTabContainerViewController: UIViewController {
             containerView.topAnchor.constraint(equalTo: view.topAnchor),
             containerView.bottomAnchor.constraint(equalTo: bottomNavigationView.topAnchor),
 
-            bottomNavigationView.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: Layout.horizontalInset),
-            bottomNavigationView.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -Layout.horizontalInset),
-            bottomNavigationView.bottomAnchor.constraint(equalTo: view.bottomAnchor)
+            bottomNavigationView.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: Layout.horizontalInset),
+            bottomNavigationView.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -Layout.horizontalInset),
+            // 底栏本身固定在 Home 指示条上方，内部不再二次扣除安全区。
+            bottomNavigationView.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor)
         ])
         bottomNavigationHeightConstraint = bottomNavigationView.heightAnchor.constraint(
             equalToConstant: bottomNavigationHeight
@@ -85,7 +86,9 @@ final class MainTabContainerViewController: UIViewController {
         let stack = stack(for: item)
         currentItem = item
         show(stack)
-        if reselectedCurrentItem {
+        if item == .history {
+            refreshHistoryListIfVisible(in: stack)
+        } else if reselectedCurrentItem {
             resetToTop(of: stack)
         } else {
             recoverVisibleContent(in: stack)
@@ -147,6 +150,14 @@ final class MainTabContainerViewController: UIViewController {
         guard let scrollView = scrollViews.max(by: { $0.bounds.height < $1.bounds.height }) else { return }
         let topOffset = CGPoint(x: -scrollView.adjustedContentInset.left, y: -scrollView.adjustedContentInset.top)
         scrollView.setContentOffset(topOffset, animated: false)
+    }
+
+    private func refreshHistoryListIfVisible(in stack: UINavigationController) {
+        // 正在阅读历史详情时保留该页面，回到历史列表后再刷新记录。
+        guard let history = stack.topViewController as? RecentVisitedPostsViewController else {
+            return
+        }
+        history.refreshFromTabSelection()
     }
 
     private func findScrollViews(in view: UIView) -> [UIScrollView] {
