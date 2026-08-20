@@ -648,6 +648,7 @@ private final class ProfileHeaderView: UIView {
 private final class ProfileMetricView: UIView {
     private let imageView = UIImageView()
     private let textLabel = UILabel()
+    private let contentStack = UIStackView()
 
     init(title: String, value: String, image: UIImage?) {
         super.init(frame: .zero)
@@ -671,17 +672,22 @@ private final class ProfileMetricView: UIView {
         textLabel.adjustsFontForContentSizeCategory = true
         textLabel.adjustsFontSizeToFitWidth = true
         textLabel.minimumScaleFactor = 0.72
+        textLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
-        addSubview(imageView)
-        addSubview(textLabel)
+        contentStack.translatesAutoresizingMaskIntoConstraints = false
+        contentStack.axis = .horizontal
+        contentStack.alignment = .center
+        contentStack.spacing = 8
+        contentStack.addArrangedSubview(imageView)
+        contentStack.addArrangedSubview(textLabel)
+        addSubview(contentStack)
         NSLayoutConstraint.activate([
-            imageView.leadingAnchor.constraint(equalTo: leadingAnchor),
-            imageView.centerYAnchor.constraint(equalTo: centerYAnchor),
+            contentStack.centerXAnchor.constraint(equalTo: centerXAnchor),
+            contentStack.centerYAnchor.constraint(equalTo: centerYAnchor),
+            contentStack.leadingAnchor.constraint(greaterThanOrEqualTo: leadingAnchor, constant: 4),
+            contentStack.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -4),
             imageView.widthAnchor.constraint(equalToConstant: 20),
-            imageView.heightAnchor.constraint(equalToConstant: 20),
-            textLabel.leadingAnchor.constraint(equalTo: imageView.trailingAnchor, constant: 8),
-            textLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
-            textLabel.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor)
+            imageView.heightAnchor.constraint(equalToConstant: 20)
         ])
     }
 }

@@ -71,7 +71,7 @@ final class PostListBottomNavigationView: UIView {
     private var stackBottomConstraint: NSLayoutConstraint?
     private var unreadBadgeWidthConstraint: NSLayoutConstraint?
     private var unreadBadgeHeightConstraint: NSLayoutConstraint?
-    private var unreadBadgeTopConstraint: NSLayoutConstraint?
+    private var unreadBadgeCenterYConstraint: NSLayoutConstraint?
     private var unreadBadgeCenterXConstraint: NSLayoutConstraint?
 
     override init(frame: CGRect) {
@@ -111,7 +111,7 @@ final class PostListBottomNavigationView: UIView {
         stackBottomConstraint?.constant = -AppDisplayScaleSettings.scaled(2)
         unreadBadgeWidthConstraint?.constant = AppDisplayScaleSettings.scaled(12)
         unreadBadgeHeightConstraint?.constant = AppDisplayScaleSettings.scaled(12)
-        unreadBadgeTopConstraint?.constant = AppDisplayScaleSettings.scaled(8)
+        unreadBadgeCenterYConstraint?.constant = -AppDisplayScaleSettings.scaled(10)
         unreadBadgeCenterXConstraint?.constant = AppDisplayScaleSettings.scaled(13)
         setSelectedItem(selectedItem)
     }
@@ -187,9 +187,9 @@ final class PostListBottomNavigationView: UIView {
         let unreadBadgeHeightConstraint = messageUnreadBadge.heightAnchor.constraint(
             equalToConstant: AppDisplayScaleSettings.scaled(12)
         )
-        let unreadBadgeTopConstraint = messageUnreadBadge.topAnchor.constraint(
-            equalTo: topAnchor,
-            constant: AppDisplayScaleSettings.scaled(8)
+        let unreadBadgeCenterYConstraint = messageUnreadBadge.centerYAnchor.constraint(
+            equalTo: buttons[.messages]!.centerYAnchor,
+            constant: -AppDisplayScaleSettings.scaled(10)
         )
         let unreadBadgeCenterXConstraint = messageUnreadBadge.centerXAnchor.constraint(
             equalTo: buttons[.messages]!.centerXAnchor,
@@ -201,7 +201,7 @@ final class PostListBottomNavigationView: UIView {
         self.stackBottomConstraint = stackBottomConstraint
         self.unreadBadgeWidthConstraint = unreadBadgeWidthConstraint
         self.unreadBadgeHeightConstraint = unreadBadgeHeightConstraint
-        self.unreadBadgeTopConstraint = unreadBadgeTopConstraint
+        self.unreadBadgeCenterYConstraint = unreadBadgeCenterYConstraint
         self.unreadBadgeCenterXConstraint = unreadBadgeCenterXConstraint
         NSLayoutConstraint.activate([
             stackLeadingConstraint,
@@ -210,7 +210,7 @@ final class PostListBottomNavigationView: UIView {
             stackBottomConstraint,
             unreadBadgeWidthConstraint,
             unreadBadgeHeightConstraint,
-            unreadBadgeTopConstraint,
+            unreadBadgeCenterYConstraint,
             unreadBadgeCenterXConstraint
         ])
         setSelectedItem(.home)

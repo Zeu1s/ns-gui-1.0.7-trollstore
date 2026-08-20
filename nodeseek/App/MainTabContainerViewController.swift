@@ -9,8 +9,8 @@ import UIKit
 final class MainTabContainerViewController: UIViewController {
     private enum Layout {
         static let horizontalInset: CGFloat = 0
-        // 底栏总高度固定为 44pt；子视图自己避开底部安全区。
-        static let height: CGFloat = 44
+        // 内容区固定 44pt，底部安全区由底栏统一承接，避免图标组悬在白色横幅上半部。
+        static let contentHeight: CGFloat = 44
     }
 
     private let containerView = UIView()
@@ -39,8 +39,8 @@ final class MainTabContainerViewController: UIViewController {
 
             bottomNavigationView.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: Layout.horizontalInset),
             bottomNavigationView.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -Layout.horizontalInset),
-            // 底栏本身固定在 Home 指示条上方，内部不再二次扣除安全区。
-            bottomNavigationView.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor)
+            // 底栏覆盖至屏幕底部，图标、文字和选中遮罩才能在整条白色横幅中垂直居中。
+            bottomNavigationView.bottomAnchor.constraint(equalTo: view.bottomAnchor)
         ])
         bottomNavigationHeightConstraint = bottomNavigationView.heightAnchor.constraint(
             equalToConstant: bottomNavigationHeight
@@ -107,7 +107,7 @@ final class MainTabContainerViewController: UIViewController {
     }
 
     private var bottomNavigationHeight: CGFloat {
-        Layout.height
+        Layout.contentHeight + view.safeAreaInsets.bottom
     }
 
     private func updateBottomNavigationLayout() {

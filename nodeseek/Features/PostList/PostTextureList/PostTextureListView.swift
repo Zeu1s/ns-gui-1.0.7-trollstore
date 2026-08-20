@@ -122,14 +122,16 @@ final class PostTextureListView: UIView {
             lastBatchFetchRequestedItemCount = nil
         }
         if displayMode == .content, self.items == items {
+            // 刷新结果可能与当前数据完全相同，仍需重播流式动画，不能直接跳过。
+            shouldStreamContentAppearance = shouldStream && !items.isEmpty
+            scheduleStreamAppearance(afterReload: true)
             return
         }
         if displayMode != .content {
             self.items = items
             displayMode = .content
             shouldStreamContentAppearance = shouldStream && !items.isEmpty
-            tableNode.reloadData()
-            streamVisibleRowsIfNeeded()
+            reloadDataForContentAppearance()
             return
         }
 
@@ -144,8 +146,7 @@ final class PostTextureListView: UIView {
 
         self.items = items
         shouldStreamContentAppearance = shouldStream && !items.isEmpty
-        tableNode.reloadData()
-        streamVisibleRowsIfNeeded()
+        reloadDataForContentAppearance()
     }
 
     func updateVisitedState(at index: Int, isVisited: Bool) {
@@ -160,6 +161,7 @@ final class PostTextureListView: UIView {
     func showLoadingSkeleton() {
         hideErrorView()
         guard displayMode != .skeleton else { return }
+        cancelStreamAppearance()
         displayMode = .skeleton
         lastBatchFetchRequestedItemCount = nil
         skeletonRowCount = currentSkeletonRowCount()
@@ -174,6 +176,7 @@ final class PostTextureListView: UIView {
     }
 
     func showFirstPageError(message: String) {
+        cancelStreamAppearance()
         displayMode = .firstPageError
         items = []
         lastBatchFetchRequestedItemCount = nil
@@ -262,34 +265,71 @@ final class PostTextureListView: UIView {
     /// 板块/tab 切换后重新以流式方式呈现当前内容；若已有一次流式在途则直接续播。
     func replayStreamAppearance() {
         guard displayMode == .content, items.isEmpty == false, isStreamAnimating == false else { return }
-        if shouldStreamContentAppearance {
-            streamVisibleRowsIfNeeded()
-        } else {
-            shouldStreamContentAppearance = true
-            streamVisibleRowsIfNeeded()
+        shouldStreamContentAppearance = true
+        scheduleStreamAppearance(afterReload: false)
+    }
+
+    /// Texture 的 reloadData 异步提交。先隐藏整个表格，等新 cell 可见后再逐行淡入，
+    /// 防止新内容先以完整状态显示一帧，随后才被动画隐藏。
+    private func reloadDataForContentAppearance() {
+        let generation = prepareStreamAppearanceIfNeeded()
+        tableNode.reloadData()
+        if let generation {
+            activateStreamAppearance(for: generation, attempt: 0)
         }
     }
 
-    private func streamVisibleRowsIfNeeded() {
-        guard shouldStreamContentAppearance else { return }
-        guard window != nil else { return }
-        tableNode.view.layoutIfNeeded()
-        let cells = tableNode.view.visibleCells
-            .sorted { $0.frame.minY < $1.frame.minY }
-        guard cells.isEmpty == false else {
-            DispatchQueue.main.async { [weak self] in
-                self?.streamVisibleRowsIfNeeded()
-            }
-            return
+    private func scheduleStreamAppearance(afterReload: Bool) {
+        let generation = prepareStreamAppearanceIfNeeded()
+        guard let generation else { return }
+        if afterReload {
+            tableNode.reloadData()
         }
-        shouldStreamContentAppearance = false
-        isStreamAnimating = true
-        streamGeneration += 1
-        let generation = streamGeneration
+        activateStreamAppearance(for: generation, attempt: 0)
+    }
 
+    private func prepareStreamAppearanceIfNeeded() -> Int? {
+        guard shouldStreamContentAppearance else { return nil }
+        guard items.isEmpty == false else { return nil }
+        streamGeneration += 1
+        isStreamAnimating = true
+        tableNode.view.layer.removeAllAnimations()
+        tableNode.view.alpha = 0
+        return streamGeneration
+    }
+
+    private func activateStreamAppearance(for generation: Int, attempt: Int) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self, generation == self.streamGeneration else { return }
+            guard self.window != nil else {
+                self.isStreamAnimating = false
+                return
+            }
+            self.tableNode.view.layoutIfNeeded()
+            let cells = self.tableNode.view.visibleCells
+                .sorted { $0.frame.minY < $1.frame.minY }
+            guard cells.isEmpty == false else {
+                if attempt < 8 {
+                    self.activateStreamAppearance(for: generation, attempt: attempt + 1)
+                } else {
+                    self.completeStreamAppearance(for: generation)
+                }
+                return
+            }
+            self.animateStreamAppearance(cells, generation: generation)
+        }
+    }
+
+    private func animateStreamAppearance(_ cells: [UITableViewCell], generation: Int) {
+        guard generation == streamGeneration else { return }
+        tableNode.view.layoutIfNeeded()
+        shouldStreamContentAppearance = false
         for (index, cell) in cells.enumerated() {
             cell.alpha = 0
             cell.transform = CGAffineTransform(translationX: 0, y: 14).scaledBy(x: 0.985, y: 0.985)
+            if index == 0 {
+                tableNode.view.alpha = 1
+            }
             UIView.animate(
                 withDuration: 0.36,
                 delay: Double(index) * 0.026,
@@ -302,7 +342,7 @@ final class PostTextureListView: UIView {
             } completion: { [weak self] _ in
                 guard let self, generation == self.streamGeneration else { return }
                 if index == cells.count - 1 {
-                    self.isStreamAnimating = false
+                    self.completeStreamAppearance(for: generation)
                 }
             }
         }
@@ -310,11 +350,29 @@ final class PostTextureListView: UIView {
         let safetyDelay = Double(cells.count) * 0.026 + 0.55
         DispatchQueue.main.asyncAfter(deadline: .now() + safetyDelay) { [weak self] in
             guard let self, generation == self.streamGeneration else { return }
-            self.isStreamAnimating = false
-            for cell in self.tableNode.view.visibleCells {
-                cell.alpha = 1
-                cell.transform = .identity
-            }
+            self.completeStreamAppearance(for: generation)
+        }
+    }
+
+    private func completeStreamAppearance(for generation: Int) {
+        guard generation == streamGeneration else { return }
+        isStreamAnimating = false
+        tableNode.view.alpha = 1
+        for cell in tableNode.view.visibleCells {
+            cell.alpha = 1
+            cell.transform = .identity
+        }
+    }
+
+    private func cancelStreamAppearance() {
+        streamGeneration += 1
+        isStreamAnimating = false
+        shouldStreamContentAppearance = false
+        tableNode.view.layer.removeAllAnimations()
+        tableNode.view.alpha = 1
+        for cell in tableNode.view.visibleCells {
+            cell.alpha = 1
+            cell.transform = .identity
         }
     }
 
