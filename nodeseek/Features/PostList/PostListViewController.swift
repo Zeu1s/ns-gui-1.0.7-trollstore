@@ -299,6 +299,12 @@ class PostListViewController: UIViewController {
         pageContainerViewController.recoverVisiblePageIfNeeded()
     }
 
+    /// 从其它底栏功能区回到首页列表时，对当前板块静默刷新一次（保留已展示内容）。
+    func refreshVisibleFirstPageIfNeeded() {
+        guard isViewLoaded else { return }
+        pageContainerViewController.refreshFirstPageKeepingContent(for: selectedCategory)
+    }
+
     // MARK: - Setup UI
     private func setupUI() {
         navigationItem.title = nil

@@ -134,8 +134,8 @@ final class RecentVisitedPostsViewController: UIViewController {
             url: record.url,
             authorName: "最近浏览",
             nodeName: nil,
-            replyCount: 0,
-            viewCount: 0,
+            replyCount: record.replyCount,
+            viewCount: record.viewCount,
             lastActivityText: "浏览于 \(relativeDate)",
             avatarURL: record.avatarURL
         )

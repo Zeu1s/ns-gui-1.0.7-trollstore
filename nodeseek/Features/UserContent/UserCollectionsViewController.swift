@@ -17,6 +17,8 @@ final class UserCollectionsViewController: UIViewController {
     private let client: NodeSeekUserContentClient
     private let currentAccountStore: CurrentAccountStore
     private let requestedUserID: Int?
+    private let fallbackAuthorName: String?
+    private let fallbackAvatarURL: URL?
     private var records: [UserCollectionRecord] = []
     private var displayMode: UserContentDisplayMode = .content
     private var uid: Int?
@@ -25,15 +27,20 @@ final class UserCollectionsViewController: UIViewController {
     private var isLoadingFirstPage = false
     private var isLoadingMore = false
     private var lastBatchFetchRequestedCount: Int?
+    private var shouldStreamContentAppearance = false
     private let skeletonRowCount = 9
     var onSelectPost: ((PostSummary, Int, String?) -> Void)?
 
     init(
         userID: Int? = nil,
+        authorName: String? = nil,
+        avatarURL: URL? = nil,
         client: NodeSeekUserContentClient? = nil,
         currentAccountStore: CurrentAccountStore = .shared
     ) {
         requestedUserID = userID
+        fallbackAuthorName = authorName
+        fallbackAvatarURL = avatarURL
         self.client = client ?? NodeSeekUserContentClient()
         self.currentAccountStore = currentAccountStore
         super.init(nibName: nil, bundle: nil)
@@ -144,7 +151,9 @@ final class UserCollectionsViewController: UIViewController {
         errorView.isHidden = true
         refreshControl.endRefreshing()
         footerView.stopAnimating()
+        shouldStreamContentAppearance = true
         tableNode.reloadData()
+        streamVisibleRowsIfNeeded()
     }
 
     private func finishLoadMore(records loaded: [UserCollectionRecord], page: Int) {
@@ -207,8 +216,46 @@ final class UserCollectionsViewController: UIViewController {
     }
 
     private func openRecord(_ record: UserCollectionRecord) {
-        let post = UserContentPostSummaryFactory.postSummary(id: record.postID, title: record.title)
-        onSelectPost?(post, 1, nil)
+        onSelectPost?(postSummary(for: record), 1, nil)
+    }
+
+    private func postSummary(for record: UserCollectionRecord) -> PostSummary {
+        let userID = uid ?? requestedUserID ?? 0
+        let profileURL = NodeSeekNotificationURLBuilder.profileURL(memberID: userID)
+        return PostSummary(
+            id: "\(record.postID)",
+            title: record.title,
+            url: NodeSeekSite.postURL(id: "\(record.postID)", page: 1),
+            authorName: record.authorName ?? fallbackAuthorName ?? "",
+            nodeName: nil,
+            replyCount: record.replyCount ?? 0,
+            viewCount: record.viewCount ?? 0,
+            lastActivityText: record.lastActivityText,
+            avatarURL: record.avatarURL ?? fallbackAvatarURL,
+            authorProfileURL: profileURL
+        )
+    }
+
+    private func streamVisibleRowsIfNeeded() {
+        guard shouldStreamContentAppearance else { return }
+        shouldStreamContentAppearance = false
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.tableNode.view.window != nil else { return }
+            let cells = self.tableNode.view.visibleCells
+                .sorted { $0.frame.minY < $1.frame.minY }
+            for (index, cell) in cells.enumerated() {
+                cell.alpha = 0
+                cell.transform = CGAffineTransform(translationX: 0, y: 10)
+                UIView.animate(
+                    withDuration: 0.2,
+                    delay: Double(index) * 0.035,
+                    options: [.curveEaseOut, .allowUserInteraction]
+                ) {
+                    cell.alpha = 1
+                    cell.transform = .identity
+                }
+            }
+        }
     }
 }
 
@@ -228,8 +275,9 @@ extension UserCollectionsViewController: ASTableDataSource {
         switch displayMode {
         case .content:
             let record = records[indexPath.row]
+            let post = postSummary(for: record)
             return {
-                UserCollectionCellNode(record: record)
+                PostSummaryCellNode(post: post)
             }
         case .skeleton:
             return {

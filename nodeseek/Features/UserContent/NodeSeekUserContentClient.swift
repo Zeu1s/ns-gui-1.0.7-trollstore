@@ -10,7 +10,6 @@ import Foundation
 final class NodeSeekUserContentClient {
     private let session: URLSession
     private let baseURL: URL
-    private let decoder = JSONDecoder()
 
     init(
         session: URLSession = .shared,
@@ -23,15 +22,26 @@ final class NodeSeekUserContentClient {
     func loadCollections(page: Int, uid: Int) async throws -> [UserCollectionRecord] {
         let request = makeRequest(
             path: "/api/statistics/list-collection",
-            queryItems: [
-                URLQueryItem(name: "page", value: "\(max(1, page))")
-            ],
+            queryItems: [URLQueryItem(name: "page", value: "\(max(1, page))")],
             refererUID: uid
         )
-        let response = try await decode(CollectionResponse.self, from: request)
-        guard response.success else { throw UserContentClientError.unsuccessfulResponse }
-        return response.collections.map {
-            UserCollectionRecord(title: $0.title, postID: $0.postID, rank: $0.rank)
+        let root = try await fetchJSON(from: request)
+        let rows = try Self.requireRows(in: root, preferredNames: ["collections", "collectionList", "list", "data"])
+        return rows.compactMap { row in
+            guard let title = Self.string(row, ["title", "post_title", "subject"]),
+                  let postID = Self.int(row, ["post_id", "postId", "pid", "id"]) else { return nil }
+            return UserCollectionRecord(
+                title: title,
+                postID: postID,
+                rank: Self.int(row, ["rank"]) ?? 0,
+                authorName: Self.string(row, ["author_name", "member_name", "username", "user_name", "author", "commenter_name", "name"]),
+                avatarURL: Self.string(row, ["avatar", "avatar_url", "avatar_path"]).flatMap {
+                    URL(string: $0, relativeTo: self.baseURL)?.absoluteURL
+                },
+                viewCount: Self.int(row, ["view_count", "views", "click", "nView", "view_num", "click_count"]),
+                replyCount: Self.int(row, ["reply_count", "comments", "comment_count", "nComment", "n_reply", "reply", "comment_num", "reply_num"]),
+                lastActivityText: Self.string(row, ["last_reply_time", "last_reply_time_str", "last_activity", "last_activity_str", "updated_at", "last_comment_time"])
+            )
         }
     }
 
@@ -44,15 +54,16 @@ final class NodeSeekUserContentClient {
             ],
             refererUID: uid
         )
-        let response = try await decode(CommentResponse.self, from: request)
-        guard response.success else { throw UserContentClientError.unsuccessfulResponse }
-        return response.comments.map {
-            UserCommentRecord(
-                postID: $0.postID,
-                title: $0.title,
-                rank: $0.rank,
-                floorID: $0.floorID,
-                text: $0.text
+        let root = try await fetchJSON(from: request)
+        let rows = try Self.requireRows(in: root, preferredNames: ["comments", "commentList", "list", "data"])
+        return rows.compactMap { row in
+            guard let postID = Self.int(row, ["post_id", "postId", "pid"]) else { return nil }
+            return UserCommentRecord(
+                postID: postID,
+                title: Self.string(row, ["title", "post_title", "subject"]) ?? "",
+                rank: Self.int(row, ["rank"]) ?? 0,
+                floorID: Self.int(row, ["floor_id", "floorId", "floor"]) ?? 1,
+                text: Self.string(row, ["text", "content", "comment", "body", "excerpt"]) ?? ""
             )
         }
     }
@@ -66,20 +77,24 @@ final class NodeSeekUserContentClient {
             ],
             refererUID: uid
         )
-        let response = try await decode(DiscussionResponse.self, from: request)
-        guard response.success else { throw UserContentClientError.unsuccessfulResponse }
-        return response.discussions.map { item in
-            UserDiscussionRecord(
-                rank: item.rank,
-                title: item.title,
-                postID: item.postID,
-                authorName: item.authorName,
-                level: item.level,
-                avatarURL: item.avatarPath.flatMap { URL(string: $0, relativeTo: self.baseURL)?.absoluteURL },
-                viewCount: item.viewCount,
-                replyCount: item.replyCount,
-                createdAtText: item.createdAtText,
-                lastActivityText: item.lastActivityText
+        let root = try await fetchJSON(from: request)
+        let rows = try Self.requireRows(in: root, preferredNames: ["discussions", "postList", "list", "data"])
+        return rows.compactMap { row in
+            guard let title = Self.string(row, ["title", "post_title", "subject"]),
+                  let postID = Self.int(row, ["post_id", "postId", "pid", "id"]) else { return nil }
+            return UserDiscussionRecord(
+                rank: Self.int(row, ["rank"]) ?? 0,
+                title: title,
+                postID: postID,
+                authorName: Self.string(row, ["author_name", "member_name", "username", "user_name", "author", "commenter_name", "name"]),
+                level: Self.int(row, ["level", "member_level"]),
+                avatarURL: Self.string(row, ["avatar", "avatar_url", "avatar_path"]).flatMap {
+                    URL(string: $0, relativeTo: self.baseURL)?.absoluteURL
+                },
+                viewCount: Self.int(row, ["view_count", "views", "click", "nView", "view_num", "click_count"]),
+                replyCount: Self.int(row, ["reply_count", "comments", "comment_count", "nComment", "n_reply", "reply", "comment_num", "reply_num"]),
+                createdAtText: Self.string(row, ["created_at_str", "created_at", "createdAt", "post_time", "time", "date"]),
+                lastActivityText: Self.string(row, ["last_reply_time", "last_reply_time_str", "last_activity", "last_activity_str", "updated_at", "last_comment_time"])
             )
         }
     }
@@ -97,13 +112,73 @@ final class NodeSeekUserContentClient {
         return request
     }
 
-    private func decode<Response: Decodable>(_ type: Response.Type, from request: URLRequest) async throws -> Response {
+    private func fetchJSON(from request: URLRequest) async throws -> [String: Any] {
         let (data, urlResponse) = try await session.data(for: request)
         if let httpResponse = urlResponse as? HTTPURLResponse,
            (200..<300).contains(httpResponse.statusCode) == false {
             throw UserContentClientError.httpStatus(httpResponse.statusCode)
         }
-        return try decoder.decode(Response.self, from: data)
+        guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw UserContentClientError.unsuccessfulResponse
+        }
+        if let success = object["success"] as? Bool, success == false {
+            throw UserContentClientError.unsuccessfulResponse
+        }
+        return object
+    }
+
+    private static func requireRows(in root: [String: Any], preferredNames: [String]) throws -> [[String: Any]] {
+        if let rows = rows(in: root, preferredNames: preferredNames) {
+            return rows
+        }
+        throw UserContentClientError.unsuccessfulResponse
+    }
+
+    private static func rows(in root: [String: Any], preferredNames: [String]) -> [[String: Any]]? {
+        for name in preferredNames {
+            if let value = root[name] as? [[String: Any]] { return value }
+        }
+        for name in preferredNames {
+            for value in root.values {
+                guard let nested = value as? [String: Any] else { continue }
+                if let rows = nested[name] as? [[String: Any]] { return rows }
+            }
+        }
+        let candidates = collectObjectArrays(in: root)
+        if candidates.count == 1 { return candidates[0] }
+        if !candidates.isEmpty, candidates.allSatisfy({ $0.isEmpty }) { return candidates[0] }
+        return nil
+    }
+
+    private static func collectObjectArrays(in value: Any) -> [[String: Any]] {
+        if let array = value as? [[String: Any]] { return [array] }
+        if let object = value as? [String: Any] {
+            return object.values.flatMap { collectObjectArrays(in: $0) }
+        }
+        return []
+    }
+
+    private static func string(_ object: [String: Any], _ keys: [String]) -> String? {
+        for key in keys {
+            guard let raw = object[key] as? String else { continue }
+            let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmed.isEmpty == false, trimmed != "null" { return trimmed }
+        }
+        return nil
+    }
+
+    private static func int(_ object: [String: Any], _ keys: [String]) -> Int? {
+        for key in keys {
+            if let number = object[key] as? NSNumber, number.intValue >= 0 {
+                return number.intValue
+            }
+            if let raw = object[key] as? String,
+               let value = Int(raw.trimmingCharacters(in: .whitespacesAndNewlines)),
+               value >= 0 {
+                return value
+            }
+        }
+        return nil
     }
 }
 
@@ -118,131 +193,5 @@ enum UserContentClientError: LocalizedError {
         case .unsuccessfulResponse:
             return "接口返回失败"
         }
-    }
-}
-
-private struct CollectionResponse: Decodable {
-    let success: Bool
-    let collections: [CollectionItem]
-}
-
-private struct CollectionItem: Decodable {
-    let title: String
-    let postID: Int
-    let rank: Int
-
-    private enum CodingKeys: String, CodingKey {
-        case title
-        case postID = "post_id"
-        case rank
-    }
-}
-
-private struct CommentResponse: Decodable {
-    let success: Bool
-    let comments: [CommentItem]
-}
-
-private struct CommentItem: Decodable {
-    let postID: Int
-    let title: String
-    let rank: Int
-    let floorID: Int
-    let text: String
-
-    private enum CodingKeys: String, CodingKey {
-        case postID = "post_id"
-        case title
-        case rank
-        case floorID = "floor_id"
-        case text
-    }
-}
-
-private struct DiscussionResponse: Decodable {
-    let success: Bool
-    let discussions: [DiscussionItem]
-}
-
-private struct DiscussionItem: Decodable {
-    let rank: Int
-    let title: String
-    let postID: Int
-    let authorName: String?
-    let level: Int?
-    let avatarPath: String?
-    let viewCount: Int?
-    let replyCount: Int?
-    let createdAtText: String?
-    let lastActivityText: String?
-
-    private enum CodingKeys: String, CodingKey {
-        case rank
-        case title
-        case postID = "post_id"
-        case authorName = "author_name"
-        case memberName = "member_name"
-        case username
-        case commenterName = "commenter_name"
-        case level
-        case memberLevel = "member_level"
-        case avatar
-        case avatarURL = "avatar_url"
-        case viewCount = "view_count"
-        case views
-        case replyCount = "reply_count"
-        case nReply = "n_reply"
-        case reply
-        case createdAt = "created_at"
-        case postTime = "post_time"
-        case lastReplyTime = "last_reply_time"
-        case lastActivity = "last_activity"
-        case updatedAt = "updated_at"
-    }
-
-    init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        rank = try container.decode(Int.self, forKey: .rank)
-        title = try container.decode(String.self, forKey: .title)
-        postID = try container.decode(Int.self, forKey: .postID)
-        authorName = Self.optionalString(
-            in: container,
-            keys: [.authorName, .memberName, .username, .commenterName]
-        )
-        level = Self.optionalInt(in: container, keys: [.level, .memberLevel])
-        avatarPath = Self.optionalString(in: container, keys: [.avatar, .avatarURL])
-        viewCount = Self.optionalInt(in: container, keys: [.viewCount, .views])
-        replyCount = Self.optionalInt(in: container, keys: [.replyCount, .nReply, .reply])
-        createdAtText = Self.optionalString(in: container, keys: [.createdAt, .postTime])
-        lastActivityText = Self.optionalString(in: container, keys: [.lastReplyTime, .lastActivity, .updatedAt])
-    }
-
-    private static func optionalString(
-        in container: KeyedDecodingContainer<CodingKeys>,
-        keys: [CodingKeys]
-    ) -> String? {
-        for key in keys {
-            if let value = try? container.decodeIfPresent(String.self, forKey: key),
-               value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false {
-                return value
-            }
-        }
-        return nil
-    }
-
-    private static func optionalInt(
-        in container: KeyedDecodingContainer<CodingKeys>,
-        keys: [CodingKeys]
-    ) -> Int? {
-        for key in keys {
-            if let value = try? container.decodeIfPresent(Int.self, forKey: key), value >= 0 {
-                return value
-            }
-            if let raw = try? container.decodeIfPresent(String.self, forKey: key),
-               let value = Int(raw.trimmingCharacters(in: .whitespacesAndNewlines)), value >= 0 {
-                return value
-            }
-        }
-        return nil
     }
 }

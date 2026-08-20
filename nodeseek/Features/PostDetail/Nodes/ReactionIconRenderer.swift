@@ -7,10 +7,10 @@ import UIKit
 
 enum ReactionIconRenderer {
     static func chickenLeg(pointSize: CGFloat) -> UIImage? {
-        // 参照站点图标：圆润肉块、三枚小圆点和向右下延伸的骨柄。
-        // 使用模板图保证详情操作、资料统计和长按菜单能跟随各自的状态色。
-        let width = max(22, pointSize * 1.42)
-        let height = max(19, pointSize * 1.16)
+        // 与点赞/踩 SF Symbol 风格统一：实心、圆润、饱满的鼓槌造型，
+        // 肉块+骨柄+末端关节，模板图跟随状态色（未点灰、已点橙）。
+        let width = max(20, pointSize * 1.30)
+        let height = max(18, pointSize * 1.02)
         let format = UIGraphicsImageRendererFormat()
         format.scale = UIScreen.main.scale
         format.opaque = false
@@ -21,64 +21,57 @@ enum ReactionIconRenderer {
             cg.setLineCap(.round)
             cg.setLineJoin(.round)
 
-            let strokeWidth = max(1.8, height * 0.098)
+            // 肉块：实心填充，圆角轮廓与点赞/踩的粗壮笔画呼应
             let meat = UIBezierPath()
-            meat.move(to: CGPoint(x: width * 0.11, y: height * 0.25))
+            meat.move(to: CGPoint(x: width * 0.10, y: height * 0.36))
             meat.addCurve(
-                to: CGPoint(x: width * 0.61, y: height * 0.21),
-                controlPoint1: CGPoint(x: width * 0.25, y: height * 0.03),
-                controlPoint2: CGPoint(x: width * 0.51, y: height * 0.02)
+                to: CGPoint(x: width * 0.62, y: height * 0.22),
+                controlPoint1: CGPoint(x: width * 0.24, y: height * 0.05),
+                controlPoint2: CGPoint(x: width * 0.52, y: height * 0.05)
             )
             meat.addCurve(
-                to: CGPoint(x: width * 0.59, y: height * 0.65),
-                controlPoint1: CGPoint(x: width * 0.74, y: height * 0.36),
-                controlPoint2: CGPoint(x: width * 0.72, y: height * 0.53)
+                to: CGPoint(x: width * 0.71, y: height * 0.60),
+                controlPoint1: CGPoint(x: width * 0.78, y: height * 0.34),
+                controlPoint2: CGPoint(x: width * 0.78, y: height * 0.50)
             )
             meat.addCurve(
-                to: CGPoint(x: width * 0.17, y: height * 0.67),
-                controlPoint1: CGPoint(x: width * 0.48, y: height * 0.79),
-                controlPoint2: CGPoint(x: width * 0.28, y: height * 0.76)
+                to: CGPoint(x: width * 0.22, y: height * 0.78),
+                controlPoint1: CGPoint(x: width * 0.55, y: height * 0.88),
+                controlPoint2: CGPoint(x: width * 0.34, y: height * 0.86)
             )
             meat.addCurve(
-                to: CGPoint(x: width * 0.11, y: height * 0.25),
-                controlPoint1: CGPoint(x: width * 0.04, y: height * 0.56),
-                controlPoint2: CGPoint(x: width * 0.04, y: height * 0.37)
+                to: CGPoint(x: width * 0.10, y: height * 0.36),
+                controlPoint1: CGPoint(x: width * 0.06, y: height * 0.66),
+                controlPoint2: CGPoint(x: width * 0.05, y: height * 0.49)
             )
             meat.close()
-            meat.lineWidth = strokeWidth
+            meat.lineWidth = max(1.6, height * 0.075)
+            meat.lineJoinStyle = .round
+            meat.lineCapStyle = .round
+            meat.fill()
             meat.stroke()
 
+            // 骨柄：圆头粗线向右下延伸
+            let boneWidth = max(2.1, height * 0.115)
+            let boneStart = CGPoint(x: width * 0.58, y: height * 0.58)
+            let boneEnd = CGPoint(x: width * 0.86, y: height * 0.88)
             let bone = UIBezierPath()
-            bone.move(to: CGPoint(x: width * 0.59, y: height * 0.64))
-            bone.addLine(to: CGPoint(x: width * 0.87, y: height * 0.89))
-            bone.lineWidth = strokeWidth
+            bone.move(to: boneStart)
+            bone.addLine(to: boneEnd)
+            bone.lineWidth = boneWidth
+            bone.lineCapStyle = .round
             bone.stroke()
 
-            let endRadius = max(1.7, height * 0.075)
+            // 末端关节
+            let endRadius = boneWidth * 0.85
             cg.fillEllipse(
                 in: CGRect(
-                    x: width * 0.87 - endRadius,
-                    y: height * 0.89 - endRadius,
+                    x: boneEnd.x - endRadius,
+                    y: boneEnd.y - endRadius,
                     width: endRadius * 2,
                     height: endRadius * 2
                 )
             )
-
-            let dotRadius = max(1.25, height * 0.055)
-            [
-                CGPoint(x: width * 0.27, y: height * 0.40),
-                CGPoint(x: width * 0.39, y: height * 0.34),
-                CGPoint(x: width * 0.39, y: height * 0.52)
-            ].forEach { center in
-                cg.fillEllipse(
-                    in: CGRect(
-                        x: center.x - dotRadius,
-                        y: center.y - dotRadius,
-                        width: dotRadius * 2,
-                        height: dotRadius * 2
-                    )
-                )
-            }
         }
         return image.withRenderingMode(.alwaysTemplate)
     }

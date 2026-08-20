@@ -64,6 +64,31 @@ nonisolated struct UserCollectionRecord: Equatable, Sendable {
     let title: String
     let postID: Int
     let rank: Int
+    let authorName: String?
+    let avatarURL: URL?
+    let viewCount: Int?
+    let replyCount: Int?
+    let lastActivityText: String?
+
+    init(
+        title: String,
+        postID: Int,
+        rank: Int,
+        authorName: String? = nil,
+        avatarURL: URL? = nil,
+        viewCount: Int? = nil,
+        replyCount: Int? = nil,
+        lastActivityText: String? = nil
+    ) {
+        self.title = title
+        self.postID = postID
+        self.rank = rank
+        self.authorName = authorName
+        self.avatarURL = avatarURL
+        self.viewCount = viewCount
+        self.replyCount = replyCount
+        self.lastActivityText = lastActivityText
+    }
 }
 
 extension AccountResponse {

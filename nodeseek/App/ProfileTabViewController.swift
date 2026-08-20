@@ -230,7 +230,11 @@ final class ProfileTabViewController: UIViewController {
             }
             viewController = comments
         case .collections:
-            let collections = UserCollectionsViewController(userID: userID)
+            let collections = UserCollectionsViewController(
+                userID: userID,
+                authorName: userInfo?.username,
+                avatarURL: avatarURL(for: userID)
+            )
             collections.onSelectPost = { [weak self] post, page, anchorID in
                 self?.openPost(post, page: page, anchorID: anchorID)
             }

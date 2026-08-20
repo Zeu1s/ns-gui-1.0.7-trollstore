@@ -36,7 +36,7 @@ final class SQLiteVisitedPostPersistence: VisitedPostPersistence, @unchecked Sen
 
     func loadRecent(limit: Int) throws -> [VisitedPostRecord] {
         let sql = """
-        SELECT post_id, title, url, visited_at, avatar_url
+        SELECT post_id, title, url, visited_at, avatar_url, view_count, reply_count
         FROM visited_posts
         ORDER BY visited_at DESC
         LIMIT ?;
@@ -54,6 +54,8 @@ final class SQLiteVisitedPostPersistence: VisitedPostPersistence, @unchecked Sen
             let urlString = textColumn(statement, index: 2)
             let visitedAt = Date(timeIntervalSince1970: sqlite3_column_double(statement, 3))
             let avatarURLString = nullableTextColumn(statement, index: 4)
+            let viewCount = Int(sqlite3_column_int64(statement, 5))
+            let replyCount = Int(sqlite3_column_int64(statement, 6))
             guard let url = URL(string: urlString) else {
                 throw SQLiteVisitedPostPersistenceError.invalidStoredURL(urlString)
             }
@@ -62,7 +64,9 @@ final class SQLiteVisitedPostPersistence: VisitedPostPersistence, @unchecked Sen
                 title: title,
                 url: url,
                 visitedAt: visitedAt,
-                avatarURL: avatarURLString.flatMap(URL.init(string:))
+                avatarURL: avatarURLString.flatMap(URL.init(string:)),
+                viewCount: max(0, viewCount),
+                replyCount: max(0, replyCount)
             ))
         }
 
@@ -71,13 +75,15 @@ final class SQLiteVisitedPostPersistence: VisitedPostPersistence, @unchecked Sen
 
     func upsert(_ record: VisitedPostRecord) throws {
         let sql = """
-        INSERT INTO visited_posts (post_id, title, url, visited_at, avatar_url)
-        VALUES (?, ?, ?, ?, ?)
+        INSERT INTO visited_posts (post_id, title, url, visited_at, avatar_url, view_count, reply_count)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(post_id) DO UPDATE SET
             title = excluded.title,
             url = excluded.url,
             visited_at = excluded.visited_at,
-            avatar_url = excluded.avatar_url;
+            avatar_url = excluded.avatar_url,
+            view_count = excluded.view_count,
+            reply_count = excluded.reply_count;
         """
         var statement: OpaquePointer?
         try prepare(sql, statement: &statement)
@@ -88,6 +94,8 @@ final class SQLiteVisitedPostPersistence: VisitedPostPersistence, @unchecked Sen
         bind(record.url.absoluteString, to: statement, index: 3)
         sqlite3_bind_double(statement, 4, record.visitedAt.timeIntervalSince1970)
         bindNullable(record.avatarURL?.absoluteString, to: statement, index: 5)
+        sqlite3_bind_int64(statement, 6, Int64(max(0, record.viewCount)))
+        sqlite3_bind_int64(statement, 7, Int64(max(0, record.replyCount)))
 
         try stepDone(statement)
     }
@@ -159,10 +167,14 @@ final class SQLiteVisitedPostPersistence: VisitedPostPersistence, @unchecked Sen
             title TEXT NOT NULL,
             url TEXT NOT NULL,
             visited_at REAL NOT NULL,
-            avatar_url TEXT
+            avatar_url TEXT,
+            view_count INTEGER NOT NULL DEFAULT 0,
+            reply_count INTEGER NOT NULL DEFAULT 0
         );
         """)
         try addColumnIfNeeded(name: "avatar_url", definition: "avatar_url TEXT")
+        try addColumnIfNeeded(name: "view_count", definition: "view_count INTEGER NOT NULL DEFAULT 0")
+        try addColumnIfNeeded(name: "reply_count", definition: "reply_count INTEGER NOT NULL DEFAULT 0")
         try execute("""
         CREATE INDEX IF NOT EXISTS idx_visited_posts_visited_at
         ON visited_posts(visited_at DESC);

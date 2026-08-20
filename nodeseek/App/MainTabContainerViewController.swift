@@ -9,8 +9,8 @@ import UIKit
 final class MainTabContainerViewController: UIViewController {
     private enum Layout {
         static let horizontalInset: CGFloat = 0
-        // 底栏总高度固定为 60pt；子视图自己避开底部安全区。
-        static let height: CGFloat = 60
+        // 底栏总高度固定为 50pt；子视图自己避开底部安全区。
+        static let height: CGFloat = 50
     }
 
     private let containerView = UIView()
@@ -84,11 +84,15 @@ final class MainTabContainerViewController: UIViewController {
 
     private func select(_ item: PostListBottomNavigationItem) {
         let reselectedCurrentItem = item == currentItem
+        let previousItem = currentItem
         let stack = stack(for: item)
         currentItem = item
         show(stack)
         if item == .history {
             refreshHistoryListIfVisible(in: stack)
+        } else if item == .home, previousItem != .home {
+            refreshHomeListIfVisible(in: stack)
+            recoverVisibleContent(in: stack)
         } else if reselectedCurrentItem {
             resetToTop(of: stack)
         } else {
@@ -196,6 +200,14 @@ final class MainTabContainerViewController: UIViewController {
         history.refreshFromTabSelection()
     }
 
+    private func refreshHomeListIfVisible(in stack: UINavigationController) {
+        // 仅当首页位于第一级帖子列表时静默刷新；帖子详情页在导航栈顶时不刷新。
+        guard let postList = stack.topViewController as? PostListViewController else {
+            return
+        }
+        postList.refreshVisibleFirstPageIfNeeded()
+    }
+
     private func findScrollViews(in view: UIView) -> [UIScrollView] {
         var result: [UIScrollView] = []
         if let scrollView = view as? UIScrollView,
@@ -247,8 +259,8 @@ final class MainTabContainerViewController: UIViewController {
             url: record.url,
             authorName: "",
             nodeName: nil,
-            replyCount: 0,
-            viewCount: 0,
+            replyCount: record.replyCount,
+            viewCount: record.viewCount,
             lastActivityText: nil,
             avatarURL: record.avatarURL
         )

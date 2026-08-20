@@ -13,6 +13,26 @@ nonisolated struct VisitedPostRecord: Equatable, Sendable {
     let url: URL
     let visitedAt: Date
     let avatarURL: URL?
+    let viewCount: Int
+    let replyCount: Int
+
+    init(
+        postID: String,
+        title: String,
+        url: URL,
+        visitedAt: Date,
+        avatarURL: URL?,
+        viewCount: Int = 0,
+        replyCount: Int = 0
+    ) {
+        self.postID = postID
+        self.title = title
+        self.url = url
+        self.visitedAt = visitedAt
+        self.avatarURL = avatarURL
+        self.viewCount = viewCount
+        self.replyCount = replyCount
+    }
 }
 
 nonisolated struct PostListItem: Equatable, Sendable {
@@ -74,7 +94,9 @@ final class VisitedPostStore: VisitedPostStoreProtocol {
             title: post.title,
             url: post.url,
             visitedAt: visitedAt,
-            avatarURL: post.avatarURL
+            avatarURL: post.avatarURL,
+            viewCount: post.viewCount,
+            replyCount: post.replyCount
         )
 
         records.removeAll { $0.postID == record.postID }

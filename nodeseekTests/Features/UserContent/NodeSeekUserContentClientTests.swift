@@ -64,7 +64,7 @@ struct NodeSeekUserContentClientTests {
 
         #expect(MockURLProtocol.lastRequest?.url?.absoluteString == "https://www.nodeseek.com/api/content/list-comments?uid=31037&page=4")
         #expect(records == [
-            UserCommentRecord(postID: 715245, title: "已抽个GPT Plus", rank: 1, floorID: 18, text: "让了让了 ")
+            UserCommentRecord(postID: 715245, title: "已抽个GPT Plus", rank: 1, floorID: 18, text: "让了让了")
         ])
     }
 
@@ -85,6 +85,65 @@ struct NodeSeekUserContentClientTests {
         #expect(MockURLProtocol.lastRequest?.url?.absoluteString == "https://www.nodeseek.com/api/content/list-discussions?uid=31037&page=1")
         #expect(records == [
             UserDiscussionRecord(rank: 0, title: "【开源】使用codex撸了一个nodeseek的iOS客户端", postID: 717963)
+        ])
+    }
+    @Test func loadsDiscussionsWithStatisticsFromWrappedEnvelope() async throws {
+        let client = makeClient(
+            responseBody: """
+            {
+              "success": true,
+              "data": {
+                "discussions": [
+                  { "rank": 0, "title": "测试贴", "post_id": 12345, "views": 843, "comments": 12 }
+                ],
+                "totalPage": 1
+              }
+            }
+            """
+        )
+
+        let records = try await client.loadDiscussions(uid: 31037, page: 1)
+
+        #expect(records == [
+            UserDiscussionRecord(rank: 0, title: "测试贴", postID: 12345, viewCount: 843, replyCount: 12)
+        ])
+    }
+
+    @Test func loadsDiscussionsWithAlternativeStatFieldNames() async throws {
+        let client = makeClient(
+            responseBody: """
+            {
+              "success": true,
+              "discussions": [
+                { "rank": 0, "title": "备选字段", "post_id": 9001, "click": 120, "nComment": 7 }
+              ]
+            }
+            """
+        )
+
+        let records = try await client.loadDiscussions(uid: 31037, page: 1)
+
+        #expect(records == [
+            UserDiscussionRecord(rank: 0, title: "备选字段", postID: 9001, viewCount: 120, replyCount: 7)
+        ])
+    }
+
+    @Test func loadsCollectionsWithStatistics() async throws {
+        let client = makeClient(
+            responseBody: """
+            {
+              "success": true,
+              "collections": [
+                { "title": "收藏贴", "post_id": 700, "rank": 0, "view_count": 2000, "reply_count": 30 }
+              ]
+            }
+            """
+        )
+
+        let records = try await client.loadCollections(page: 1, uid: 31037)
+
+        #expect(records == [
+            UserCollectionRecord(title: "收藏贴", postID: 700, rank: 0, viewCount: 2000, replyCount: 30)
         ])
     }
 }

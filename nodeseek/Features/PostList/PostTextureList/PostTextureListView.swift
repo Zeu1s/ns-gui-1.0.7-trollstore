@@ -28,6 +28,14 @@ final class PostTextureListView: UIView {
 
     private let tableNode = ASTableNode(style: .plain)
     private let refreshControl = UIRefreshControl()
+    private let logoPlaceholderView: UIImageView = {
+        let imageView = UIImageView(image: UIImage(named: "SplashLogo"))
+        imageView.contentMode = .scaleAspectFit
+        imageView.translatesAutoresizingMaskIntoConstraints = false
+        imageView.isHidden = true
+        imageView.accessibilityLabel = "正在加载"
+        return imageView
+    }()
     private var displayMode: DisplayMode = .content
     private var items: [PostListItem] = []
     private let minimumSkeletonRowCount = 8
@@ -128,6 +136,7 @@ final class PostTextureListView: UIView {
             shouldStreamContentAppearance = shouldStream && !items.isEmpty
             tableNode.reloadData()
             streamVisibleRowsIfNeeded()
+            fadeOutLogoPlaceholder()
             return
         }
 
@@ -163,12 +172,14 @@ final class PostTextureListView: UIView {
         skeletonRowCount = currentSkeletonRowCount()
         hideLoadingMore()
         tableNode.reloadData()
+        showLogoPlaceholder()
     }
 
     func hideLoadingSkeleton() {
         guard displayMode == .skeleton else { return }
         displayMode = .content
         tableNode.reloadData()
+        hideLogoPlaceholder()
     }
 
     func showFirstPageError(message: String) {
@@ -180,6 +191,7 @@ final class PostTextureListView: UIView {
         errorMessageLabel.text = message
         errorStackView.isHidden = false
         tableNode.reloadData()
+        hideLogoPlaceholder()
     }
 
     func hideFirstPageError() {
@@ -240,6 +252,7 @@ final class PostTextureListView: UIView {
 
         addSubview(tableNode.view)
         addSubview(errorStackView)
+        addSubview(logoPlaceholderView)
         NSLayoutConstraint.activate([
             tableNode.view.leadingAnchor.constraint(equalTo: leadingAnchor),
             tableNode.view.trailingAnchor.constraint(equalTo: trailingAnchor),
@@ -249,7 +262,12 @@ final class PostTextureListView: UIView {
             errorStackView.centerXAnchor.constraint(equalTo: centerXAnchor),
             errorStackView.centerYAnchor.constraint(equalTo: centerYAnchor),
             errorStackView.leadingAnchor.constraint(greaterThanOrEqualTo: leadingAnchor, constant: 32),
-            errorStackView.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -32)
+            errorStackView.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -32),
+
+            logoPlaceholderView.centerXAnchor.constraint(equalTo: centerXAnchor),
+            logoPlaceholderView.centerYAnchor.constraint(equalTo: centerYAnchor, constant: -24),
+            logoPlaceholderView.widthAnchor.constraint(equalToConstant: 120),
+            logoPlaceholderView.heightAnchor.constraint(equalToConstant: 120)
         ])
     }
 
@@ -257,19 +275,55 @@ final class PostTextureListView: UIView {
         errorStackView.isHidden = true
     }
 
+    private func showLogoPlaceholder() {
+        guard logoPlaceholderView.isHidden else { return }
+        logoPlaceholderView.isHidden = false
+        logoPlaceholderView.alpha = 0
+        UIView.animate(
+            withDuration: 0.25,
+            delay: 0,
+            options: [.curveEaseOut, .allowUserInteraction]
+        ) {
+            self.logoPlaceholderView.alpha = 1
+        }
+    }
+
+    private func hideLogoPlaceholder() {
+        logoPlaceholderView.layer.removeAllAnimations()
+        logoPlaceholderView.alpha = 0
+        logoPlaceholderView.isHidden = true
+    }
+
+    private func fadeOutLogoPlaceholder() {
+        guard logoPlaceholderView.isHidden == false else { return }
+        UIView.animate(
+            withDuration: 0.45,
+            delay: 0,
+            options: [.curveEaseIn, .allowUserInteraction]
+        ) {
+            self.logoPlaceholderView.alpha = 0
+        } completion: { _ in
+            self.logoPlaceholderView.isHidden = true
+        }
+    }
+
     private func streamVisibleRowsIfNeeded() {
         guard shouldStreamContentAppearance else { return }
+        // 页面尚未挂到窗口时（例如板块在后台加载完成）不消耗标志，
+        // 等 didMoveToWindow 上屏后再触发流式输出，避免切换后直接闪现完整列表。
+        guard window != nil else { return }
         shouldStreamContentAppearance = false
         DispatchQueue.main.async { [weak self] in
-            guard let self, self.window != nil else { return }
+            guard let self else { return }
+            self.tableNode.view.layoutIfNeeded()
             let cells = self.tableNode.view.visibleCells
                 .sorted { $0.frame.minY < $1.frame.minY }
             for (index, cell) in cells.enumerated() {
                 cell.alpha = 0
                 cell.transform = CGAffineTransform(translationX: 0, y: 10)
                 UIView.animate(
-                    withDuration: 0.2,
-                    delay: Double(index) * 0.035,
+                    withDuration: 0.22,
+                    delay: Double(index) * 0.03,
                     options: [.curveEaseOut, .allowUserInteraction]
                 ) {
                     cell.alpha = 1
@@ -277,6 +331,12 @@ final class PostTextureListView: UIView {
                 }
             }
         }
+    }
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        guard window != nil, shouldStreamContentAppearance else { return }
+        streamVisibleRowsIfNeeded()
     }
 
     private func makeAppendIndexPaths(from oldItems: [PostListItem], to newItems: [PostListItem]) -> [IndexPath]? {
