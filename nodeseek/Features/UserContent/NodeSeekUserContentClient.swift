@@ -145,13 +145,13 @@ final class NodeSeekUserContentClient {
             }
         }
         let candidates = collectObjectArrays(in: root)
-        if candidates.count == 1 { return candidates[0] }
-        if !candidates.isEmpty, candidates.allSatisfy({ $0.isEmpty }) { return candidates[0] }
+        if candidates.count == 1 { return candidates }
+        if !candidates.isEmpty, candidates.allSatisfy({ $0.isEmpty }) { return candidates }
         return nil
     }
 
     private static func collectObjectArrays(in value: Any) -> [[String: Any]] {
-        if let array = value as? [[String: Any]] { return [array] }
+        if let array = value as? [[String: Any]] { return array }
         if let object = value as? [String: Any] {
             return object.values.flatMap { collectObjectArrays(in: $0) }
         }
