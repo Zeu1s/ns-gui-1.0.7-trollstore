@@ -100,7 +100,7 @@ final class PostListBottomNavigationView: UIView {
 
     func refreshDisplayScale() {
         layer.cornerRadius = 0
-        selectionPillView.layer.cornerRadius = AppDisplayScaleSettings.scaled(18)
+        selectionPillView.layer.cornerRadius = AppDisplayScaleSettings.scaled(15)
         messageUnreadBadge.layer.cornerRadius = AppDisplayScaleSettings.scaled(6)
         stackLeadingConstraint?.constant = AppDisplayScaleSettings.scaled(8)
         stackTrailingConstraint?.constant = -AppDisplayScaleSettings.scaled(8)
@@ -131,7 +131,7 @@ final class PostListBottomNavigationView: UIView {
         ])
 
         selectionPillView.backgroundColor = Style.selectedBackground
-        selectionPillView.layer.cornerRadius = AppDisplayScaleSettings.scaled(18)
+        selectionPillView.layer.cornerRadius = AppDisplayScaleSettings.scaled(15)
         selectionPillView.isUserInteractionEnabled = false
         selectionPillView.translatesAutoresizingMaskIntoConstraints = true
         selectionPillView.frame = .zero
@@ -172,11 +172,11 @@ final class PostListBottomNavigationView: UIView {
         )
         let stackTopConstraint = stackView.topAnchor.constraint(
             equalTo: topAnchor,
-            constant: AppDisplayScaleSettings.scaled(3)
+            constant: AppDisplayScaleSettings.scaled(2)
         )
         let stackBottomConstraint = stackView.bottomAnchor.constraint(
             equalTo: bottomAnchor,
-            constant: -AppDisplayScaleSettings.scaled(3)
+            constant: -AppDisplayScaleSettings.scaled(2)
         )
         let unreadBadgeWidthConstraint = messageUnreadBadge.widthAnchor.constraint(
             equalToConstant: AppDisplayScaleSettings.scaled(12)
@@ -218,7 +218,7 @@ final class PostListBottomNavigationView: UIView {
         let target = button.convert(button.bounds, to: self)
         let frame = target.insetBy(
             dx: AppDisplayScaleSettings.scaled(6),
-            dy: AppDisplayScaleSettings.scaled(3)
+            dy: AppDisplayScaleSettings.scaled(2)
         )
         let apply: () -> Void = { [weak self] in
             guard let self else { return }
@@ -242,7 +242,7 @@ final class PostListBottomNavigationView: UIView {
         isSelected: Bool
     ) {        guard let button else { return }
         let symbolConfiguration = UIImage.SymbolConfiguration(
-            pointSize: AppDisplayScaleSettings.scaled(19),
+            pointSize: AppDisplayScaleSettings.scaled(17),
             weight: isSelected ? .semibold : .regular
         )
         var configuration = UIButton.Configuration.plain()
@@ -263,7 +263,7 @@ final class PostListBottomNavigationView: UIView {
         configuration.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { incoming in
             var outgoing = incoming
             outgoing.font = UIFont.systemFont(
-                ofSize: AppDisplayScaleSettings.scaled(11),
+                ofSize: AppDisplayScaleSettings.scaled(10),
                 weight: isSelected ? .semibold : .medium
             )
             return outgoing

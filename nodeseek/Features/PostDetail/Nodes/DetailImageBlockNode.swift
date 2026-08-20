@@ -14,6 +14,7 @@ final class DetailImageBlockNode: ASDisplayNode {
     private let onImageSizeResolved: (URL, CGSize) -> Void
     private let imageURL: URL
     private var imageKind: DetailImageKind
+    private let animateAppearance: Bool
     private var loadedImageSize: CGSize
     private static let heightReductionThreshold: CGFloat = 1
 
@@ -22,6 +23,8 @@ final class DetailImageBlockNode: ASDisplayNode {
         imageURLs: [URL],
         imageIndex: Int,
         initialImageSize: CGSize = .zero,
+        resolvedKind: DetailImageKind? = nil,
+        animateAppearance: Bool = false,
         onImageTapped: @escaping ([URL], Int) -> Void,
         onImageSizeResolved: @escaping (URL, CGSize) -> Void = { _, _ in },
         onImageHeightReduced: @escaping () -> Void = {},
@@ -31,12 +34,14 @@ final class DetailImageBlockNode: ASDisplayNode {
         self.onImageHeightReduced = onImageHeightReduced
         self.onImageSizeResolved = onImageSizeResolved
         self.imageURL = imageBlock.url
-        self.imageKind = DetailImageKind.resolved(isSticker: false, imageURL: imageBlock.url)
+        self.imageKind = resolvedKind ?? DetailImageKind.resolved(isSticker: false, imageURL: imageBlock.url)
+        self.animateAppearance = animateAppearance
         self.loadedImageSize = initialImageSize.width > 0 && initialImageSize.height > 0 ? initialImageSize : .zero
         super.init()
         setViewBlock { [weak self] in
             DetailImageBlockView(
                 imageBlock: imageBlock,
+                animateAppearance: animateAppearance,
                 onImageLoaded: { imageSize, resolvedKind in
                     self?.updateLoadedImageSize(imageSize, resolvedKind: resolvedKind)
                 },
@@ -89,6 +94,7 @@ final class DetailImageBlockNode: ASDisplayNode {
 
 private final class DetailImageBlockView: UIView {
     private let imageBlock: RenderedImageBlock
+    private let animateAppearance: Bool
     private let onImageLoaded: (CGSize, DetailImageKind?) -> Void
     private let onImageTapped: () -> Void
     private let imageView = UIImageView()
@@ -97,10 +103,12 @@ private final class DetailImageBlockView: UIView {
 
     init(
         imageBlock: RenderedImageBlock,
+        animateAppearance: Bool = false,
         onImageLoaded: @escaping (CGSize, DetailImageKind?) -> Void,
         onImageTapped: @escaping () -> Void
     ) {
         self.imageBlock = imageBlock
+        self.animateAppearance = animateAppearance
         self.onImageLoaded = onImageLoaded
         self.onImageTapped = onImageTapped
         self.resolvedImageKind = DetailImageKind.resolved(isSticker: false, imageURL: nil)
@@ -132,6 +140,7 @@ private final class DetailImageBlockView: UIView {
         clipsToBounds = true
         imageView.backgroundColor = .secondarySystemBackground
         imageView.clipsToBounds = true
+        imageView.alpha = animateAppearance ? 0 : 1
         imageView.isUserInteractionEnabled = true
         imageView.accessibilityLabel = imageBlock.altText
         imageView.addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(handleTap)))
@@ -154,6 +163,15 @@ private final class DetailImageBlockView: UIView {
                     self.imageView.image = image
                     self.onImageLoaded(image.size, result.resolvedKind)
                     self.setNeedsLayout()
+                    if self.animateAppearance, self.imageView.alpha < 1 {
+                        UIView.animate(
+                            withDuration: 0.28,
+                            delay: 0,
+                            options: [.curveEaseOut, .allowUserInteraction]
+                        ) {
+                            self.imageView.alpha = 1
+                        }
+                    }
                 }
             }
     }

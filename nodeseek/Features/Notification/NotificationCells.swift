@@ -12,11 +12,12 @@ final class NotificationMentionCell: UITableViewCell {
 
     private let avatarLoader = AvatarImageLoader.shared
     private let avatarImageView = UIImageView()
-    private let unreadDotView = UIView()
+    private let unreadBadgeLabel = UILabel()
     private let profileButton = UIButton(type: .custom)
     private let nameButton = UIButton(type: .system)
     private let actionLabel = UILabel()
     private let titleLabel = UILabel()
+    private let contentLabel = UILabel()
     private let timeLabel = UILabel()
     private let markReadButton = UIButton(type: .system)
     private var onProfileTapped: (() -> Void)?
@@ -43,10 +44,11 @@ final class NotificationMentionCell: UITableViewCell {
         representedID = nil
         avatarImageView.image = UIImage(systemName: "person.crop.square.fill")
         avatarImageView.tintColor = .tertiaryLabel
-        unreadDotView.isHidden = true
+        unreadBadgeLabel.isHidden = true
         nameButton.setTitle(nil, for: .normal)
         actionLabel.text = nil
         titleLabel.text = nil
+        contentLabel.text = nil
         timeLabel.text = nil
         markReadButton.isHidden = true
         onProfileTapped = nil
@@ -66,12 +68,16 @@ final class NotificationMentionCell: UITableViewCell {
         nameButton.setTitle(record.commenterName, for: .normal)
         actionLabel.text = tab == .atMe ? "在帖子中@了我" : "回复了我的帖子"
         titleLabel.text = record.title
+        let content = record.content?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        contentLabel.text = content.isEmpty ? nil : content
+        contentLabel.isHidden = content.isEmpty
         timeLabel.text = timeText
-        unreadDotView.isHidden = record.isViewed
+        configureUnreadBadge(record.displayUnreadCount)
         markReadButton.isHidden = record.isViewed
         accessibilityLabel = [
             record.commenterName,
             actionLabel.text,
+            content.isEmpty ? nil : content,
             record.title,
             timeText
         ].compactMap { $0 }.joined(separator: " ")
@@ -91,10 +97,16 @@ final class NotificationMentionCell: UITableViewCell {
         avatarImageView.image = UIImage(systemName: "person.crop.square.fill")
         avatarImageView.tintColor = .tertiaryLabel
 
-        unreadDotView.translatesAutoresizingMaskIntoConstraints = false
-        unreadDotView.backgroundColor = .systemRed
-        unreadDotView.layer.cornerRadius = 4
-        unreadDotView.isHidden = true
+        unreadBadgeLabel.translatesAutoresizingMaskIntoConstraints = false
+        unreadBadgeLabel.backgroundColor = .systemRed
+        unreadBadgeLabel.textColor = .white
+        unreadBadgeLabel.font = .systemFont(ofSize: 10, weight: .semibold)
+        unreadBadgeLabel.textAlignment = .center
+        unreadBadgeLabel.layer.cornerRadius = 7
+        unreadBadgeLabel.clipsToBounds = true
+        unreadBadgeLabel.isHidden = true
+        unreadBadgeLabel.setContentHuggingPriority(.required, for: .horizontal)
+        unreadBadgeLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
 
         profileButton.translatesAutoresizingMaskIntoConstraints = false
         profileButton.accessibilityLabel = "打开用户主页"
@@ -118,6 +130,12 @@ final class NotificationMentionCell: UITableViewCell {
         titleLabel.adjustsFontForContentSizeCategory = true
         titleLabel.numberOfLines = 2
 
+        contentLabel.font = .preferredFont(forTextStyle: .subheadline)
+        contentLabel.textColor = .secondaryLabel
+        contentLabel.adjustsFontForContentSizeCategory = true
+        contentLabel.numberOfLines = 2
+        contentLabel.isHidden = true
+
         timeLabel.font = .preferredFont(forTextStyle: .caption1)
         timeLabel.textColor = .secondaryLabel
         timeLabel.adjustsFontForContentSizeCategory = true
@@ -136,14 +154,14 @@ final class NotificationMentionCell: UITableViewCell {
         metaRow.alignment = .firstBaseline
         metaRow.spacing = 5
 
-        let textStack = UIStackView(arrangedSubviews: [metaRow, titleLabel, timeLabel])
+        let textStack = UIStackView(arrangedSubviews: [metaRow, titleLabel, contentLabel, timeLabel])
         textStack.translatesAutoresizingMaskIntoConstraints = false
         textStack.axis = .vertical
         textStack.alignment = .fill
         textStack.spacing = 4
 
         contentView.addSubview(avatarImageView)
-        contentView.addSubview(unreadDotView)
+        contentView.addSubview(unreadBadgeLabel)
         contentView.addSubview(profileButton)
         contentView.addSubview(textStack)
         contentView.addSubview(markReadButton)
@@ -155,10 +173,10 @@ final class NotificationMentionCell: UITableViewCell {
             avatarImageView.heightAnchor.constraint(equalToConstant: 40),
             avatarImageView.bottomAnchor.constraint(lessThanOrEqualTo: contentView.bottomAnchor, constant: -13),
 
-            unreadDotView.widthAnchor.constraint(equalToConstant: 8),
-            unreadDotView.heightAnchor.constraint(equalToConstant: 8),
-            unreadDotView.topAnchor.constraint(equalTo: avatarImageView.topAnchor, constant: -2),
-            unreadDotView.trailingAnchor.constraint(equalTo: avatarImageView.trailingAnchor, constant: 2),
+            unreadBadgeLabel.widthAnchor.constraint(greaterThanOrEqualToConstant: 14),
+            unreadBadgeLabel.heightAnchor.constraint(equalToConstant: 14),
+            unreadBadgeLabel.topAnchor.constraint(equalTo: avatarImageView.topAnchor, constant: -5),
+            unreadBadgeLabel.trailingAnchor.constraint(equalTo: avatarImageView.trailingAnchor, constant: 5),
 
             profileButton.leadingAnchor.constraint(equalTo: avatarImageView.leadingAnchor),
             profileButton.trailingAnchor.constraint(equalTo: avatarImageView.trailingAnchor),
@@ -184,6 +202,11 @@ final class NotificationMentionCell: UITableViewCell {
     @objc private func markReadTapped() {
         onMarkReadTapped?()
     }
+
+    private func configureUnreadBadge(_ count: Int) {
+        unreadBadgeLabel.isHidden = count <= 0
+        unreadBadgeLabel.text = count > 99 ? "99+" : "\(count)"
+    }
 }
 
 final class NotificationMessageCell: UITableViewCell {
@@ -191,7 +214,7 @@ final class NotificationMessageCell: UITableViewCell {
 
     private let avatarLoader = AvatarImageLoader.shared
     private let avatarImageView = UIImageView()
-    private let unreadDotView = UIView()
+    private let unreadBadgeLabel = UILabel()
     private let nameLabel = UILabel()
     private let contentLabel = UILabel()
     private let timeLabel = UILabel()
@@ -218,7 +241,7 @@ final class NotificationMessageCell: UITableViewCell {
         representedID = nil
         avatarImageView.image = UIImage(systemName: "person.crop.square.fill")
         avatarImageView.tintColor = .tertiaryLabel
-        unreadDotView.isHidden = true
+        unreadBadgeLabel.isHidden = true
         nameLabel.text = nil
         contentLabel.text = nil
         timeLabel.text = nil
@@ -236,7 +259,7 @@ final class NotificationMessageCell: UITableViewCell {
             .replacingOccurrences(of: "\n", with: " ")
             .trimmingCharacters(in: .whitespacesAndNewlines)
         timeLabel.text = timeText
-        unreadDotView.isHidden = record.isViewed
+        configureUnreadBadge(record.displayUnreadCount)
         accessibilityLabel = [participantName, contentLabel.text, timeText]
             .compactMap { $0 }
             .joined(separator: " ")
@@ -256,10 +279,16 @@ final class NotificationMessageCell: UITableViewCell {
         avatarImageView.image = UIImage(systemName: "person.crop.square.fill")
         avatarImageView.tintColor = .tertiaryLabel
 
-        unreadDotView.translatesAutoresizingMaskIntoConstraints = false
-        unreadDotView.backgroundColor = .systemRed
-        unreadDotView.layer.cornerRadius = 4
-        unreadDotView.isHidden = true
+        unreadBadgeLabel.translatesAutoresizingMaskIntoConstraints = false
+        unreadBadgeLabel.backgroundColor = .systemRed
+        unreadBadgeLabel.textColor = .white
+        unreadBadgeLabel.font = .systemFont(ofSize: 10, weight: .semibold)
+        unreadBadgeLabel.textAlignment = .center
+        unreadBadgeLabel.layer.cornerRadius = 7
+        unreadBadgeLabel.clipsToBounds = true
+        unreadBadgeLabel.isHidden = true
+        unreadBadgeLabel.setContentHuggingPriority(.required, for: .horizontal)
+        unreadBadgeLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
 
         nameLabel.font = .preferredFont(forTextStyle: .body)
         nameLabel.textColor = .label
@@ -281,7 +310,7 @@ final class NotificationMessageCell: UITableViewCell {
         textStack.spacing = 4
 
         contentView.addSubview(avatarImageView)
-        contentView.addSubview(unreadDotView)
+        contentView.addSubview(unreadBadgeLabel)
         contentView.addSubview(textStack)
 
         NSLayoutConstraint.activate([
@@ -291,15 +320,20 @@ final class NotificationMessageCell: UITableViewCell {
             avatarImageView.heightAnchor.constraint(equalToConstant: 40),
             avatarImageView.bottomAnchor.constraint(lessThanOrEqualTo: contentView.bottomAnchor, constant: -13),
 
-            unreadDotView.widthAnchor.constraint(equalToConstant: 8),
-            unreadDotView.heightAnchor.constraint(equalToConstant: 8),
-            unreadDotView.topAnchor.constraint(equalTo: avatarImageView.topAnchor, constant: -2),
-            unreadDotView.trailingAnchor.constraint(equalTo: avatarImageView.trailingAnchor, constant: 2),
+            unreadBadgeLabel.widthAnchor.constraint(greaterThanOrEqualToConstant: 14),
+            unreadBadgeLabel.heightAnchor.constraint(equalToConstant: 14),
+            unreadBadgeLabel.topAnchor.constraint(equalTo: avatarImageView.topAnchor, constant: -5),
+            unreadBadgeLabel.trailingAnchor.constraint(equalTo: avatarImageView.trailingAnchor, constant: 5),
 
             textStack.leadingAnchor.constraint(equalTo: avatarImageView.trailingAnchor, constant: 12),
             textStack.trailingAnchor.constraint(equalTo: contentView.layoutMarginsGuide.trailingAnchor),
             textStack.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 11),
             textStack.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -11)
         ])
+    }
+
+    private func configureUnreadBadge(_ count: Int) {
+        unreadBadgeLabel.isHidden = count <= 0
+        unreadBadgeLabel.text = count > 99 ? "99+" : "\(count)"
     }
 }

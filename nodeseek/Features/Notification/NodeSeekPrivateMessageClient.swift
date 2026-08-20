@@ -58,6 +58,7 @@ nonisolated struct NodeSeekPrivateMessageConversation: Equatable, Sendable {
 protocol NodeSeekPrivateMessageLoading {
     func loadConversation(with userID: Int) async throws -> NodeSeekPrivateMessageConversation
     func sendMessage(to userID: Int, content: String, markdown: Bool) async throws
+    func editMessage(id: Int, content: String, markdown: Bool) async throws
 }
 
 enum NodeSeekPrivateMessageClientError: LocalizedError, Equatable {
@@ -123,6 +124,35 @@ final class NodeSeekPrivateMessageClient: NodeSeekPrivateMessageLoading {
         }
     }
 
+    func editMessage(id: Int, content: String, markdown: Bool) async throws {
+        let body = EditMessageBody(messageID: id, content: content, markdown: markdown)
+        let data = try JSONEncoder().encode(body)
+        let referer = NodeSeekNotificationURLBuilder.webURL(fragment: "/message?mode=talk")
+        let request = makeRequest(
+            path: "/api/notification/message/update",
+            method: "POST",
+            body: data,
+            referer: referer
+        )
+        do {
+            let response = try await decode(SendMessageResponse.self, request: request)
+            guard response.success else {
+                throw NodeSeekPrivateMessageClientError.unsuccessfulResponse(response.message)
+            }
+        } catch NodeSeekPrivateMessageClientError.httpStatus(404) {
+            let fallbackRequest = makeRequest(
+                path: "/api/notification/message/edit",
+                method: "POST",
+                body: data,
+                referer: referer
+            )
+            let response = try await decode(SendMessageResponse.self, request: fallbackRequest)
+            guard response.success else {
+                throw NodeSeekPrivateMessageClientError.unsuccessfulResponse(response.message)
+            }
+        }
+    }
+
     private func makeRequest(path: String, method: String = "GET", body: Data? = nil, referer: URL) -> URLRequest {
         var components = URLComponents(url: baseURL, resolvingAgainstBaseURL: false)
         components?.path = path
@@ -181,6 +211,18 @@ private struct SendMessageBody: Encodable {
     let receiverUid: Int
     let content: String
     let markdown: Bool
+}
+
+private struct EditMessageBody: Encodable {
+    let messageID: Int
+    let content: String
+    let markdown: Bool
+
+    private enum CodingKeys: String, CodingKey {
+        case messageID = "message_id"
+        case content
+        case markdown
+    }
 }
 
 private struct SendMessageResponse: Decodable {

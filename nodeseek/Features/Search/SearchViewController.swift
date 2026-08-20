@@ -389,6 +389,7 @@ final class SearchViewController: UIViewController {
         listView.hideLoadingMore()
         listView.isHidden = true
         formTopConstraint?.constant = 104
+        keywordTextField.text = nil
         renderRecentSearches()
 
         UIView.animate(withDuration: 0.24, delay: 0, options: [.curveEaseOut, .beginFromCurrentState]) {

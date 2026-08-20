@@ -115,7 +115,7 @@ final class PostTextureListView: UIView {
 
     func setItems(_ items: [PostListItem]) {
         hideErrorView()
-        let shouldStream = displayMode != .content || self.items.isEmpty
+        let shouldStream = true
         if self.items.count != items.count {
             lastBatchFetchRequestedItemCount = nil
         }

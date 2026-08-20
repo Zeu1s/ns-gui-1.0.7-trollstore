@@ -47,7 +47,8 @@ enum DetailContentBlockNodeFactory {
         onTextLayoutInvalidated: @escaping () -> Void,
         imageSizeProvider: @escaping (URL) -> CGSize? = { _ in nil },
         onImageSizeResolved: @escaping (URL, CGSize) -> Void = { _, _ in },
-        onImageHeightReduced: @escaping () -> Void = {}
+        onImageHeightReduced: @escaping () -> Void = {},
+        forceReportImages: Bool = false
     ) -> [ASDisplayNode] {
         let imageURLs = imageURLs(in: blocks)
         var imageIndex = 0
@@ -61,7 +62,8 @@ enum DetailContentBlockNodeFactory {
             onTextLayoutInvalidated: onTextLayoutInvalidated,
             imageSizeProvider: imageSizeProvider,
             onImageSizeResolved: onImageSizeResolved,
-            onImageHeightReduced: onImageHeightReduced
+            onImageHeightReduced: onImageHeightReduced,
+            forceReportImages: forceReportImages
         )
     }
 
@@ -75,7 +77,8 @@ enum DetailContentBlockNodeFactory {
         onTextLayoutInvalidated: @escaping () -> Void,
         imageSizeProvider: @escaping (URL) -> CGSize?,
         onImageSizeResolved: @escaping (URL, CGSize) -> Void,
-        onImageHeightReduced: @escaping () -> Void
+        onImageHeightReduced: @escaping () -> Void,
+        forceReportImages: Bool = false
     ) -> [ASDisplayNode] {
         return blocks.compactMap { block -> ASDisplayNode? in
             switch block {
@@ -110,6 +113,8 @@ enum DetailContentBlockNodeFactory {
                     imageURLs: imageURLs,
                     imageIndex: index,
                     initialImageSize: imageSizeProvider(imageBlock.url) ?? .zero,
+                    resolvedKind: forceReportImages ? .report : nil,
+                    animateAppearance: forceReportImages,
                     onImageTapped: onImageTapped,
                     onImageSizeResolved: onImageSizeResolved,
                     onImageHeightReduced: onImageHeightReduced,
@@ -128,7 +133,8 @@ enum DetailContentBlockNodeFactory {
                         onTextLayoutInvalidated: onTextLayoutInvalidated,
                         imageSizeProvider: imageSizeProvider,
                         onImageSizeResolved: onImageSizeResolved,
-                        onImageHeightReduced: onImageHeightReduced
+                        onImageHeightReduced: onImageHeightReduced,
+                        forceReportImages: true
                     )
                     if bodyNodes.isEmpty == false {
                         tabs.append(DetailMagicTabsNode.Tab(title: tab.title, bodyNodes: bodyNodes))
@@ -156,7 +162,8 @@ enum DetailContentBlockNodeFactory {
                     onTextLayoutInvalidated: onTextLayoutInvalidated,
                     imageSizeProvider: imageSizeProvider,
                     onImageSizeResolved: onImageSizeResolved,
-                    onImageHeightReduced: onImageHeightReduced
+                    onImageHeightReduced: onImageHeightReduced,
+                    forceReportImages: forceReportImages
                 )
                 guard childNodes.isEmpty == false else { return nil }
                 return DetailQuoteBlockNode(children: childNodes)

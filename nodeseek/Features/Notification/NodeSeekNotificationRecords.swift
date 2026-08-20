@@ -99,6 +99,8 @@ nonisolated struct NodeSeekNotificationRecord: Decodable, Equatable, Sendable {
     let postID: Int
     let firstCommentID: Int
     let commenterName: String
+    let content: String?
+    let unreadCount: Int?
 
     var isViewed: Bool {
         viewed != 0
@@ -124,8 +126,42 @@ nonisolated struct NodeSeekNotificationRecord: Decodable, Equatable, Sendable {
         UserContentPostSummaryFactory.postSummary(id: postID, title: title)
     }
 
+    /// 单条通知的未读数量：接口未返回时以已读状态推断。
+    var displayUnreadCount: Int {
+        unreadCount ?? (isViewed ? 0 : 1)
+    }
+
     mutating func markViewed() {
         viewed = 1
+    }
+
+    private static func optionalString(
+        in container: KeyedDecodingContainer<CodingKeys>,
+        keys: [CodingKeys]
+    ) -> String? {
+        for key in keys {
+            if let value = try? container.decodeIfPresent(String.self, forKey: key),
+               value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false {
+                return value
+            }
+        }
+        return nil
+    }
+
+    private static func optionalInt(
+        in container: KeyedDecodingContainer<CodingKeys>,
+        keys: [CodingKeys]
+    ) -> Int? {
+        for key in keys {
+            if let value = try? container.decodeIfPresent(Int.self, forKey: key), value > 0 {
+                return value
+            }
+            if let raw = try? container.decodeIfPresent(String.self, forKey: key),
+               let value = Int(raw.trimmingCharacters(in: .whitespacesAndNewlines)), value > 0 {
+                return value
+            }
+        }
+        return nil
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -139,6 +175,10 @@ nonisolated struct NodeSeekNotificationRecord: Decodable, Equatable, Sendable {
         case postID = "post_id"
         case firstCommentID = "first_comment_id"
         case commenterName = "commenter_name"
+        case content
+        case unread
+        case unreadCount = "unread_count"
+        case count
     }
 
     init(from decoder: Decoder) throws {
@@ -161,6 +201,8 @@ nonisolated struct NodeSeekNotificationRecord: Decodable, Equatable, Sendable {
         postID = try container.decode(Int.self, forKey: .postID)
         firstCommentID = try container.decode(Int.self, forKey: .firstCommentID)
         commenterName = try container.decode(String.self, forKey: .commenterName)
+        content = Self.optionalString(in: container, keys: [.content])
+        unreadCount = Self.optionalInt(in: container, keys: [.unread, .unreadCount, .count])
     }
 
     init(
@@ -173,6 +215,8 @@ nonisolated struct NodeSeekNotificationRecord: Decodable, Equatable, Sendable {
         title: String,
         postID: Int,
         firstCommentID: Int,
+        content: String? = nil,
+        unreadCount: Int? = nil,
         commenterName: String
     ) {
         self.id = id
@@ -185,6 +229,8 @@ nonisolated struct NodeSeekNotificationRecord: Decodable, Equatable, Sendable {
         self.postID = postID
         self.firstCommentID = firstCommentID
         self.commenterName = commenterName
+        self.content = content
+        self.unreadCount = unreadCount
     }
 }
 
@@ -196,7 +242,13 @@ nonisolated struct NodeSeekMessageConversationRecord: Decodable, Equatable, Send
     let createdAt: Date
     var viewed: Int
     let senderName: String
+    let unreadCount: Int?
     let receiverName: String
+
+    /// 单条私信会话的未读数量：接口未返回时以已读状态推断。
+    var displayUnreadCount: Int {
+        unreadCount ?? (isViewed ? 0 : 1)
+    }
 
     var isViewed: Bool {
         viewed != 0
@@ -230,6 +282,22 @@ nonisolated struct NodeSeekMessageConversationRecord: Decodable, Equatable, Send
         viewed = 1
     }
 
+    private static func optionalInt(
+        in container: KeyedDecodingContainer<CodingKeys>,
+        keys: [CodingKeys]
+    ) -> Int? {
+        for key in keys {
+            if let value = try? container.decodeIfPresent(Int.self, forKey: key), value > 0 {
+                return value
+            }
+            if let raw = try? container.decodeIfPresent(String.self, forKey: key),
+               let value = Int(raw.trimmingCharacters(in: .whitespacesAndNewlines)), value > 0 {
+                return value
+            }
+        }
+        return nil
+    }
+
     private enum CodingKeys: String, CodingKey {
         case receiverID = "receiver_id"
         case senderID = "sender_id"
@@ -239,6 +307,9 @@ nonisolated struct NodeSeekMessageConversationRecord: Decodable, Equatable, Send
         case viewed
         case senderName = "sender_name"
         case receiverName = "receiver_name"
+        case unread
+        case unreadCount = "unread_count"
+        case count
     }
 
     init(from decoder: Decoder) throws {
@@ -259,6 +330,7 @@ nonisolated struct NodeSeekMessageConversationRecord: Decodable, Equatable, Send
         viewed = try container.decode(Int.self, forKey: .viewed)
         senderName = try container.decode(String.self, forKey: .senderName)
         receiverName = try container.decode(String.self, forKey: .receiverName)
+        unreadCount = Self.optionalInt(in: container, keys: [.unread, .unreadCount, .count])
     }
 
     init(
@@ -269,7 +341,8 @@ nonisolated struct NodeSeekMessageConversationRecord: Decodable, Equatable, Send
         createdAt: Date,
         viewed: Int,
         senderName: String,
-        receiverName: String
+        receiverName: String,
+        unreadCount: Int? = nil
     ) {
         self.receiverID = receiverID
         self.senderID = senderID
@@ -279,6 +352,7 @@ nonisolated struct NodeSeekMessageConversationRecord: Decodable, Equatable, Send
         self.viewed = viewed
         self.senderName = senderName
         self.receiverName = receiverName
+        self.unreadCount = unreadCount
     }
 }
 

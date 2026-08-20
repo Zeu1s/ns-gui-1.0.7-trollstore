@@ -68,8 +68,19 @@ final class NodeSeekUserContentClient {
         )
         let response = try await decode(DiscussionResponse.self, from: request)
         guard response.success else { throw UserContentClientError.unsuccessfulResponse }
-        return response.discussions.map {
-            UserDiscussionRecord(rank: $0.rank, title: $0.title, postID: $0.postID)
+        return response.discussions.map { item in
+            UserDiscussionRecord(
+                rank: item.rank,
+                title: item.title,
+                postID: item.postID,
+                authorName: item.authorName,
+                level: item.level,
+                avatarURL: item.avatarPath.flatMap { URL(string: $0, relativeTo: self.baseURL)?.absoluteURL },
+                viewCount: item.viewCount,
+                replyCount: item.replyCount,
+                createdAtText: item.createdAtText,
+                lastActivityText: item.lastActivityText
+            )
         }
     }
 
@@ -157,10 +168,81 @@ private struct DiscussionItem: Decodable {
     let rank: Int
     let title: String
     let postID: Int
+    let authorName: String?
+    let level: Int?
+    let avatarPath: String?
+    let viewCount: Int?
+    let replyCount: Int?
+    let createdAtText: String?
+    let lastActivityText: String?
 
     private enum CodingKeys: String, CodingKey {
         case rank
         case title
         case postID = "post_id"
+        case authorName = "author_name"
+        case memberName = "member_name"
+        case username
+        case commenterName = "commenter_name"
+        case level
+        case memberLevel = "member_level"
+        case avatar
+        case avatarURL = "avatar_url"
+        case viewCount = "view_count"
+        case views
+        case replyCount = "reply_count"
+        case nReply = "n_reply"
+        case reply
+        case createdAt = "created_at"
+        case postTime = "post_time"
+        case lastReplyTime = "last_reply_time"
+        case lastActivity = "last_activity"
+        case updatedAt = "updated_at"
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        rank = try container.decode(Int.self, forKey: .rank)
+        title = try container.decode(String.self, forKey: .title)
+        postID = try container.decode(Int.self, forKey: .postID)
+        authorName = Self.optionalString(
+            in: container,
+            keys: [.authorName, .memberName, .username, .commenterName]
+        )
+        level = Self.optionalInt(in: container, keys: [.level, .memberLevel])
+        avatarPath = Self.optionalString(in: container, keys: [.avatar, .avatarURL])
+        viewCount = Self.optionalInt(in: container, keys: [.viewCount, .views])
+        replyCount = Self.optionalInt(in: container, keys: [.replyCount, .nReply, .reply])
+        createdAtText = Self.optionalString(in: container, keys: [.createdAt, .postTime])
+        lastActivityText = Self.optionalString(in: container, keys: [.lastReplyTime, .lastActivity, .updatedAt])
+    }
+
+    private static func optionalString(
+        in container: KeyedDecodingContainer<CodingKeys>,
+        keys: [CodingKeys]
+    ) -> String? {
+        for key in keys {
+            if let value = try? container.decodeIfPresent(String.self, forKey: key),
+               value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false {
+                return value
+            }
+        }
+        return nil
+    }
+
+    private static func optionalInt(
+        in container: KeyedDecodingContainer<CodingKeys>,
+        keys: [CodingKeys]
+    ) -> Int? {
+        for key in keys {
+            if let value = try? container.decodeIfPresent(Int.self, forKey: key), value >= 0 {
+                return value
+            }
+            if let raw = try? container.decodeIfPresent(String.self, forKey: key),
+               let value = Int(raw.trimmingCharacters(in: .whitespacesAndNewlines)), value >= 0 {
+                return value
+            }
+        }
+        return nil
     }
 }

@@ -31,6 +31,7 @@ final class PrivateMessageViewController: UIViewController {
     private var currentUserAvatarURL: URL?
     private var isLoading = false
     private var isSending = false
+    private var editingMessageID: Int?
     private var loadingTask: Task<Void, Never>?
     private var imageUploadTask: Task<Void, Never>?
 
@@ -207,6 +208,7 @@ final class PrivateMessageViewController: UIViewController {
                 messages = conversation.messages
                 isLoading = false
                 refreshControl.endRefreshing()
+                emptyLabel.text = messages.isEmpty ? "暂无聊天记录，发送第一条私信吧" : nil
                 updateBackgroundView()
                 tableView.reloadData()
                 if scrollToLatest {
@@ -244,7 +246,16 @@ final class PrivateMessageViewController: UIViewController {
         Task { [weak self] in
             guard let self else { return }
             do {
-                try await client.sendMessage(to: participantID, content: content, markdown: markdownSwitch.isOn)
+                if let editingMessageID {
+                    try await client.editMessage(
+                        id: editingMessageID,
+                        content: content,
+                        markdown: markdownSwitch.isOn
+                    )
+                    self.editingMessageID = nil
+                } else {
+                    try await client.sendMessage(to: participantID, content: content, markdown: markdownSwitch.isOn)
+                }
                 guard Task.isCancelled == false else { return }
                 messageTextView.text = nil
                 isSending = false
@@ -262,9 +273,14 @@ final class PrivateMessageViewController: UIViewController {
     private func updateComposerState() {
         let isUploading = imageUploadTask != nil
         let hasDraft = messageTextView.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+        let isEditing = editingMessageID != nil
         messageTextView.isEditable = !isSending
         sendButton.isEnabled = hasDraft && !isSending && !isUploading
         imageButton.isEnabled = !isSending && !isUploading
+        var sendConfiguration = sendButton.configuration ?? UIButton.Configuration.plain()
+        sendConfiguration.image = UIImage(systemName: isEditing ? "checkmark.circle.fill" : "arrow.up.circle.fill")
+        sendButton.configuration = sendConfiguration
+        sendButton.accessibilityLabel = isEditing ? "保存修改" : "发送"
         sendButton.configuration?.showsActivityIndicator = isSending
         imageButton.configuration?.showsActivityIndicator = isUploading
     }
@@ -411,6 +427,35 @@ extension PrivateMessageViewController: UITableViewDataSource, UITableViewDelega
             ownAvatarURL: currentUserAvatarURL
         )
         return cell
+    }
+
+    func tableView(
+        _ tableView: UITableView,
+        contextMenuConfigurationForRowAt indexPath: IndexPath,
+        point: CGPoint
+    ) -> UIContextMenuConfiguration? {
+        guard messages.indices.contains(indexPath.row),
+              messages[indexPath.row].senderID == currentUserID else {
+            return nil
+        }
+        let message = messages[indexPath.row]
+        let editAction = UIAction(
+            title: "编辑消息",
+            image: UIImage(systemName: "pencil")
+        ) { [weak self] _ in
+            self?.beginEditing(message)
+        }
+        return UIContextMenuConfiguration(identifier: nil, previewProvider: nil) { _ in
+            UIMenu(children: [editAction])
+        }
+    }
+
+    private func beginEditing(_ message: NodeSeekPrivateMessage) {
+        editingMessageID = message.id
+        messageTextView.text = message.content
+        markdownSwitch.setOn(message.isMarkdown, animated: true)
+        updateComposerState()
+        messageTextView.becomeFirstResponder()
     }
 }
 

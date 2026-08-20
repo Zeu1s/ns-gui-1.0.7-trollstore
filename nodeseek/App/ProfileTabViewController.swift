@@ -87,8 +87,11 @@ final class ProfileTabViewController: UIViewController {
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         let desiredWidth = tableView.bounds.width
-        guard desiredWidth > 0, headerView.bounds.width != desiredWidth else { return }
-        headerView.frame = CGRect(x: 0, y: 0, width: desiredWidth, height: ProfileHeaderView.preferredHeight)
+        guard desiredWidth > 0 else { return }
+        let desiredHeight = headerView.preferredHeight
+        guard abs(headerView.bounds.width - desiredWidth) > 0.5 ||
+              abs(headerView.bounds.height - desiredHeight) > 0.5 else { return }
+        headerView.frame = CGRect(x: 0, y: 0, width: desiredWidth, height: desiredHeight)
         tableView.tableHeaderView = headerView
     }
 
@@ -101,7 +104,7 @@ final class ProfileTabViewController: UIViewController {
         tableView.register(UITableViewCell.self, forCellReuseIdentifier: "ProfileCell")
         refreshControl.addTarget(self, action: #selector(refreshTriggered), for: .valueChanged)
         tableView.refreshControl = refreshControl
-        headerView.frame = CGRect(x: 0, y: 0, width: view.bounds.width, height: ProfileHeaderView.preferredHeight)
+        headerView.frame = CGRect(x: 0, y: 0, width: view.bounds.width, height: headerView.preferredHeight)
         tableView.tableHeaderView = headerView
         headerView.onPrivateMessageTapped = { [weak self] in
             self?.openPrivateMessage()
@@ -111,6 +114,13 @@ final class ProfileTabViewController: UIViewController {
         }
         headerView.onTransferTapped = { [weak self] in
             self?.openStardustTransfer()
+        }
+        headerView.onHeightNeedsUpdate = { [weak self, weak headerView] in
+            guard let self, let headerView else { return }
+            let desiredHeight = headerView.preferredHeight
+            guard abs(headerView.bounds.height - desiredHeight) > 0.5 else { return }
+            headerView.frame = CGRect(x: 0, y: 0, width: self.tableView.bounds.width, height: desiredHeight)
+            self.tableView.tableHeaderView = headerView
         }
 
         view.addSubview(tableView)
@@ -204,7 +214,11 @@ final class ProfileTabViewController: UIViewController {
         let viewController: UIViewController
         switch row {
         case .discussions:
-            let discussions = UserDiscussionsViewController(userID: userID)
+            let discussions = UserDiscussionsViewController(
+                userID: userID,
+                authorName: userInfo?.username,
+                avatarURL: avatarURL(for: userID)
+            )
             discussions.onSelectPost = { [weak self] post, page, anchorID in
                 self?.openPost(post, page: page, anchorID: anchorID)
             }
@@ -365,6 +379,13 @@ extension ProfileTabViewController: UITableViewDataSource, UITableViewDelegate {
 private final class ProfileHeaderView: UIView {
     static let preferredHeight: CGFloat = 252
 
+    /// 依据操作按钮是否可见动态计算头部高度：本人页面隐藏按钮，减少主题帖上方的空白。
+    var preferredHeight: CGFloat {
+        actionStack.isHidden ? 196 : 252
+    }
+
+    var onHeightNeedsUpdate: (() -> Void)?
+
     var onPrivateMessageTapped: (() -> Void)?
     var onFollowTapped: (() -> Void)?
     var onTransferTapped: (() -> Void)?
@@ -515,7 +536,7 @@ private final class ProfileHeaderView: UIView {
         addSubview(actionStack)
         NSLayoutConstraint.activate([
             avatarImageView.leadingAnchor.constraint(equalTo: layoutMarginsGuide.leadingAnchor),
-            avatarImageView.topAnchor.constraint(equalTo: topAnchor, constant: 18),
+            avatarImageView.topAnchor.constraint(equalTo: topAnchor, constant: 12),
             avatarImageView.widthAnchor.constraint(equalToConstant: 72),
             avatarImageView.heightAnchor.constraint(equalToConstant: 72),
 
@@ -533,8 +554,8 @@ private final class ProfileHeaderView: UIView {
 
             metricContainer.leadingAnchor.constraint(equalTo: layoutMarginsGuide.leadingAnchor),
             metricContainer.trailingAnchor.constraint(equalTo: layoutMarginsGuide.trailingAnchor),
-            metricContainer.topAnchor.constraint(equalTo: avatarImageView.bottomAnchor, constant: 16),
-            metricContainer.heightAnchor.constraint(equalToConstant: 84),
+            metricContainer.topAnchor.constraint(equalTo: avatarImageView.bottomAnchor, constant: 12),
+            metricContainer.heightAnchor.constraint(equalToConstant: 80),
 
             metricStack.leadingAnchor.constraint(equalTo: metricContainer.layoutMarginsGuide.leadingAnchor),
             metricStack.trailingAnchor.constraint(equalTo: metricContainer.layoutMarginsGuide.trailingAnchor),
@@ -543,7 +564,7 @@ private final class ProfileHeaderView: UIView {
 
             actionStack.leadingAnchor.constraint(equalTo: layoutMarginsGuide.leadingAnchor),
             actionStack.trailingAnchor.constraint(equalTo: layoutMarginsGuide.trailingAnchor),
-            actionStack.topAnchor.constraint(equalTo: metricContainer.bottomAnchor, constant: 12),
+            actionStack.topAnchor.constraint(equalTo: metricContainer.bottomAnchor, constant: 10),
             actionStack.heightAnchor.constraint(equalToConstant: 44)
         ])
         setLoading()
@@ -565,6 +586,7 @@ private final class ProfileHeaderView: UIView {
     private func setActionsVisible(_ isVisible: Bool) {
         actionStack.isHidden = !isVisible
         actionStack.isUserInteractionEnabled = isVisible
+        onHeightNeedsUpdate?()
     }
 
     private func setMetrics(_ metrics: [(String, String, UIImage?)]) {
