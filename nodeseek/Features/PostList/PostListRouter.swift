@@ -55,17 +55,21 @@ class PostListRouter: PostListRouterProtocol {
     }
 
     func navigateToUserProfile(profileURL: URL) {
-        show(UserInfoWebViewController(profileURL: profileURL))
+        guard let userID = NodeSeekUserIDResolver.uid(from: profileURL) else {
+            show(NodeSeekWebViewController(url: profileURL))
+            return
+        }
+        show(ProfileTabViewController(userID: userID))
     }
 
     func navigateToNewDiscussion() {
         AppLog.info(.postList, "Router 开始导航到发帖页")
-        show(NewDiscussionWebViewController())
+        show(NewDiscussionViewController())
         AppLog.info(.postList, "Router 已触发发帖页展示")
     }
 
     func navigateToCheckIn(boardURL: URL) {
-        show(UserInfoWebViewController(profileURL: boardURL, title: "签到"))
+        show(CheckInViewController())
     }
 
     func navigateToNotification(notificationURL: URL) {

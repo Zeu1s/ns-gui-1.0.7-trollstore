@@ -158,7 +158,7 @@ final class AutoCheckInCoordinator {
     ) {
         self.settingsStore = settingsStore ?? .shared
         self.stateStore = stateStore ?? .shared
-        self.webAutomator = webAutomator ?? WebViewAutoCheckInAutomator()
+        self.webAutomator = webAutomator ?? HTTPAutoCheckInAutomator()
         self.toastPresenter = toastPresenter ?? DefaultAutoCheckInToastPresenter()
         self.now = now
         self.dayIdentifierProvider = dayIdentifierProvider ?? { AutoCheckInDayIdentifier.current() }

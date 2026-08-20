@@ -505,7 +505,7 @@ final class NotificationViewController: UIViewController {
 
     private func openProfile(_ record: NodeSeekNotificationRecord) {
         navigationController?.pushViewController(
-            UserInfoWebViewController(profileURL: record.profileURL),
+            ProfileTabViewController(userID: record.commenterID),
             animated: true
         )
     }
@@ -515,7 +515,10 @@ final class NotificationViewController: UIViewController {
             markRead(id: record.maxID, tab: .message, rollbackOnFailure: false, showFailure: false)
         }
         navigationController?.pushViewController(
-            PrivateMessageWebViewController(url: record.conversationWebURL(currentUserID: currentUserID)),
+            PrivateMessageViewController(
+                participantID: record.participantID(currentUserID: currentUserID),
+                participantName: record.participantName(currentUserID: currentUserID)
+            ),
             animated: true
         )
     }

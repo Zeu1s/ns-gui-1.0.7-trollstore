@@ -88,14 +88,24 @@ final class DefaultNodeImageAuthorizationPresenter: NodeImageAuthorizationPresen
         from presentingViewController: UIViewController,
         onAPIKey: @escaping @MainActor (String) -> Void
     ) {
-        let authViewController = NodeImageAuthViewController { [weak presentingViewController] apiKey in
-            presentingViewController?.dismiss(animated: true) {
-                Task { @MainActor in
-                    onAPIKey(apiKey)
-                }
-            }
+        let alert = UIAlertController(
+            title: "填写 NodeImage API Key",
+            message: "粘贴已有的 API Key 后即可使用原生图片上传。",
+            preferredStyle: .alert
+        )
+        alert.addTextField { field in
+            field.placeholder = "X-API-Key"
+            field.textContentType = .password
+            field.autocapitalizationType = .none
+            field.autocorrectionType = .no
         }
-        presentingViewController.present(UINavigationController(rootViewController: authViewController), animated: true)
+        alert.addAction(UIAlertAction(title: "取消", style: .cancel))
+        alert.addAction(UIAlertAction(title: "保存", style: .default) { [weak alert] _ in
+            let apiKey = NodeImageAPIKeyNormalizer.normalized(alert?.textFields?.first?.text ?? "")
+            guard apiKey.isEmpty == false else { return }
+            onAPIKey(apiKey)
+        })
+        presentingViewController.present(alert, animated: true)
     }
 }
 

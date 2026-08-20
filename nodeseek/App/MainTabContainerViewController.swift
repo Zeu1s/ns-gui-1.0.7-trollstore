@@ -69,6 +69,7 @@ final class MainTabContainerViewController: UIViewController {
         let stack = stack(for: item)
         currentItem = item
         show(stack)
+        resetToTop(of: stack)
         bottomNavigationView.setSelectedItem(item)
         bottomNavigationView.setUnreadMessagesVisible(unreadBadgeVisible)
     }
@@ -83,16 +84,46 @@ final class MainTabContainerViewController: UIViewController {
     }
 
     private func show(_ stack: UINavigationController) {
-        for child in children {
-            child.willMove(toParent: nil)
-            child.view.removeFromSuperview()
-            child.removeFromParent()
+        if stack.parent == nil {
+            addChild(stack)
+            stack.view.translatesAutoresizingMaskIntoConstraints = false
+            containerView.addSubview(stack.view)
+            NSLayoutConstraint.activate([
+                stack.view.leadingAnchor.constraint(equalTo: containerView.leadingAnchor),
+                stack.view.trailingAnchor.constraint(equalTo: containerView.trailingAnchor),
+                stack.view.topAnchor.constraint(equalTo: containerView.topAnchor),
+                stack.view.bottomAnchor.constraint(equalTo: containerView.bottomAnchor)
+            ])
+            stack.didMove(toParent: self)
         }
-        addChild(stack)
-        stack.view.frame = containerView.bounds
-        stack.view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-        containerView.addSubview(stack.view)
-        stack.didMove(toParent: self)
+
+        for child in children {
+            child.view.isHidden = child !== stack
+        }
+        stack.view.isHidden = false
+        containerView.bringSubviewToFront(stack.view)
+    }
+
+    private func resetToTop(of stack: UINavigationController) {
+        stack.popToRootViewController(animated: false)
+        guard let root = stack.viewControllers.first else { return }
+        let scrollViews = findScrollViews(in: root.view)
+        guard let scrollView = scrollViews.max(by: { $0.bounds.height < $1.bounds.height }) else { return }
+        let topOffset = CGPoint(x: -scrollView.adjustedContentInset.left, y: -scrollView.adjustedContentInset.top)
+        scrollView.setContentOffset(topOffset, animated: false)
+    }
+
+    private func findScrollViews(in view: UIView) -> [UIScrollView] {
+        var result: [UIScrollView] = []
+        if let scrollView = view as? UIScrollView,
+           scrollView.isScrollEnabled,
+           scrollView.bounds.height > 0 {
+            result.append(scrollView)
+        }
+        for subview in view.subviews where subview.isHidden == false {
+            result.append(contentsOf: findScrollViews(in: subview))
+        }
+        return result
     }
 
     private func makeStack(for item: PostListBottomNavigationItem) -> UINavigationController {

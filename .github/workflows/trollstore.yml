@@ -4,14 +4,14 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "应用版本号，例如 2.6.0"
+        description: "应用版本号，例如 3.0.0"
         required: false
-        default: "2.6.0"
+        default: "3.0.0"
         type: string
       build_number:
         description: "构建号，仅允许数字"
         required: false
-        default: "26"
+        default: "30"
         type: string
 
 permissions:

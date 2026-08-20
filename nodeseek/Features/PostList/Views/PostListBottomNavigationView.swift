@@ -44,6 +44,17 @@ enum PostListBottomNavigationItem: CaseIterable {
 }
 
 final class PostListBottomNavigationView: UIView {
+    private enum Style {
+        static let selectedForeground = UIColor.systemOrange
+        // 对应 1.3 版底栏选中项的浅米色底。
+        static let selectedBackground = UIColor { traits in
+            if traits.userInterfaceStyle == .dark {
+                return .systemOrange.withAlphaComponent(0.28)
+            }
+            return UIColor(red: 0.988, green: 0.906, blue: 0.765, alpha: 1)
+        }
+    }
+
     var onItemSelected: ((PostListBottomNavigationItem) -> Void)?
 
     private var buttons: [PostListBottomNavigationItem: UIButton] = [:]
@@ -119,7 +130,7 @@ final class PostListBottomNavigationView: UIView {
             backgroundBlurView.bottomAnchor.constraint(equalTo: bottomAnchor)
         ])
 
-        selectionPillView.backgroundColor = UIColor.systemOrange.withAlphaComponent(0.22)
+        selectionPillView.backgroundColor = Style.selectedBackground
         selectionPillView.layer.cornerRadius = AppDisplayScaleSettings.scaled(18)
         selectionPillView.isUserInteractionEnabled = false
         selectionPillView.translatesAutoresizingMaskIntoConstraints = true
@@ -248,7 +259,7 @@ final class PostListBottomNavigationView: UIView {
             bottom: AppDisplayScaleSettings.scaled(1),
             trailing: AppDisplayScaleSettings.scaled(1)
         )
-        configuration.baseForegroundColor = isSelected ? .systemOrange : .label
+        configuration.baseForegroundColor = isSelected ? Style.selectedForeground : .label
         configuration.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { incoming in
             var outgoing = incoming
             outgoing.font = UIFont.systemFont(

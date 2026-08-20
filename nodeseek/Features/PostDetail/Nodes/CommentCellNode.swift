@@ -793,7 +793,10 @@ extension CommentCellNode: UIContextMenuInteractionDelegate {
             return UIContextMenuConfiguration(
                 identifier: "\(comment.id)\(ContextMenuIdentifier.avatarSuffix)" as NSString,
                 previewProvider: {
-                    UserInfoWebViewController(profileURL: authorProfileURL)
+                    if let userID = NodeSeekUserIDResolver.uid(from: authorProfileURL) {
+                        return ProfileTabViewController(userID: userID)
+                    }
+                    return NodeSeekWebViewController(url: authorProfileURL)
                 }
             )
         }

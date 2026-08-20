@@ -16,6 +16,7 @@ final class UserDiscussionsViewController: UIViewController {
     private let errorView = UserContentErrorView(accessibilityIdentifier: "user-discussions-error-view")
     private let client: NodeSeekUserContentClient
     private let currentAccountStore: CurrentAccountStore
+    private let requestedUserID: Int?
     private var records: [UserDiscussionRecord] = []
     private var displayMode: UserContentDisplayMode = .content
     private var uid: Int?
@@ -29,9 +30,11 @@ final class UserDiscussionsViewController: UIViewController {
     var onSelectPost: ((PostSummary, Int, String?) -> Void)?
 
     init(
+        userID: Int? = nil,
         client: NodeSeekUserContentClient? = nil,
         currentAccountStore: CurrentAccountStore = .shared
     ) {
+        requestedUserID = userID
         self.client = client ?? NodeSeekUserContentClient()
         self.currentAccountStore = currentAccountStore
         super.init(nibName: nil, bundle: nil)
@@ -125,6 +128,9 @@ final class UserDiscussionsViewController: UIViewController {
     }
 
     private func resolveUID() async throws -> Int {
+        if let requestedUserID {
+            return requestedUserID
+        }
         guard let snapshot = await currentAccountStore.snapshot(),
               let uid = snapshot.account.nodeSeekUID else {
             throw UserContentViewError.missingUID

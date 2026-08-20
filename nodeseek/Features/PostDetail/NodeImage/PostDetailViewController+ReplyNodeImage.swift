@@ -41,15 +41,31 @@ extension PostDetailViewController {
             return
         }
 
-        let authViewController = NodeImageAuthViewController { [weak self] apiKey in
-            guard let self else { return }
-            nodeImageAPIKeyStore.save(apiKey: apiKey)
-            dismiss(animated: true) { [weak self] in
-                self?.showToast(message: "NodeImage 已授权")
-                self?.presentImagePicker()
-            }
+        presentNodeImageKeyInput()
+    }
+
+    func presentNodeImageKeyInput() {
+        let alert = UIAlertController(
+            title: "填写 NodeImage API Key",
+            message: "输入已有的 API Key 后即可上传图片。",
+            preferredStyle: .alert
+        )
+        alert.addTextField { field in
+            field.placeholder = "X-API-Key"
+            field.textContentType = .password
+            field.autocapitalizationType = .none
+            field.autocorrectionType = .no
         }
-        present(UINavigationController(rootViewController: authViewController), animated: true)
+        alert.addAction(UIAlertAction(title: "取消", style: .cancel))
+        alert.addAction(UIAlertAction(title: "保存", style: .default) { [weak self, weak alert] _ in
+            guard let self else { return }
+            let apiKey = NodeImageAPIKeyNormalizer.normalized(alert?.textFields?.first?.text ?? "")
+            guard apiKey.isEmpty == false else { return }
+            self.nodeImageAPIKeyStore.save(apiKey: apiKey)
+            self.showToast(message: "NodeImage 已保存")
+            self.presentImagePicker()
+        })
+        present(alert, animated: true)
     }
 
     func presentImagePicker() {

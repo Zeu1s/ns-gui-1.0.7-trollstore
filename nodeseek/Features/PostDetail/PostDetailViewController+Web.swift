@@ -303,7 +303,12 @@ extension PostDetailViewController {
     }
 
     func openUserInfo(profileURL: URL) {
-        let viewController = UserInfoWebViewController(profileURL: profileURL)
+        let viewController: UIViewController
+        if let userID = NodeSeekUserIDResolver.uid(from: profileURL) {
+            viewController = ProfileTabViewController(userID: userID)
+        } else {
+            viewController = NodeSeekWebViewController(url: profileURL)
+        }
         showDetailDestination(viewController)
     }
 
