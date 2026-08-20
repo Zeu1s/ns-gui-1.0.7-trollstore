@@ -22,6 +22,8 @@ final class PostTextureListHostPresenter: PostTextureListHostPresenterProtocol {
     private var isRefreshing = false
     private var isLoadingMore = false
     private var specialFollowAutoFetchPagesRemaining = 0
+    private var temporaryFailureRetryCount = 0
+    private var temporaryFailureRetryWorkItem: DispatchWorkItem?
 
     init(
         category: PostListCategoryItem,
@@ -32,6 +34,10 @@ final class PostTextureListHostPresenter: PostTextureListHostPresenterProtocol {
         self.interactor = interactor
         self.visitedStore = visitedStore
         self.interactor.presenter = self
+    }
+
+    deinit {
+        temporaryFailureRetryWorkItem?.cancel()
     }
 
     func setView(_ view: PostTextureListHostViewProtocol) {
@@ -111,6 +117,9 @@ extension PostTextureListHostPresenter: PostTextureListHostInteractorOutput {
         isLoadingFirstPage = false
         isRefreshing = false
         isLoadingMore = false
+        temporaryFailureRetryCount = 0
+        temporaryFailureRetryWorkItem?.cancel()
+        temporaryFailureRetryWorkItem = nil
         view?.setItems(items)
         view?.hideFirstPageError()
         view?.hideLoadingSkeleton()
@@ -160,6 +169,9 @@ extension PostTextureListHostPresenter: PostTextureListHostInteractorOutput {
     func didFailLoadPosts(error: String, category: PostListCategoryItem, sortMode: PostListSortMode) {
         guard category == self.category else { return }
         guard sortMode == self.sortMode else { return }
+        if scheduleTemporaryFailureRetryIfNeeded(error: error) {
+            return
+        }
         let failedInitialLoad = hasLoadedFirstPage == false
         isLoadingFirstPage = false
         isRefreshing = false
@@ -186,6 +198,9 @@ extension PostTextureListHostPresenter: PostTextureListHostInteractorOutput {
 
 private extension PostTextureListHostPresenter {
     func resetAndLoadFirstPage() {
+        temporaryFailureRetryWorkItem?.cancel()
+        temporaryFailureRetryWorkItem = nil
+        temporaryFailureRetryCount = 0
         items = []
         loadedIDs = []
         nextPage = 2
@@ -245,6 +260,26 @@ private extension PostTextureListHostPresenter {
         )
         view?.showLoadingMore()
         interactor.loadMorePosts(page: nextPage, category: category, sortMode: sortMode)
+    }
+
+    func scheduleTemporaryFailureRetryIfNeeded(error: String) -> Bool {
+        guard temporaryFailureRetryCount < 1 else { return false }
+        let normalizedError = error.lowercased()
+        guard normalizedError.contains("503") || normalizedError.contains("service unavailable") else {
+            return false
+        }
+
+        temporaryFailureRetryCount += 1
+        let workItem = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            self.temporaryFailureRetryWorkItem = nil
+            self.interactor.loadPosts(category: self.category, sortMode: self.sortMode)
+        }
+        temporaryFailureRetryWorkItem?.cancel()
+        temporaryFailureRetryWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.7, execute: workItem)
+        AppLog.warning(.postList, "帖子列表遇到 503，保留当前内容并自动重试一次: category=\(category.rawValue)")
+        return true
     }
 
     private func fetchNextSpecialFollowPageIfNeeded() {

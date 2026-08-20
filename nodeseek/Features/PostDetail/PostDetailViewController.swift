@@ -412,7 +412,7 @@ class PostDetailViewController: UIViewController {
     let floatingReplyPanel: UIView = {
         let view = UIView()
         view.backgroundColor = .label
-        view.alpha = 0.42
+        view.alpha = 0.30
         view.layer.cornerRadius = 22
         view.layer.cornerCurve = .continuous
         view.layer.borderWidth = 0.5
@@ -426,7 +426,7 @@ class PostDetailViewController: UIViewController {
 
     let floatingActionDivider: UIView = {
         let view = UIView()
-        view.backgroundColor = UIColor.systemBackground.withAlphaComponent(0.30)
+        view.backgroundColor = UIColor.systemBackground.withAlphaComponent(0.22)
         view.translatesAutoresizingMaskIntoConstraints = false
         return view
     }()

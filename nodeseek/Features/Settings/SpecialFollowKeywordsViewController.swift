@@ -9,6 +9,7 @@ import UniformTypeIdentifiers
 final class SpecialFollowKeywordsViewController: UITableViewController {
     private let store: SpecialFollowKeywordStore
     private var keywords: [SpecialFollowKeyword] = []
+    private var colorPickerKeyword: SpecialFollowKeyword?
 
     init(store: SpecialFollowKeywordStore = .shared) {
         self.store = store
@@ -109,6 +110,9 @@ final class SpecialFollowKeywordsViewController: UITableViewController {
         alert.addAction(UIAlertAction(title: "选择颜色", style: .default) { [weak self] _ in
             self?.presentPresetColorPicker(for: keyword)
         })
+        alert.addAction(UIAlertAction(title: "调色板", style: .default) { [weak self] _ in
+            self?.presentSystemColorPicker(for: keyword)
+        })
         alert.addAction(UIAlertAction(title: "删除", style: .destructive) { [weak self] _ in
             self?.store.delete(keyword: keyword.keyword)
             self?.reloadKeywords()
@@ -174,6 +178,25 @@ final class SpecialFollowKeywordsViewController: UITableViewController {
             popover.sourceRect = tableView.rectForRow(at: IndexPath(row: keywords.firstIndex(of: keyword) ?? 0, section: 0))
         }
         present(alert, animated: true)
+    }
+
+    private func presentSystemColorPicker(for keyword: SpecialFollowKeyword) {
+        let picker = UIColorPickerViewController()
+        picker.selectedColor = UIColor(hex: keyword.colorHex) ?? .systemOrange
+        picker.supportsAlpha = false
+        picker.delegate = self
+        colorPickerKeyword = keyword
+        present(picker, animated: true)
+    }
+
+    private func savePickedColor(_ color: UIColor) {
+        guard let keyword = colorPickerKeyword else { return }
+        do {
+            try store.save(keyword: keyword.keyword, colorHex: color.specialFollowHexString())
+            reloadKeywords()
+        } catch {
+            showAlert(title: "保存失败", message: "颜色无法保存。")
+        }
     }
 
     private func presentImportPicker() {
@@ -242,5 +265,17 @@ extension SpecialFollowKeywordsViewController: UIDocumentPickerDelegate {
     func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
         guard let url = urls.first else { return }
         importKeywords(from: url)
+    }
+}
+
+extension SpecialFollowKeywordsViewController: UIColorPickerViewControllerDelegate {
+    func colorPickerViewControllerDidSelectColor(_ viewController: UIColorPickerViewController) {
+        // Persist the selection immediately so dismissal gestures do not lose a chosen color.
+        savePickedColor(viewController.selectedColor)
+    }
+
+    func colorPickerViewControllerDidFinish(_ viewController: UIColorPickerViewController) {
+        savePickedColor(viewController.selectedColor)
+        colorPickerKeyword = nil
     }
 }

@@ -103,43 +103,84 @@ final class UserContentSkeletonCellNode: ASCellNode {
     }
 }
 
-final class UserDiscussionCellNode: ASCellNode {
-    private let titleNode = ASTextNode()
+class UserContentPostCardCellNode: ASCellNode {
+    private enum Layout {
+        static let avatarSize: CGFloat = 48
+        static let spacing: CGFloat = 12
+        static let contentInset = UIEdgeInsets(top: 12, left: 14, bottom: 12, right: 12)
+    }
 
-    init(record: UserDiscussionRecord) {
+    private let iconNode = ASImageNode()
+    private let titleNode = ASTextNode()
+    private let metadataNode = ASTextNode()
+
+    init(title: String, metadata: String, systemImageName: String, tintColor: UIColor) {
         super.init()
         automaticallyManagesSubnodes = true
         backgroundColor = .clear
         selectionStyle = .default
+
+        let symbolConfiguration = UIImage.SymbolConfiguration(pointSize: 20, weight: .medium)
+        iconNode.image = UIImage(systemName: systemImageName, withConfiguration: symbolConfiguration)?
+            .withTintColor(tintColor, renderingMode: .alwaysOriginal)
+        iconNode.backgroundColor = tintColor.withAlphaComponent(0.12)
+        iconNode.cornerRadius = PostListCellStyle.Avatar.cornerRadius
+        iconNode.contentMode = .center
+        iconNode.style.preferredSize = CGSize(width: Layout.avatarSize, height: Layout.avatarSize)
+
         titleNode.maximumNumberOfLines = 2
-        titleNode.attributedText = UserContentText.title(record.title)
+        titleNode.truncationMode = .byTruncatingTail
+        titleNode.attributedText = UserContentText.title(title)
+
+        metadataNode.maximumNumberOfLines = 1
+        metadataNode.truncationMode = .byTruncatingTail
+        metadataNode.attributedText = UserContentText.metadata(metadata)
     }
 
     override func layoutSpecThatFits(_ constrainedSize: ASSizeRange) -> ASLayoutSpec {
-        ASInsetLayoutSpec(insets: UIEdgeInsets(top: 13, left: 18, bottom: 13, right: 18), child: titleNode)
+        titleNode.style.flexShrink = 1
+        metadataNode.style.flexShrink = 1
+        let textStack = ASStackLayoutSpec.vertical()
+        textStack.spacing = 3
+        textStack.children = [titleNode, metadataNode]
+        textStack.style.flexGrow = 1
+        textStack.style.flexShrink = 1
+
+        let contentStack = ASStackLayoutSpec.horizontal()
+        contentStack.spacing = Layout.spacing
+        contentStack.alignItems = .center
+        contentStack.children = [iconNode, textStack]
+        return ASInsetLayoutSpec(insets: Layout.contentInset, child: contentStack)
     }
 }
 
-final class UserCollectionCellNode: ASCellNode {
-    private let titleNode = ASTextNode()
-
-    init(record: UserCollectionRecord) {
-        super.init()
-        automaticallyManagesSubnodes = true
-        backgroundColor = .clear
-        selectionStyle = .default
-        titleNode.maximumNumberOfLines = 2
-        titleNode.attributedText = UserContentText.title(record.title)
+final class UserDiscussionCellNode: UserContentPostCardCellNode {
+    init(record: UserDiscussionRecord) {
+        super.init(
+            title: record.title,
+            metadata: "主题帖  ·  #\(record.rank)",
+            systemImageName: "doc.text",
+            tintColor: .systemOrange
+        )
     }
+}
 
-    override func layoutSpecThatFits(_ constrainedSize: ASSizeRange) -> ASLayoutSpec {
-        ASInsetLayoutSpec(insets: UIEdgeInsets(top: 13, left: 18, bottom: 13, right: 18), child: titleNode)
+final class UserCollectionCellNode: UserContentPostCardCellNode {
+    init(record: UserCollectionRecord) {
+        super.init(
+            title: record.title,
+            metadata: "收藏的主题  ·  #\(record.rank)",
+            systemImageName: "bookmark",
+            tintColor: .systemOrange
+        )
     }
 }
 
 final class UserCommentCellNode: ASCellNode {
+    private let iconNode = ASImageNode()
     private let titleNode = ASTextNode()
     private let textNode = ASTextNode()
+    private let floorNode = ASTextNode()
     private let onOpenPost: () -> Void
     private let onOpenComment: () -> Void
 
@@ -154,12 +195,24 @@ final class UserCommentCellNode: ASCellNode {
         automaticallyManagesSubnodes = true
         selectionStyle = .none
         backgroundColor = .clear
+        let symbolConfiguration = UIImage.SymbolConfiguration(pointSize: 19, weight: .medium)
+        iconNode.image = UIImage(systemName: "text.bubble", withConfiguration: symbolConfiguration)?
+            .withTintColor(.systemOrange, renderingMode: .alwaysOriginal)
+        iconNode.backgroundColor = UIColor.systemOrange.withAlphaComponent(0.12)
+        iconNode.cornerRadius = PostListCellStyle.Avatar.cornerRadius
+        iconNode.contentMode = .center
+        iconNode.style.preferredSize = CGSize(
+            width: PostListCellStyle.Avatar.size,
+            height: PostListCellStyle.Avatar.size
+        )
         titleNode.maximumNumberOfLines = 2
         titleNode.attributedText = UserContentText.title(record.title)
         titleNode.accessibilityLabel = "打开主题：\(record.title)"
-        textNode.maximumNumberOfLines = 2
+        textNode.maximumNumberOfLines = 3
         textNode.attributedText = Self.commentText(record.text)
         textNode.accessibilityLabel = "打开回复 #\(record.floorID)"
+        floorNode.maximumNumberOfLines = 1
+        floorNode.attributedText = UserContentText.floor(record.floorID)
     }
 
     override func didLoad() {
@@ -172,16 +225,26 @@ final class UserCommentCellNode: ASCellNode {
 
     override func layoutSpecThatFits(_ constrainedSize: ASSizeRange) -> ASLayoutSpec {
         let textStack = ASStackLayoutSpec.vertical()
-        textStack.spacing = 5
-        textStack.children = [titleNode, textNode]
-        return ASInsetLayoutSpec(insets: UIEdgeInsets(top: 12, left: 18, bottom: 12, right: 18), child: textStack)
+        textStack.spacing = 6
+        textStack.children = [titleNode, textNode, floorNode]
+        textStack.style.flexGrow = 1
+        textStack.style.flexShrink = 1
+
+        let contentStack = ASStackLayoutSpec.horizontal()
+        contentStack.spacing = 12
+        contentStack.alignItems = .start
+        contentStack.children = [iconNode, textStack]
+        return ASInsetLayoutSpec(
+            insets: UIEdgeInsets(top: 14, left: 14, bottom: 16, right: 12),
+            child: contentStack
+        )
     }
 
     private static func commentText(_ text: String) -> NSAttributedString {
         NSAttributedString(
             string: text.trimmingCharacters(in: .whitespacesAndNewlines),
             attributes: [
-                .font: PostListCellStyle.Typography.metadataFont,
+                .font: UIFont.preferredFont(forTextStyle: .body),
                 .foregroundColor: UIColor.secondaryLabel
             ]
         )
@@ -203,6 +266,26 @@ enum UserContentText {
             attributes: [
                 .font: PostListCellStyle.Typography.titleFont,
                 .foregroundColor: UIColor.label
+            ]
+        )
+    }
+
+    static func metadata(_ text: String) -> NSAttributedString {
+        NSAttributedString(
+            string: text,
+            attributes: [
+                .font: PostListCellStyle.Typography.metadataFont,
+                .foregroundColor: UIColor.secondaryLabel
+            ]
+        )
+    }
+
+    static func floor(_ floorID: Int) -> NSAttributedString {
+        NSAttributedString(
+            string: "回复内容  ·  #\(floorID) 楼",
+            attributes: [
+                .font: PostListCellStyle.Typography.metadataFont,
+                .foregroundColor: UIColor.systemOrange
             ]
         )
     }

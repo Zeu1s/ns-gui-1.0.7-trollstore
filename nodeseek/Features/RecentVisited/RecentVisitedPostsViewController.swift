@@ -7,13 +7,15 @@
 
 import UIKit
 
-final class RecentVisitedPostsViewController: UITableViewController {
+@MainActor
+final class RecentVisitedPostsViewController: UIViewController {
     var onSelectRecord: ((VisitedPostRecord) -> Void)?
 
     private let visitedStore: VisitedPostStoreProtocol
+    private let listView = PostTextureListView()
+    private let emptyLabel = UILabel()
     private var records: [VisitedPostRecord] = []
     private var hasMoreRecords = true
-    private let historyRefreshControl = UIRefreshControl()
     private let relativeDateFormatter: RelativeDateTimeFormatter = {
         let formatter = RelativeDateTimeFormatter()
         formatter.locale = Locale(identifier: "zh_CN")
@@ -23,7 +25,7 @@ final class RecentVisitedPostsViewController: UITableViewController {
 
     init(visitedStore: VisitedPostStoreProtocol) {
         self.visitedStore = visitedStore
-        super.init(style: .plain)
+        super.init(nibName: nil, bundle: nil)
         title = "最近浏览"
     }
 
@@ -34,60 +36,49 @@ final class RecentVisitedPostsViewController: UITableViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = .systemBackground
-        tableView.backgroundColor = .systemBackground
-        tableView.register(RecentVisitedPostCell.self, forCellReuseIdentifier: Self.cellIdentifier)
-        tableView.rowHeight = UITableView.automaticDimension
-        tableView.estimatedRowHeight = 72
-        historyRefreshControl.addTarget(self, action: #selector(refreshTriggered), for: .valueChanged)
-        tableView.refreshControl = historyRefreshControl
         navigationItem.largeTitleDisplayMode = .never
         navigationItem.hidesBackButton = true
+        configureList()
+        configureEmptyState()
         navigationItem.rightBarButtonItem = UIBarButtonItem(
             image: UIImage(systemName: "trash"),
             style: .plain,
             target: self,
             action: #selector(clearButtonTapped)
         )
-        navigationItem.rightBarButtonItem?.accessibilityLabel = "清扫浏览记录"
-        loadNextPageIfNeeded()
-        renderEmptyStateIfNeeded()
+        navigationItem.rightBarButtonItem?.accessibilityLabel = "清除浏览记录"
+        reloadRecords()
     }
 
+    // 从底栏进入历史列表时刷新；详情页在导航栈顶时不会调用此方法。
     func refreshFromTabSelection() {
         reloadRecords()
     }
 
-    override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-        records.count
+    private func configureList() {
+        listView.delegate = self
+        listView.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(listView)
+        NSLayoutConstraint.activate([
+            listView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            listView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            listView.topAnchor.constraint(equalTo: view.topAnchor),
+            listView.bottomAnchor.constraint(equalTo: view.bottomAnchor)
+        ])
     }
 
-    override func tableView(
-        _ tableView: UITableView,
-        cellForRowAt indexPath: IndexPath
-    ) -> UITableViewCell {
-        let cell = tableView.dequeueReusableCell(withIdentifier: Self.cellIdentifier, for: indexPath) as? RecentVisitedPostCell
-            ?? RecentVisitedPostCell(style: .default, reuseIdentifier: Self.cellIdentifier)
-        let record = records[indexPath.row]
-        cell.configure(
-            record: record,
-            visitedText: relativeDateFormatter.localizedString(for: record.visitedAt, relativeTo: Date())
-        )
-        return cell
-    }
-
-    override func tableView(
-        _ tableView: UITableView,
-        willDisplay cell: UITableViewCell,
-        forRowAt indexPath: IndexPath
-    ) {
-        guard indexPath.row >= records.count - 4 else { return }
-        loadNextPageIfNeeded()
-    }
-
-    override func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
-        tableView.deselectRow(at: indexPath, animated: true)
-        guard records.indices.contains(indexPath.row) else { return }
-        onSelectRecord?(records[indexPath.row])
+    private func configureEmptyState() {
+        emptyLabel.text = "暂无最近浏览"
+        emptyLabel.font = .preferredFont(forTextStyle: .body)
+        emptyLabel.textColor = .secondaryLabel
+        emptyLabel.textAlignment = .center
+        emptyLabel.accessibilityIdentifier = "recent-visited-posts-empty-label"
+        emptyLabel.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(emptyLabel)
+        NSLayoutConstraint.activate([
+            emptyLabel.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            emptyLabel.centerYAnchor.constraint(equalTo: view.centerYAnchor)
+        ])
     }
 
     @objc private func clearButtonTapped() {
@@ -103,27 +94,21 @@ final class RecentVisitedPostsViewController: UITableViewController {
         present(alert, animated: true)
     }
 
-    @objc private func refreshTriggered() {
-        reloadRecords()
-        DispatchQueue.main.async { [weak self] in
-            self?.historyRefreshControl.endRefreshing()
-        }
-    }
-
     private func clearAllRecords() {
         visitedStore.clearAll()
         records.removeAll()
         hasMoreRecords = false
-        tableView.reloadData()
-        renderEmptyStateIfNeeded()
+        listView.setItems([])
+        updateEmptyState()
     }
 
     private func reloadRecords() {
         hasMoreRecords = true
         records.removeAll()
-        tableView.reloadData()
+        listView.setItems([])
         loadNextPageIfNeeded()
-        renderEmptyStateIfNeeded()
+        listView.hideRefreshing()
+        updateEmptyState()
     }
 
     private func loadNextPageIfNeeded() {
@@ -131,39 +116,61 @@ final class RecentVisitedPostsViewController: UITableViewController {
         let nextRecords = visitedStore.recentRecords(offset: records.count, limit: Self.pageSize)
         guard !nextRecords.isEmpty else {
             hasMoreRecords = false
+            updateEmptyState()
             return
         }
 
-        let startIndex = records.count
         records.append(contentsOf: nextRecords)
         hasMoreRecords = nextRecords.count == Self.pageSize
-
-        guard startIndex > 0 else {
-            tableView.reloadData()
-            return
-        }
-
-        let indexPaths = (startIndex..<records.count).map { IndexPath(row: $0, section: 0) }
-        tableView.insertRows(at: indexPaths, with: .automatic)
+        listView.setItems(records.map(postItem(from:)))
+        updateEmptyState()
     }
 
-    private func renderEmptyStateIfNeeded() {
-        guard records.isEmpty else {
-            tableView.backgroundView = nil
-            navigationItem.rightBarButtonItem?.isEnabled = true
-            return
-        }
+    private func postItem(from record: VisitedPostRecord) -> PostListItem {
+        let relativeDate = relativeDateFormatter.localizedString(for: record.visitedAt, relativeTo: Date())
+        let post = PostSummary(
+            id: record.postID,
+            title: record.title,
+            url: record.url,
+            authorName: "最近浏览",
+            nodeName: nil,
+            replyCount: 0,
+            viewCount: 0,
+            lastActivityText: "浏览于 \(relativeDate)",
+            avatarURL: record.avatarURL
+        )
+        // 历史记录使用首页同一张帖子卡片，但不额外将标题置灰。
+        return PostListItem(post: post, isVisited: false)
+    }
 
-        let label = UILabel()
-        label.text = "暂无最近浏览"
-        label.font = .preferredFont(forTextStyle: .body)
-        label.textColor = .secondaryLabel
-        label.textAlignment = .center
-        label.accessibilityIdentifier = "recent-visited-posts-empty-label"
-        tableView.backgroundView = label
-        navigationItem.rightBarButtonItem?.isEnabled = false
+    private func updateEmptyState() {
+        let isEmpty = records.isEmpty
+        emptyLabel.isHidden = !isEmpty
+        navigationItem.rightBarButtonItem?.isEnabled = !isEmpty
     }
 
     private static let pageSize = 30
-    private static let cellIdentifier = "RecentVisitedPostCell"
+}
+
+extension RecentVisitedPostsViewController: PostTextureListViewDelegate {
+    func postTextureListView(_ textureListView: PostTextureListView, didSelectPostAt index: Int) {
+        guard records.indices.contains(index) else { return }
+        onSelectRecord?(records[index])
+    }
+
+    func postTextureListViewDidRequestRefresh(_ textureListView: PostTextureListView) {
+        reloadRecords()
+    }
+
+    func postTextureListViewDidRequestFirstPageRetry(_ textureListView: PostTextureListView) {
+        reloadRecords()
+    }
+
+    func postTextureListView(
+        _ textureListView: PostTextureListView,
+        didApproachBottomAt index: Int,
+        totalCount: Int
+    ) {
+        loadNextPageIfNeeded()
+    }
 }

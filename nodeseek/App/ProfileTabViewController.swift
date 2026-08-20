@@ -124,7 +124,10 @@ final class ProfileTabViewController: UIViewController {
 
     private func loadProfile() {
         loadTask?.cancel()
-        headerView.setLoading()
+        let hasVisibleProfile = userInfo != nil
+        if hasVisibleProfile == false {
+            headerView.setLoading()
+        }
         loadTask = Task { [weak self] in
             guard let self else { return }
             let account = await currentAccountStore.snapshot()?.account
@@ -141,23 +144,44 @@ final class ProfileTabViewController: UIViewController {
             }
 
             activeUserID = userID
-            do {
-                let info = try await userInfoClient.loadUserInfo(userID: userID)
-                guard Task.isCancelled == false else { return }
-                userInfo = info
-                headerView.configure(
-                    userInfo: info,
-                    avatarURL: avatarURL(for: userID),
-                    isCurrentUser: userID == currentUserID
-                )
-            } catch {
-                guard Task.isCancelled == false else { return }
-                userInfo = nil
-                headerView.setError(error.localizedDescription)
+            for attempt in 0...1 {
+                do {
+                    let info = try await userInfoClient.loadUserInfo(userID: userID)
+                    guard Task.isCancelled == false else { return }
+                    userInfo = info
+                    headerView.configure(
+                        userInfo: info,
+                        avatarURL: avatarURL(for: userID),
+                        isCurrentUser: userID == currentUserID
+                    )
+                    refreshControl.endRefreshing()
+                    tableView.reloadData()
+                    return
+                } catch {
+                    guard Task.isCancelled == false else { return }
+                    if attempt == 0, Self.isTemporaryServerError(error) {
+                        try? await Task.sleep(nanoseconds: 700_000_000)
+                        guard Task.isCancelled == false else { return }
+                        continue
+                    }
+
+                    // A transient failure must not replace an already usable profile with a blank error state.
+                    if hasVisibleProfile == false {
+                        userInfo = nil
+                        headerView.setError(error.localizedDescription)
+                    } else {
+                        AppLog.warning(.account, "个人资料刷新失败，保留已展示内容: \(error.localizedDescription)")
+                    }
+                }
             }
             refreshControl.endRefreshing()
             tableView.reloadData()
         }
+    }
+
+    private static func isTemporaryServerError(_ error: Error) -> Bool {
+        let message = error.localizedDescription.lowercased()
+        return message.contains("503") || message.contains("service unavailable")
     }
 
     private func avatarURL(for userID: Int) -> URL {
@@ -339,7 +363,7 @@ extension ProfileTabViewController: UITableViewDataSource, UITableViewDelegate {
 }
 
 private final class ProfileHeaderView: UIView {
-    static let preferredHeight: CGFloat = 296
+    static let preferredHeight: CGFloat = 252
 
     var onPrivateMessageTapped: (() -> Void)?
     var onFollowTapped: (() -> Void)?
@@ -510,7 +534,7 @@ private final class ProfileHeaderView: UIView {
             metricContainer.leadingAnchor.constraint(equalTo: layoutMarginsGuide.leadingAnchor),
             metricContainer.trailingAnchor.constraint(equalTo: layoutMarginsGuide.trailingAnchor),
             metricContainer.topAnchor.constraint(equalTo: avatarImageView.bottomAnchor, constant: 16),
-            metricContainer.heightAnchor.constraint(equalToConstant: 105),
+            metricContainer.heightAnchor.constraint(equalToConstant: 84),
 
             metricStack.leadingAnchor.constraint(equalTo: metricContainer.layoutMarginsGuide.leadingAnchor),
             metricStack.trailingAnchor.constraint(equalTo: metricContainer.layoutMarginsGuide.trailingAnchor),
@@ -519,7 +543,7 @@ private final class ProfileHeaderView: UIView {
 
             actionStack.leadingAnchor.constraint(equalTo: layoutMarginsGuide.leadingAnchor),
             actionStack.trailingAnchor.constraint(equalTo: layoutMarginsGuide.trailingAnchor),
-            actionStack.topAnchor.constraint(equalTo: metricContainer.bottomAnchor, constant: 16),
+            actionStack.topAnchor.constraint(equalTo: metricContainer.bottomAnchor, constant: 12),
             actionStack.heightAnchor.constraint(equalToConstant: 44)
         ])
         setLoading()

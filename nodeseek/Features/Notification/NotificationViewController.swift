@@ -224,7 +224,7 @@ final class NotificationViewController: UIViewController {
         )
     }
 
-    private func loadSelectedTab(showLoading: Bool) {
+    private func loadSelectedTab(showLoading: Bool, retryAttempt: Int = 0) {
         let tab = selectedTab
         loadToken += 1
         let token = loadToken
@@ -247,6 +247,12 @@ final class NotificationViewController: UIViewController {
                 loadedTabs.insert(tab)
                 finishLoading(tab: tab, token: token)
             } catch {
+                if retryAttempt == 0, Self.isTemporaryServerError(error) {
+                    try? await Task.sleep(nanoseconds: 700_000_000)
+                    guard Task.isCancelled == false else { return }
+                    self.loadSelectedTab(showLoading: false, retryAttempt: 1)
+                    return
+                }
                 showError(error.localizedDescription, tab: tab, token: token)
             }
         }
@@ -266,9 +272,21 @@ final class NotificationViewController: UIViewController {
     private func showError(_ message: String, tab: NodeSeekNotificationTab, token: Int) {
         refreshControl.endRefreshing()
         guard token == loadToken, tab == selectedTab else { return }
+        if loadedTabs.contains(tab) {
+            // Keep prior tab data visible when the service has a brief 503 outage.
+            displayMode = .content
+            errorView.isHidden = true
+            applyDisplayState()
+            return
+        }
         displayMode = .error
         errorView.messageLabel.text = message
         applyDisplayState()
+    }
+
+    private static func isTemporaryServerError(_ error: Error) -> Bool {
+        let message = error.localizedDescription.lowercased()
+        return message.contains("503") || message.contains("service unavailable")
     }
 
     private func applyDisplayState() {

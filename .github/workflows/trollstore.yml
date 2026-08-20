@@ -87,12 +87,12 @@ jobs:
           done < <(find build/Payload/nodeseek.app -type f -perm -111 -print0)
 
           ldid -S "$main_binary"
-          (cd build && zip -qry "NS-Connect-${APP_VERSION}-trollstore.ipa" Payload)
-          unzip -t "build/NS-Connect-${APP_VERSION}-trollstore.ipa"
+          (cd build && zip -qry "Zeu1s-${APP_VERSION}-trollstore.ipa" Payload)
+          unzip -t "build/Zeu1s-${APP_VERSION}-trollstore.ipa"
 
       - name: Upload TrollStore IPA
         uses: actions/upload-artifact@v4
         with:
-          name: NS-Connect-${{ inputs.version }}-trollstore-ipa
-          path: build/NS-Connect-${{ inputs.version }}-trollstore.ipa
+          name: Zeu1s-${{ inputs.version }}-trollstore-ipa
+          path: build/Zeu1s-${{ inputs.version }}-trollstore.ipa
           if-no-files-found: error

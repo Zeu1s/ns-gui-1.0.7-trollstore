@@ -89,9 +89,9 @@ final class PostListSideMenuViewController: UIViewController {
     private let statsLabel: UILabel = {
         let label = UILabel()
         label.text = "登录后同步账号信息"
-        label.font = .systemFont(ofSize: 13, weight: .regular)
+        label.font = .systemFont(ofSize: 12, weight: .regular)
         label.textColor = .secondaryLabel
-        label.numberOfLines = 2
+        label.numberOfLines = 1
         label.lineBreakMode = .byTruncatingTail
         label.accessibilityIdentifier = "post-list-side-menu-stats-label"
         label.translatesAutoresizingMaskIntoConstraints = false
@@ -440,17 +440,20 @@ final class PostListSideMenuViewController: UIViewController {
             nameLabel.trailingAnchor.constraint(equalTo: sideMenuView.trailingAnchor, constant: -SideMenuLayout.horizontalInset),
             nameLabel.topAnchor.constraint(equalTo: avatarImageView.topAnchor, constant: 8),
 
-            statsLabel.leadingAnchor.constraint(equalTo: nameLabel.leadingAnchor),
-            statsLabel.trailingAnchor.constraint(equalTo: nameLabel.trailingAnchor),
-            statsLabel.topAnchor.constraint(equalTo: nameLabel.bottomAnchor, constant: 6),
+            // Put account stats on their own full-width line so compact values such as "星辰 6"
+            // never wrap after the avatar column.
+            statsLabel.leadingAnchor.constraint(equalTo: sideMenuView.leadingAnchor, constant: SideMenuLayout.horizontalInset),
+            statsLabel.trailingAnchor.constraint(equalTo: sideMenuView.trailingAnchor, constant: -SideMenuLayout.horizontalInset),
+            statsLabel.topAnchor.constraint(equalTo: avatarImageView.bottomAnchor, constant: 10),
 
             accountHeaderButton.leadingAnchor.constraint(equalTo: avatarImageView.leadingAnchor),
             accountHeaderButton.trailingAnchor.constraint(equalTo: nameLabel.trailingAnchor),
             accountHeaderButton.topAnchor.constraint(equalTo: avatarImageView.topAnchor, constant: -8),
             accountHeaderButton.bottomAnchor.constraint(equalTo: avatarImageView.bottomAnchor, constant: 8),
 
-            extensionEntryStackView.leadingAnchor.constraint(equalTo: nameLabel.leadingAnchor),
-            extensionEntryStackView.topAnchor.constraint(equalTo: statsLabel.bottomAnchor, constant: 4),
+            extensionEntryStackView.leadingAnchor.constraint(equalTo: sideMenuView.leadingAnchor, constant: SideMenuLayout.horizontalInset),
+            extensionEntryStackView.trailingAnchor.constraint(lessThanOrEqualTo: sideMenuView.trailingAnchor, constant: -SideMenuLayout.horizontalInset),
+            extensionEntryStackView.topAnchor.constraint(equalTo: statsLabel.bottomAnchor, constant: 7),
             extensionEntriesHeightConstraint,
 
             postsEntryButton.heightAnchor.constraint(equalToConstant: 24),
@@ -597,7 +600,7 @@ final class PostListSideMenuViewController: UIViewController {
 }
 
 private enum SideMenuLayout {
-    static let width: CGFloat = 286
+    static let width: CGFloat = 300
     static let horizontalInset: CGFloat = 22
     static let avatarSize: CGFloat = 72
 }

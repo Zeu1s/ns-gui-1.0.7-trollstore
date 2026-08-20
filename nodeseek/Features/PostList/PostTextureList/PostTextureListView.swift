@@ -38,6 +38,7 @@ final class PostTextureListView: UIView {
     private let leadingScreensForBatching: CGFloat = 2.0
     private var skeletonRowCount: Int = 8
     private var lastBatchFetchRequestedItemCount: Int?
+    private var shouldStreamContentAppearance = false
 
     private let loadMoreIndicator: UIActivityIndicatorView = {
         let indicator = UIActivityIndicatorView(style: .medium)
@@ -114,6 +115,7 @@ final class PostTextureListView: UIView {
 
     func setItems(_ items: [PostListItem]) {
         hideErrorView()
+        let shouldStream = displayMode != .content || self.items.isEmpty
         if self.items.count != items.count {
             lastBatchFetchRequestedItemCount = nil
         }
@@ -123,7 +125,9 @@ final class PostTextureListView: UIView {
         if displayMode != .content {
             self.items = items
             displayMode = .content
+            shouldStreamContentAppearance = shouldStream && !items.isEmpty
             tableNode.reloadData()
+            streamVisibleRowsIfNeeded()
             return
         }
 
@@ -137,7 +141,9 @@ final class PostTextureListView: UIView {
         }
 
         self.items = items
+        shouldStreamContentAppearance = shouldStream && !items.isEmpty
         tableNode.reloadData()
+        streamVisibleRowsIfNeeded()
     }
 
     func updateVisitedState(at index: Int, isVisited: Bool) {
@@ -249,6 +255,28 @@ final class PostTextureListView: UIView {
 
     private func hideErrorView() {
         errorStackView.isHidden = true
+    }
+
+    private func streamVisibleRowsIfNeeded() {
+        guard shouldStreamContentAppearance else { return }
+        shouldStreamContentAppearance = false
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.window != nil else { return }
+            let cells = self.tableNode.view.visibleCells
+                .sorted { $0.frame.minY < $1.frame.minY }
+            for (index, cell) in cells.enumerated() {
+                cell.alpha = 0
+                cell.transform = CGAffineTransform(translationX: 0, y: 10)
+                UIView.animate(
+                    withDuration: 0.2,
+                    delay: Double(index) * 0.035,
+                    options: [.curveEaseOut, .allowUserInteraction]
+                ) {
+                    cell.alpha = 1
+                    cell.transform = .identity
+                }
+            }
+        }
     }
 
     private func makeAppendIndexPaths(from oldItems: [PostListItem], to newItems: [PostListItem]) -> [IndexPath]? {

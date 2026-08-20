@@ -17,6 +17,7 @@ final class MainTabContainerViewController: UIViewController {
     private let bottomNavigationView = PostListBottomNavigationView()
     private var stacks: [PostListBottomNavigationItem: UINavigationController] = [:]
     private var currentItem: PostListBottomNavigationItem = .home
+    private weak var visibleStack: UINavigationController?
     private var unreadBadgeVisible = false
     private var displayScaleObserver: NSObjectProtocol?
     private var bottomNavigationHeightConstraint: NSLayoutConstraint?
@@ -119,6 +120,7 @@ final class MainTabContainerViewController: UIViewController {
         if stack.parent == nil {
             addChild(stack)
             stack.view.translatesAutoresizingMaskIntoConstraints = false
+            stack.view.isHidden = true
             containerView.addSubview(stack.view)
             NSLayoutConstraint.activate([
                 stack.view.leadingAnchor.constraint(equalTo: containerView.leadingAnchor),
@@ -129,12 +131,46 @@ final class MainTabContainerViewController: UIViewController {
             stack.didMove(toParent: self)
         }
 
-        for child in children {
-            child.view.isHidden = false
-            child.view.alpha = child === stack ? 1 : 0
-            child.view.isUserInteractionEnabled = child === stack
+        guard visibleStack !== stack else {
+            stack.view.isHidden = false
+            stack.view.alpha = 1
+            stack.view.isUserInteractionEnabled = true
+            containerView.bringSubviewToFront(stack.view)
+            return
         }
+
+        // Keep the rendered tab visible until the target hierarchy has completed layout.
+        // This avoids exposing a transient system-background frame while a tab creates its content.
+        let previousStack = visibleStack
+        // Update immediately so a rapid second tab tap transitions from this pending target,
+        // rather than reviving the page that is currently fading out.
+        visibleStack = stack
+        stack.view.isHidden = false
+        stack.view.alpha = 0
+        stack.view.isUserInteractionEnabled = true
+        stack.view.setNeedsLayout()
+        stack.view.layoutIfNeeded()
         containerView.bringSubviewToFront(stack.view)
+
+        guard let previousStack else {
+            stack.view.alpha = 1
+            return
+        }
+
+        previousStack.view.isHidden = false
+        previousStack.view.isUserInteractionEnabled = false
+        UIView.animate(
+            withDuration: 0.18,
+            delay: 0,
+            options: [.curveEaseOut, .beginFromCurrentState, .allowUserInteraction]
+        ) {
+            stack.view.alpha = 1
+            previousStack.view.alpha = 0
+        } completion: { [weak self, weak previousStack] _ in
+            previousStack?.view.alpha = 1
+            previousStack?.view.isHidden = true
+            self?.visibleStack = stack
+        }
     }
 
     private func recoverVisibleContent(in stack: UINavigationController) {
