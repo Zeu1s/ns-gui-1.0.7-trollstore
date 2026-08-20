@@ -36,6 +36,7 @@ final class ProfileTabViewController: UIViewController {
 
     private let requestedUserID: Int?
     private let userInfoClient: NodeSeekUserInfoLoading
+    private let relationshipClient: NodeSeekUserRelationshipManaging
     private let currentAccountStore: CurrentAccountStore
     private let tableView = UITableView(frame: .zero, style: .insetGrouped)
     private let headerView = ProfileHeaderView()
@@ -45,14 +46,17 @@ final class ProfileTabViewController: UIViewController {
     private var account: AccountResponse?
     private var userInfo: NodeSeekUserInfo?
     private var loadTask: Task<Void, Never>?
+    private var isChangingFollowState = false
 
     init(
         userID: Int? = nil,
         userInfoClient: NodeSeekUserInfoLoading? = nil,
+        relationshipClient: NodeSeekUserRelationshipManaging? = nil,
         currentAccountStore: CurrentAccountStore = .shared
     ) {
         requestedUserID = userID
         self.userInfoClient = userInfoClient ?? NodeSeekUserInfoClient()
+        self.relationshipClient = relationshipClient ?? NodeSeekUserRelationshipClient()
         self.currentAccountStore = currentAccountStore
         super.init(nibName: nil, bundle: nil)
         title = userID == nil ? "我的" : "用户资料"
@@ -101,6 +105,12 @@ final class ProfileTabViewController: UIViewController {
         tableView.tableHeaderView = headerView
         headerView.onPrivateMessageTapped = { [weak self] in
             self?.openPrivateMessage()
+        }
+        headerView.onFollowTapped = { [weak self] in
+            self?.followUser()
+        }
+        headerView.onTransferTapped = { [weak self] in
+            self?.openStardustTransfer()
         }
 
         view.addSubview(tableView)
@@ -209,6 +219,59 @@ final class ProfileTabViewController: UIViewController {
             animated: true
         )
     }
+
+    private func followUser() {
+        guard let userID = activeUserID,
+              userID != currentUserID,
+              isChangingFollowState == false else {
+            return
+        }
+        guard currentUserID != nil else {
+            presentMessage(title: "请先登录", message: "登录后才能关注用户。")
+            return
+        }
+        isChangingFollowState = true
+        headerView.setFollowLoading(true)
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                try await relationshipClient.setFollowing(userID: userID, following: true)
+                isChangingFollowState = false
+                headerView.setFollowing(true)
+                headerView.setFollowLoading(false)
+            } catch {
+                isChangingFollowState = false
+                headerView.setFollowLoading(false)
+                presentMessage(title: "关注失败", message: error.localizedDescription)
+            }
+        }
+    }
+
+    private func openStardustTransfer() {
+        guard let userID = activeUserID,
+              userID != currentUserID else {
+            return
+        }
+        guard currentUserID != nil else {
+            presentMessage(title: "请先登录", message: "登录后才能进行星辰转账。")
+            return
+        }
+        let recipientName = userInfo?.username ?? "用户 \(userID)"
+        navigationController?.pushViewController(
+            StardustTransferViewController(
+                recipientID: userID,
+                recipientName: recipientName,
+                client: relationshipClient
+            ),
+            animated: true
+        )
+    }
+
+    private func presentMessage(title: String, message: String) {
+        let alert = UIAlertController(title: title, message: message, preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: "知道了", style: .default))
+        present(alert, animated: true)
+    }
 }
 
 extension ProfileTabViewController: UITableViewDataSource, UITableViewDelegate {
@@ -276,20 +339,26 @@ extension ProfileTabViewController: UITableViewDataSource, UITableViewDelegate {
 }
 
 private final class ProfileHeaderView: UIView {
-    static let preferredHeight: CGFloat = 204
+    static let preferredHeight: CGFloat = 296
 
     var onPrivateMessageTapped: (() -> Void)?
+    var onFollowTapped: (() -> Void)?
+    var onTransferTapped: (() -> Void)?
 
     private let avatarImageView = UIImageView()
     private let nameLabel = UILabel()
     private let levelLabel = UILabel()
     private let statusLabel = UILabel()
-    private let privateMessageButton = UIButton(type: .system)
+    private let metricContainer = UIView()
     private let metricStack = UIStackView()
+    private let actionStack = UIStackView()
+    private let transferButton = UIButton(type: .system)
+    private let followButton = UIButton(type: .system)
+    private let privateMessageButton = UIButton(type: .system)
 
     override init(frame: CGRect) {
         super.init(frame: frame)
-        backgroundColor = .systemBackground
+        backgroundColor = .systemGroupedBackground
         setupUI()
     }
 
@@ -303,14 +372,8 @@ private final class ProfileHeaderView: UIView {
         nameLabel.text = "正在加载"
         levelLabel.text = nil
         statusLabel.text = ""
-        privateMessageButton.isHidden = true
-        setMetrics([
-            ("加入", "-", UIImage(systemName: "clock")),
-            ("等级", "-", UIImage(systemName: "diamond")),
-            ("鸡腿", "-", ReactionIconRenderer.chickenLeg(pointSize: 16)),
-            ("主题", "-", UIImage(systemName: "square.and.pencil")),
-            ("评论", "-", UIImage(systemName: "text.bubble"))
-        ])
+        setActionsVisible(false)
+        setMetrics(Self.placeholderMetrics)
     }
 
     func setSignedOut() {
@@ -319,14 +382,8 @@ private final class ProfileHeaderView: UIView {
         nameLabel.text = "未登录"
         levelLabel.text = nil
         statusLabel.text = "登录后可查看个人资料"
-        privateMessageButton.isHidden = true
-        setMetrics([
-            ("加入", "-", UIImage(systemName: "clock")),
-            ("等级", "-", UIImage(systemName: "diamond")),
-            ("鸡腿", "-", ReactionIconRenderer.chickenLeg(pointSize: 16)),
-            ("主题", "-", UIImage(systemName: "square.and.pencil")),
-            ("评论", "-", UIImage(systemName: "text.bubble"))
-        ])
+        setActionsVisible(false)
+        setMetrics(Self.placeholderMetrics)
     }
 
     func setError(_ message: String) {
@@ -335,14 +392,8 @@ private final class ProfileHeaderView: UIView {
         nameLabel.text = "资料加载失败"
         levelLabel.text = nil
         statusLabel.text = message
-        privateMessageButton.isHidden = true
-        setMetrics([
-            ("加入", "-", UIImage(systemName: "clock")),
-            ("等级", "-", UIImage(systemName: "diamond")),
-            ("鸡腿", "-", ReactionIconRenderer.chickenLeg(pointSize: 16)),
-            ("主题", "-", UIImage(systemName: "square.and.pencil")),
-            ("评论", "-", UIImage(systemName: "text.bubble"))
-        ])
+        setActionsVisible(false)
+        setMetrics(Self.placeholderMetrics)
     }
 
     func configure(userInfo: NodeSeekUserInfo, avatarURL: URL, isCurrentUser: Bool) {
@@ -352,24 +403,42 @@ private final class ProfileHeaderView: UIView {
             .toAvatar(requestID: "profile-\(userInfo.userID)")
             .into(avatarImageView)
         nameLabel.text = userInfo.username ?? (isCurrentUser ? "我的账号" : "用户 \(userInfo.userID)")
-        levelLabel.text = "Lv \(userInfo.level)"
+        levelLabel.text = "等级 Lv \(userInfo.level)"
         let bio = userInfo.bio?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        statusLabel.text = bio.isEmpty ? "加入 \(userInfo.joinDays) 天" : bio
-        privateMessageButton.isHidden = isCurrentUser
+        statusLabel.text = bio.isEmpty ? "加入 NodeSeek \(userInfo.joinDays) 天" : bio
+        setActionsVisible(!isCurrentUser)
+        setFollowing(false)
         setMetrics([
-            ("加入", "\(userInfo.joinDays)", UIImage(systemName: "clock")),
-            ("等级", "\(userInfo.level)", UIImage(systemName: "diamond")),
-            ("鸡腿", "\(userInfo.coin)", ReactionIconRenderer.chickenLeg(pointSize: 16)),
-            ("主题", "\(userInfo.nPost)", UIImage(systemName: "square.and.pencil")),
-            ("评论", "\(userInfo.nComment)", UIImage(systemName: "text.bubble"))
+            ("等级", "Lv \(userInfo.level)", UIImage(systemName: "diamond")),
+            ("主题帖", "\(userInfo.nPost)", UIImage(systemName: "square.and.pencil")),
+            ("鸡腿", "\(userInfo.coin)", ReactionIconRenderer.chickenLeg(pointSize: 18)),
+            ("评论数", "\(userInfo.nComment)", UIImage(systemName: "text.bubble")),
+            ("星辰", "\(userInfo.stardust)", UIImage(systemName: "wallet.pass")),
+            ("粉丝", "\(userInfo.fans)", UIImage(systemName: "dot.radiowaves.left.and.right"))
         ])
+    }
+
+    func setFollowLoading(_ isLoading: Bool) {
+        followButton.configuration?.showsActivityIndicator = isLoading
+        followButton.isEnabled = !isLoading
+    }
+
+    func setFollowing(_ isFollowing: Bool) {
+        var configuration = followButton.configuration ?? UIButton.Configuration.filled()
+        configuration.title = isFollowing ? "已关注" : "关注"
+        configuration.image = UIImage(systemName: isFollowing ? "checkmark" : "person.badge.plus")
+        configuration.imagePadding = 5
+        configuration.baseBackgroundColor = isFollowing ? .systemGray : .systemBlue
+        configuration.baseForegroundColor = .white
+        followButton.configuration = configuration
+        followButton.accessibilityLabel = isFollowing ? "已关注" : "关注用户"
     }
 
     private func setupUI() {
         avatarImageView.translatesAutoresizingMaskIntoConstraints = false
         avatarImageView.contentMode = .scaleAspectFill
         avatarImageView.clipsToBounds = true
-        avatarImageView.layer.cornerRadius = 34
+        avatarImageView.layer.cornerRadius = 36
 
         nameLabel.translatesAutoresizingMaskIntoConstraints = false
         nameLabel.font = .preferredFont(forTextStyle: .title2)
@@ -377,7 +446,7 @@ private final class ProfileHeaderView: UIView {
         nameLabel.adjustsFontForContentSizeCategory = true
 
         levelLabel.translatesAutoresizingMaskIntoConstraints = false
-        levelLabel.font = .preferredFont(forTextStyle: .caption1)
+        levelLabel.font = .preferredFont(forTextStyle: .subheadline)
         levelLabel.textColor = .systemOrange
         levelLabel.adjustsFontForContentSizeCategory = true
 
@@ -385,64 +454,93 @@ private final class ProfileHeaderView: UIView {
         statusLabel.font = .preferredFont(forTextStyle: .subheadline)
         statusLabel.textColor = .secondaryLabel
         statusLabel.adjustsFontForContentSizeCategory = true
-        statusLabel.numberOfLines = 1
+        statusLabel.numberOfLines = 2
 
-        var messageConfiguration = UIButton.Configuration.filled()
-        messageConfiguration.title = "私信"
-        messageConfiguration.baseBackgroundColor = .systemGreen
-        messageConfiguration.baseForegroundColor = .white
-        messageConfiguration.cornerStyle = .medium
-        messageConfiguration.contentInsets = NSDirectionalEdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12)
-        privateMessageButton.configuration = messageConfiguration
-        privateMessageButton.titleLabel?.adjustsFontForContentSizeCategory = true
-        privateMessageButton.accessibilityLabel = "发送私信"
-        privateMessageButton.addTarget(self, action: #selector(privateMessageTapped), for: .touchUpInside)
-        privateMessageButton.translatesAutoresizingMaskIntoConstraints = false
+        metricContainer.translatesAutoresizingMaskIntoConstraints = false
+        metricContainer.backgroundColor = .secondarySystemBackground
+        metricContainer.layer.cornerRadius = 10
+        metricContainer.layer.cornerCurve = .continuous
 
         metricStack.translatesAutoresizingMaskIntoConstraints = false
-        metricStack.axis = .horizontal
-        metricStack.alignment = .fill
+        metricStack.axis = .vertical
         metricStack.distribution = .fillEqually
-        metricStack.spacing = 6
+        metricStack.spacing = 3
+        metricContainer.addSubview(metricStack)
+
+        configureActionButton(transferButton, title: "转账", imageName: "arrow.left.arrow.right", color: .systemGreen)
+        configureActionButton(privateMessageButton, title: "私信", imageName: "paperplane.fill", color: .systemGreen)
+        setFollowing(false)
+        transferButton.addTarget(self, action: #selector(transferTapped), for: .touchUpInside)
+        followButton.addTarget(self, action: #selector(followTapped), for: .touchUpInside)
+        privateMessageButton.addTarget(self, action: #selector(privateMessageTapped), for: .touchUpInside)
+
+        actionStack.translatesAutoresizingMaskIntoConstraints = false
+        actionStack.axis = .horizontal
+        actionStack.alignment = .fill
+        actionStack.distribution = .fillEqually
+        actionStack.spacing = 12
+        actionStack.addArrangedSubview(transferButton)
+        actionStack.addArrangedSubview(followButton)
+        actionStack.addArrangedSubview(privateMessageButton)
 
         addSubview(avatarImageView)
         addSubview(nameLabel)
         addSubview(levelLabel)
         addSubview(statusLabel)
-        addSubview(privateMessageButton)
-        addSubview(metricStack)
+        addSubview(metricContainer)
+        addSubview(actionStack)
         NSLayoutConstraint.activate([
             avatarImageView.leadingAnchor.constraint(equalTo: layoutMarginsGuide.leadingAnchor),
-            avatarImageView.topAnchor.constraint(equalTo: topAnchor, constant: 20),
-            avatarImageView.widthAnchor.constraint(equalToConstant: 68),
-            avatarImageView.heightAnchor.constraint(equalToConstant: 68),
+            avatarImageView.topAnchor.constraint(equalTo: topAnchor, constant: 18),
+            avatarImageView.widthAnchor.constraint(equalToConstant: 72),
+            avatarImageView.heightAnchor.constraint(equalToConstant: 72),
 
             nameLabel.leadingAnchor.constraint(equalTo: avatarImageView.trailingAnchor, constant: 14),
-            nameLabel.topAnchor.constraint(equalTo: avatarImageView.topAnchor, constant: 4),
-            nameLabel.trailingAnchor.constraint(lessThanOrEqualTo: privateMessageButton.leadingAnchor, constant: -12),
-
-            privateMessageButton.trailingAnchor.constraint(equalTo: layoutMarginsGuide.trailingAnchor),
-            privateMessageButton.centerYAnchor.constraint(equalTo: avatarImageView.centerYAnchor),
-            privateMessageButton.widthAnchor.constraint(greaterThanOrEqualToConstant: 72),
-            privateMessageButton.heightAnchor.constraint(equalToConstant: 38),
+            nameLabel.topAnchor.constraint(equalTo: avatarImageView.topAnchor, constant: 2),
+            nameLabel.trailingAnchor.constraint(equalTo: layoutMarginsGuide.trailingAnchor),
 
             levelLabel.leadingAnchor.constraint(equalTo: nameLabel.leadingAnchor),
             levelLabel.topAnchor.constraint(equalTo: nameLabel.bottomAnchor, constant: 4),
+            levelLabel.trailingAnchor.constraint(equalTo: layoutMarginsGuide.trailingAnchor),
 
             statusLabel.leadingAnchor.constraint(equalTo: nameLabel.leadingAnchor),
             statusLabel.topAnchor.constraint(equalTo: levelLabel.bottomAnchor, constant: 4),
-            statusLabel.trailingAnchor.constraint(lessThanOrEqualTo: layoutMarginsGuide.trailingAnchor),
+            statusLabel.trailingAnchor.constraint(equalTo: layoutMarginsGuide.trailingAnchor),
 
-            metricStack.leadingAnchor.constraint(equalTo: layoutMarginsGuide.leadingAnchor),
-            metricStack.trailingAnchor.constraint(equalTo: layoutMarginsGuide.trailingAnchor),
-            metricStack.topAnchor.constraint(equalTo: avatarImageView.bottomAnchor, constant: 22),
-            metricStack.heightAnchor.constraint(equalToConstant: 66)
+            metricContainer.leadingAnchor.constraint(equalTo: layoutMarginsGuide.leadingAnchor),
+            metricContainer.trailingAnchor.constraint(equalTo: layoutMarginsGuide.trailingAnchor),
+            metricContainer.topAnchor.constraint(equalTo: avatarImageView.bottomAnchor, constant: 16),
+            metricContainer.heightAnchor.constraint(equalToConstant: 105),
+
+            metricStack.leadingAnchor.constraint(equalTo: metricContainer.layoutMarginsGuide.leadingAnchor),
+            metricStack.trailingAnchor.constraint(equalTo: metricContainer.layoutMarginsGuide.trailingAnchor),
+            metricStack.topAnchor.constraint(equalTo: metricContainer.layoutMarginsGuide.topAnchor),
+            metricStack.bottomAnchor.constraint(equalTo: metricContainer.layoutMarginsGuide.bottomAnchor),
+
+            actionStack.leadingAnchor.constraint(equalTo: layoutMarginsGuide.leadingAnchor),
+            actionStack.trailingAnchor.constraint(equalTo: layoutMarginsGuide.trailingAnchor),
+            actionStack.topAnchor.constraint(equalTo: metricContainer.bottomAnchor, constant: 16),
+            actionStack.heightAnchor.constraint(equalToConstant: 44)
         ])
         setLoading()
     }
 
-    @objc private func privateMessageTapped() {
-        onPrivateMessageTapped?()
+    private func configureActionButton(_ button: UIButton, title: String, imageName: String, color: UIColor) {
+        var configuration = UIButton.Configuration.filled()
+        configuration.title = title
+        configuration.image = UIImage(systemName: imageName)
+        configuration.imagePadding = 5
+        configuration.baseBackgroundColor = color
+        configuration.baseForegroundColor = .white
+        configuration.cornerStyle = .medium
+        button.configuration = configuration
+        button.titleLabel?.font = .preferredFont(forTextStyle: .body)
+        button.titleLabel?.adjustsFontForContentSizeCategory = true
+    }
+
+    private func setActionsVisible(_ isVisible: Bool) {
+        actionStack.isHidden = !isVisible
+        actionStack.isUserInteractionEnabled = isVisible
     }
 
     private func setMetrics(_ metrics: [(String, String, UIImage?)]) {
@@ -450,22 +548,52 @@ private final class ProfileHeaderView: UIView {
             metricStack.removeArrangedSubview($0)
             $0.removeFromSuperview()
         }
-        for metric in metrics {
-            metricStack.addArrangedSubview(ProfileMetricView(title: metric.0, value: metric.1, image: metric.2))
+        for row in stride(from: 0, to: metrics.count, by: 2) {
+            let rowStack = UIStackView()
+            rowStack.axis = .horizontal
+            rowStack.alignment = .fill
+            rowStack.distribution = .fillEqually
+            rowStack.spacing = 12
+            rowStack.addArrangedSubview(ProfileMetricView(title: metrics[row].0, value: metrics[row].1, image: metrics[row].2))
+            if row + 1 < metrics.count {
+                rowStack.addArrangedSubview(ProfileMetricView(title: metrics[row + 1].0, value: metrics[row + 1].1, image: metrics[row + 1].2))
+            } else {
+                rowStack.addArrangedSubview(UIView())
+            }
+            metricStack.addArrangedSubview(rowStack)
         }
     }
+
+    @objc private func transferTapped() {
+        onTransferTapped?()
+    }
+
+    @objc private func followTapped() {
+        onFollowTapped?()
+    }
+
+    @objc private func privateMessageTapped() {
+        onPrivateMessageTapped?()
+    }
+
+    private static let placeholderMetrics: [(String, String, UIImage?)] = [
+        ("等级", "-", UIImage(systemName: "diamond")),
+        ("主题帖", "-", UIImage(systemName: "square.and.pencil")),
+        ("鸡腿", "-", ReactionIconRenderer.chickenLeg(pointSize: 18)),
+        ("评论数", "-", UIImage(systemName: "text.bubble")),
+        ("星辰", "-", UIImage(systemName: "wallet.pass")),
+        ("粉丝", "-", UIImage(systemName: "dot.radiowaves.left.and.right"))
+    ]
 }
 
 private final class ProfileMetricView: UIView {
     private let imageView = UIImageView()
-    private let valueLabel = UILabel()
-    private let titleLabel = UILabel()
+    private let textLabel = UILabel()
 
     init(title: String, value: String, image: UIImage?) {
         super.init(frame: .zero)
         imageView.image = image
-        valueLabel.text = value
-        titleLabel.text = title
+        textLabel.text = "\(title) \(value)"
         setupUI()
     }
 
@@ -474,41 +602,27 @@ private final class ProfileMetricView: UIView {
     }
 
     private func setupUI() {
-        backgroundColor = .secondarySystemBackground
-        layer.cornerRadius = 8
-
         imageView.translatesAutoresizingMaskIntoConstraints = false
-        imageView.tintColor = .systemOrange
+        imageView.tintColor = .label
         imageView.contentMode = .scaleAspectFit
 
-        valueLabel.translatesAutoresizingMaskIntoConstraints = false
-        valueLabel.font = .systemFont(ofSize: 15, weight: .semibold)
-        valueLabel.textColor = .label
-        valueLabel.textAlignment = .center
-        valueLabel.adjustsFontForContentSizeCategory = true
-        valueLabel.adjustsFontSizeToFitWidth = true
-        valueLabel.minimumScaleFactor = 0.72
-
-        titleLabel.translatesAutoresizingMaskIntoConstraints = false
-        titleLabel.font = .systemFont(ofSize: 10, weight: .medium)
-        titleLabel.textColor = .secondaryLabel
-        titleLabel.textAlignment = .center
-        titleLabel.adjustsFontForContentSizeCategory = true
+        textLabel.translatesAutoresizingMaskIntoConstraints = false
+        textLabel.font = .preferredFont(forTextStyle: .body)
+        textLabel.textColor = .label
+        textLabel.adjustsFontForContentSizeCategory = true
+        textLabel.adjustsFontSizeToFitWidth = true
+        textLabel.minimumScaleFactor = 0.72
 
         addSubview(imageView)
-        addSubview(valueLabel)
-        addSubview(titleLabel)
+        addSubview(textLabel)
         NSLayoutConstraint.activate([
-            imageView.topAnchor.constraint(equalTo: topAnchor, constant: 7),
-            imageView.centerXAnchor.constraint(equalTo: centerXAnchor),
-            imageView.widthAnchor.constraint(equalToConstant: 16),
-            imageView.heightAnchor.constraint(equalToConstant: 16),
-            valueLabel.topAnchor.constraint(equalTo: imageView.bottomAnchor, constant: 2),
-            valueLabel.leadingAnchor.constraint(equalTo: leadingAnchor),
-            valueLabel.trailingAnchor.constraint(equalTo: trailingAnchor),
-            titleLabel.topAnchor.constraint(equalTo: valueLabel.bottomAnchor, constant: 1),
-            titleLabel.leadingAnchor.constraint(equalTo: leadingAnchor),
-            titleLabel.trailingAnchor.constraint(equalTo: trailingAnchor)
+            imageView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            imageView.centerYAnchor.constraint(equalTo: centerYAnchor),
+            imageView.widthAnchor.constraint(equalToConstant: 20),
+            imageView.heightAnchor.constraint(equalToConstant: 20),
+            textLabel.leadingAnchor.constraint(equalTo: imageView.trailingAnchor, constant: 8),
+            textLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
+            textLabel.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor)
         ])
     }
 }

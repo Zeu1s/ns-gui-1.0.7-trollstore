@@ -236,6 +236,7 @@ extension UserCommentsViewController: ASTableDataSource {
             return { [weak self] in
                 UserCommentCellNode(
                     record: record,
+                    onOpenPost: { [weak self] in self?.openPost(record) },
                     onOpenComment: { [weak self] in self?.openComment(record) }
                 )
             }
@@ -253,9 +254,7 @@ extension UserCommentsViewController: ASTableDataSource {
 
 extension UserCommentsViewController: ASTableDelegate {
     func tableNode(_ tableNode: ASTableNode, didSelectRowAt indexPath: IndexPath) {
-        guard displayMode == .content, records.indices.contains(indexPath.row) else { return }
         tableNode.deselectRow(at: indexPath, animated: true)
-        openPost(records[indexPath.row])
     }
 
     func shouldBatchFetch(for tableNode: ASTableNode) -> Bool {

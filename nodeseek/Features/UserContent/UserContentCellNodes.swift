@@ -140,54 +140,41 @@ final class UserCollectionCellNode: ASCellNode {
 final class UserCommentCellNode: ASCellNode {
     private let titleNode = ASTextNode()
     private let textNode = ASTextNode()
-    private let commentJumpButton = ASButtonNode()
+    private let onOpenPost: () -> Void
     private let onOpenComment: () -> Void
 
     init(
         record: UserCommentRecord,
+        onOpenPost: @escaping () -> Void,
         onOpenComment: @escaping () -> Void
     ) {
+        self.onOpenPost = onOpenPost
         self.onOpenComment = onOpenComment
         super.init()
         automaticallyManagesSubnodes = true
-        selectionStyle = .default
+        selectionStyle = .none
         backgroundColor = .clear
         titleNode.maximumNumberOfLines = 2
         titleNode.attributedText = UserContentText.title(record.title)
+        titleNode.accessibilityLabel = "打开主题：\(record.title)"
         textNode.maximumNumberOfLines = 2
         textNode.attributedText = Self.commentText(record.text)
-        configureCommentJumpButton(floorID: record.floorID)
+        textNode.accessibilityLabel = "打开回复 #\(record.floorID)"
     }
 
     override func didLoad() {
         super.didLoad()
-        commentJumpButton.addTarget(self, action: #selector(openCommentTapped), forControlEvents: .touchUpInside)
+        titleNode.isUserInteractionEnabled = true
+        textNode.isUserInteractionEnabled = true
+        titleNode.view.addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(openPostTapped)))
+        textNode.view.addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(openCommentTapped)))
     }
 
     override func layoutSpecThatFits(_ constrainedSize: ASSizeRange) -> ASLayoutSpec {
         let textStack = ASStackLayoutSpec.vertical()
         textStack.spacing = 5
-        textStack.style.flexGrow = 1
-        textStack.style.flexShrink = 1
         textStack.children = [titleNode, textNode]
-
-        let row = ASStackLayoutSpec.horizontal()
-        row.spacing = 10
-        row.alignItems = .center
-        row.children = [textStack, commentJumpButton]
-        return ASInsetLayoutSpec(insets: UIEdgeInsets(top: 12, left: 18, bottom: 12, right: 12), child: row)
-    }
-
-    private func configureCommentJumpButton(floorID: Int) {
-        let configuration = UIImage.SymbolConfiguration(
-            font: PostListCellStyle.Typography.metadataFont,
-            scale: .medium
-        )
-        let image = UIImage(systemName: "text.bubble", withConfiguration: configuration)
-        commentJumpButton.setImage(image, for: .normal)
-        commentJumpButton.tintColor = .secondaryLabel
-        commentJumpButton.style.preferredSize = CGSize(width: 34, height: 34)
-        commentJumpButton.accessibilityLabel = "打开评论 #\(floorID)"
+        return ASInsetLayoutSpec(insets: UIEdgeInsets(top: 12, left: 18, bottom: 12, right: 18), child: textStack)
     }
 
     private static func commentText(_ text: String) -> NSAttributedString {
@@ -198,6 +185,10 @@ final class UserCommentCellNode: ASCellNode {
                 .foregroundColor: UIColor.secondaryLabel
             ]
         )
+    }
+
+    @objc private func openPostTapped() {
+        onOpenPost()
     }
 
     @objc private func openCommentTapped() {
