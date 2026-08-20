@@ -78,7 +78,7 @@ final class NotificationMentionCell: UITableViewCell {
         let content = record.content?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         contentLabel.text = content.isEmpty ? nil : content
         contentLabel.isHidden = content.isEmpty
-        floorLabel.text = \
+        floorLabel.text = "#\(record.floorID) 楼"
         configureUnreadBadge(record.displayUnreadCount)
         markReadButton.isHidden = record.isViewed
         accessibilityLabel = [
