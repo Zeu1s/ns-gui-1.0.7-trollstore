@@ -45,6 +45,10 @@ enum CommentCopyTextFormatter {
             return iframe.openURL.absoluteString
         case .image(let image):
             return image.altText
+        case .magicTabs(let magicTabs):
+            return magicTabs.tabs.map { tab in
+                "\(tab.title)\n\(plainText(from: tab.blocks))"
+            }.joined(separator: "\n")
         case .imagePlaceholder, .unsupported:
             return nil
         }

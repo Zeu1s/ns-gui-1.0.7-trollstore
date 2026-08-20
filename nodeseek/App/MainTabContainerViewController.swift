@@ -9,7 +9,8 @@ import UIKit
 final class MainTabContainerViewController: UIViewController {
     private enum Layout {
         static let horizontalInset: CGFloat = 0
-        static let height: CGFloat = 84
+        // 底栏总高度固定为 68pt；子视图自己避开底部安全区。
+        static let height: CGFloat = 68
     }
 
     private let containerView = UIView()
@@ -94,7 +95,7 @@ final class MainTabContainerViewController: UIViewController {
     }
 
     private var bottomNavigationHeight: CGFloat {
-        Layout.height + view.safeAreaInsets.bottom
+        Layout.height
     }
 
     private func updateBottomNavigationLayout() {

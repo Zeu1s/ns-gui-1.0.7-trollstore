@@ -869,6 +869,7 @@ final class SettingsDisplayScaleViewController: UITableViewController {
 final class SettingsAboutViewController: UITableViewController {
     private enum Row: Int, CaseIterable {
         case appVersion
+        case author
         case buildNumber
         case gitSHA
         case repository
@@ -876,7 +877,7 @@ final class SettingsAboutViewController: UITableViewController {
         case githubURL
     }
 
-    private let repositoryURL = URL(string: "https://github.com/tyrad/nodeseek")!
+    private let repositoryURL = URL(string: "https://github.com/Zeu1s/ns-gui-1.0.7-trollstore")!
     private let buildInfo: SettingsBuildInfo
 
     init(buildInfo: SettingsBuildInfo = SettingsBuildInfo()) {
@@ -912,6 +913,10 @@ final class SettingsAboutViewController: UITableViewController {
             cell.textLabel?.text = "版本"
             cell.detailTextLabel?.text = buildInfo.appVersion
             cell.accessibilityIdentifier = "settings-version-cell"
+        case .author:
+            cell.textLabel?.text = "作者"
+            cell.detailTextLabel?.text = "Zeu1s"
+            cell.accessibilityIdentifier = "settings-author-cell"
         case .buildNumber:
             cell.textLabel?.text = "Build"
             cell.detailTextLabel?.text = buildInfo.buildNumber
@@ -950,7 +955,7 @@ final class SettingsAboutViewController: UITableViewController {
         case .workflow:
             guard let githubRunURL = buildInfo.githubRunURL else { return }
             UIApplication.shared.open(githubRunURL)
-        case .appVersion, .buildNumber, .gitSHA, .githubURL, .none:
+        case .appVersion, .author, .buildNumber, .gitSHA, .githubURL, .none:
             return
         }
     }

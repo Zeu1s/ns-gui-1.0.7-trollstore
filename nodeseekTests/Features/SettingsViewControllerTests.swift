@@ -469,46 +469,52 @@ struct SettingsViewControllerTests {
         viewController.loadViewIfNeeded()
 
         #expect(viewController.title == "关于")
-        #expect(viewController.tableView.numberOfRows(inSection: 0) == 6)
+        #expect(viewController.tableView.numberOfRows(inSection: 0) == 7)
 
         let appVersionCell = try #require(viewController.tableView.dataSource?.tableView(
             viewController.tableView,
             cellForRowAt: IndexPath(row: 0, section: 0)
         ))
-        let buildNumberCell = try #require(viewController.tableView.dataSource?.tableView(
+        let authorCell = try #require(viewController.tableView.dataSource?.tableView(
             viewController.tableView,
             cellForRowAt: IndexPath(row: 1, section: 0)
         ))
-        let gitCell = try #require(viewController.tableView.dataSource?.tableView(
+        let buildNumberCell = try #require(viewController.tableView.dataSource?.tableView(
             viewController.tableView,
             cellForRowAt: IndexPath(row: 2, section: 0)
         ))
-        let repositoryCell = try #require(viewController.tableView.dataSource?.tableView(
+        let gitCell = try #require(viewController.tableView.dataSource?.tableView(
             viewController.tableView,
             cellForRowAt: IndexPath(row: 3, section: 0)
         ))
-        let workflowCell = try #require(viewController.tableView.dataSource?.tableView(
+        let repositoryCell = try #require(viewController.tableView.dataSource?.tableView(
             viewController.tableView,
             cellForRowAt: IndexPath(row: 4, section: 0)
         ))
-        let githubCell = try #require(viewController.tableView.dataSource?.tableView(
+        let workflowCell = try #require(viewController.tableView.dataSource?.tableView(
             viewController.tableView,
             cellForRowAt: IndexPath(row: 5, section: 0)
+        ))
+        let githubCell = try #require(viewController.tableView.dataSource?.tableView(
+            viewController.tableView,
+            cellForRowAt: IndexPath(row: 6, section: 0)
         ))
 
         #expect(appVersionCell.textLabel?.text == "版本")
         #expect(appVersionCell.detailTextLabel?.text == "1.0.1")
+        #expect(authorCell.textLabel?.text == "作者")
+        #expect(authorCell.detailTextLabel?.text == "Zeu1s")
         #expect(buildNumberCell.textLabel?.text == "Build")
         #expect(buildNumberCell.detailTextLabel?.text == "42")
         #expect(gitCell.textLabel?.text == "Git")
         #expect(gitCell.detailTextLabel?.text == "abcdef1")
         #expect(repositoryCell.textLabel?.text == "仓库")
-        #expect(repositoryCell.detailTextLabel?.text == "https://github.com/tyrad/nodeseek")
+        #expect(repositoryCell.detailTextLabel?.text == "https://github.com/Zeu1s/ns-gui-1.0.7-trollstore")
         #expect(repositoryCell.accessoryType == .disclosureIndicator)
         #expect(workflowCell.textLabel?.text == "Workflow")
         #expect(workflowCell.detailTextLabel?.text == "TestFlight #25443881348")
         #expect(githubCell.textLabel?.text == "GitHub")
-        #expect(githubCell.detailTextLabel?.text == "https://github.com/tyrad/nodeseek/actions/runs/25443881348")
+        #expect(githubCell.detailTextLabel?.text == "https://github.com/Zeu1s/ns-gui-1.0.7-trollstore/actions/runs/25443881348")
     }
 
     @Test func selectingAutoCheckInPushesModuleSettingsScreen() throws {
@@ -895,7 +901,7 @@ private extension SettingsBuildInfo {
         gitSHA: "abcdef1234567890",
         workflowName: "TestFlight",
         githubRunID: "25443881348",
-        githubRunURL: URL(string: "https://github.com/tyrad/nodeseek/actions/runs/25443881348")
+        githubRunURL: URL(string: "https://github.com/Zeu1s/ns-gui-1.0.7-trollstore/actions/runs/25443881348")
     )
 }
 

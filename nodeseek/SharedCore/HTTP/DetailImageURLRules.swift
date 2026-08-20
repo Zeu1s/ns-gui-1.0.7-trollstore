@@ -145,9 +145,12 @@ enum DetailImageURLRules {
 }
 
 extension DetailImageKind {
-    static func resolved(isSticker: Bool, imageURL _: URL?) -> DetailImageKind {
+    static func resolved(isSticker: Bool, imageURL: URL?) -> DetailImageKind {
         if isSticker {
             return .sticker
+        }
+        if let imageURL, DetailImageURLRules.isCheckPlaceReportSVG(imageURL) {
+            return .report
         }
         return .normal
     }

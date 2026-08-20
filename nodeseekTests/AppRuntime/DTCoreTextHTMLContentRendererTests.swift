@@ -1055,14 +1055,14 @@ struct DTCoreTextHTMLContentRendererTests {
             baseURL: baseURL,
             maxImageWidth: 240
         )
-        let renderedText = combinedText(in: blocks)
+        let tabs = magicTabs(in: blocks)
+        let basicInfo = try #require(tabs.first)
+        let ipQuality = try #require(tabs.dropFirst().first)
 
-        #expect(renderedText.contains("💻基本信息"))
-        #expect(renderedText.contains("一、操作系统信息"))
-        #expect(renderedText.contains("🎬IP质量"))
-        #expect(renderedText.contains("IP质量内容"))
-        #expect(renderedText.contains("🌐网络质量"))
-        #expect(renderedText.contains("📍回程路由"))
+        #expect(blocks.count == 1)
+        #expect(tabs.map(\.title) == ["💻基本信息", "🎬IP质量", "🌐网络质量", "📍回程路由"])
+        #expect(combinedText(in: basicInfo.blocks).contains("一、操作系统信息"))
+        #expect(combinedText(in: ipQuality.blocks).contains("IP质量内容"))
         #expect(imageURLs(in: blocks).map(\.absoluteString) == [
             "https://i.111666.best/image/network.webp",
             "https://i.111666.best/image/route.webp",
@@ -1106,17 +1106,16 @@ struct DTCoreTextHTMLContentRendererTests {
             baseURL: baseURL,
             maxImageWidth: 240
         )
+        let tabs = magicTabs(in: blocks)
+        let basicInfo = try #require(tabs.first)
+        let ipQuality = try #require(tabs.dropFirst().first)
         let renderedText = combinedText(in: blocks)
         let unsupportedReasons = unsupportedReasons(in: blocks)
 
-        #expect(renderedText.contains("💻基本信息"))
-        #expect(renderedText.contains("硬件质量体检报告") == false)
-        #expect(renderedText.contains("https://github.com/xykt/HardwareQuality") == false)
-        #expect(renderedText.contains("🎬IP质量"))
-        #expect(renderedText.contains("IP质量体检报告") == false)
-        #expect(renderedText.contains("报告链接：https://Report.Check.Place/ip/demo.svg") == false)
-        #expect(renderedText.contains("🌐网络质量"))
-        #expect(renderedText.contains("📍回程路由"))
+        #expect(blocks.count == 1)
+        #expect(tabs.map(\.title) == ["💻基本信息", "🎬IP质量", "🌐网络质量", "📍回程路由"])
+        #expect(combinedText(in: basicInfo.blocks).contains("硬件质量体检报告") == false)
+        #expect(combinedText(in: ipQuality.blocks).contains("IP质量体检报告") == false)
         #expect(renderedText.contains("xterm-fg-1") == false)
         #expect(renderedText.contains("hidden helper") == false)
         #expect(unsupportedReasons == [
@@ -1150,10 +1149,13 @@ struct DTCoreTextHTMLContentRendererTests {
             baseURL: baseURL,
             maxImageWidth: 240
         )
+        let tabs = magicTabs(in: blocks)
+        let ipQuality = try #require(tabs.first)
         let renderedText = combinedText(in: blocks)
 
-        #expect(renderedText.contains("🎬IP质量"))
-        #expect(renderedText.contains("IP质量体检报告：69.63.*.*"))
+        #expect(blocks.count == 1)
+        #expect(tabs.map(\.title) == ["🎬IP质量", "🌐网络质量"])
+        #expect(combinedText(in: ipQuality.blocks).contains("IP质量体检报告：69.63.*.*"))
         #expect(renderedText.contains("https://github.com/xykt/IPQuality"))
         #expect(renderedText.contains("报告链接：https://Report.Check.Place/ip/demo.svg"))
         #expect(renderedText.contains("[1m") == false)
@@ -1210,11 +1212,14 @@ struct DTCoreTextHTMLContentRendererTests {
             baseURL: baseURL,
             maxImageWidth: 320
         )
+        let tabs = magicTabs(in: blocks)
+        let ipQuality = try #require(tabs.dropFirst().first)
         let renderedText = combinedText(in: blocks)
         let images = imageBlocks(in: blocks)
 
-        #expect(renderedText.contains("💻基本信息"))
-        #expect(renderedText.contains("IP质量体检报告"))
+        #expect(blocks.count == 1)
+        #expect(tabs.map(\.title) == ["💻基本信息", "🎬IP质量", "🌐网络质量", "📍回程路由"])
+        #expect(combinedText(in: ipQuality.blocks).contains("IP质量体检报告"))
         #expect(renderedText.contains("IP质量体检报告(Lite)"))
         #expect(renderedText.contains("🌐网络质量"))
         #expect(renderedText.contains("📍回程路由"))
@@ -1417,6 +1422,12 @@ struct DTCoreTextHTMLContentRendererTests {
                 if let font = font(in: quoteBlock.children, matching: text) {
                     return font
                 }
+            case .magicTabs(let magicTabs):
+                for tab in magicTabs.tabs {
+                    if let font = font(in: tab.blocks, matching: text) {
+                        return font
+                    }
+                }
             case .table, .codeBlock, .image, .iframeLink, .imagePlaceholder, .unsupported:
                 continue
             }
@@ -1432,6 +1443,12 @@ struct DTCoreTextHTMLContentRendererTests {
             case .quote(let quoteBlock):
                 if let attributed = attributedText(in: quoteBlock.children, matching: text) {
                     return attributed
+                }
+            case .magicTabs(let magicTabs):
+                for tab in magicTabs.tabs {
+                    if let attributed = attributedText(in: tab.blocks, matching: text) {
+                        return attributed
+                    }
                 }
             case .text, .table, .codeBlock, .image, .iframeLink, .imagePlaceholder, .unsupported:
                 continue
@@ -1449,6 +1466,10 @@ struct DTCoreTextHTMLContentRendererTests {
                 return codeBlock.text
             case .quote(let quoteBlock):
                 return combinedText(in: quoteBlock.children)
+            case .magicTabs(let magicTabs):
+                return magicTabs.tabs.map { tab in
+                    "\(tab.title)\n\(combinedText(in: tab.blocks))"
+                }.joined(separator: "\n")
             default:
                 return nil
             }
@@ -1462,6 +1483,8 @@ struct DTCoreTextHTMLContentRendererTests {
                 return [codeBlock]
             case .quote(let quoteBlock):
                 return codeBlocks(in: quoteBlock.children)
+            case .magicTabs(let magicTabs):
+                return magicTabs.tabs.flatMap { codeBlocks(in: $0.blocks) }
             case .text, .table, .image, .iframeLink, .imagePlaceholder, .unsupported:
                 return []
             }
@@ -1469,9 +1492,17 @@ struct DTCoreTextHTMLContentRendererTests {
     }
 
     private func unsupportedReasons(in blocks: [RenderedContentBlock]) -> [String] {
-        blocks.compactMap { block in
-            guard case let .unsupported(reason) = block else { return nil }
-            return reason
+        blocks.flatMap { block -> [String] in
+            switch block {
+            case .unsupported(let reason):
+                return [reason]
+            case .quote(let quoteBlock):
+                return unsupportedReasons(in: quoteBlock.children)
+            case .magicTabs(let magicTabs):
+                return magicTabs.tabs.flatMap { unsupportedReasons(in: $0.blocks) }
+            case .text, .table, .codeBlock, .image, .iframeLink, .imagePlaceholder:
+                return []
+            }
         }
     }
 
@@ -1482,6 +1513,8 @@ struct DTCoreTextHTMLContentRendererTests {
                 return [imageBlock]
             case .quote(let quoteBlock):
                 return imageBlocks(in: quoteBlock.children)
+            case .magicTabs(let magicTabs):
+                return magicTabs.tabs.flatMap { imageBlocks(in: $0.blocks) }
             case .text, .table, .codeBlock, .iframeLink, .imagePlaceholder, .unsupported:
                 return []
             }
@@ -1496,6 +1529,10 @@ struct DTCoreTextHTMLContentRendererTests {
                 urls.append(imageBlock.url)
             case .quote(let quoteBlock):
                 urls.append(contentsOf: imageURLs(in: quoteBlock.children))
+            case .magicTabs(let magicTabs):
+                for tab in magicTabs.tabs {
+                    urls.append(contentsOf: imageURLs(in: tab.blocks))
+                }
             case .text(let attributed):
                 attributed.enumerateAttribute(
                     .attachment,
@@ -1516,9 +1553,28 @@ struct DTCoreTextHTMLContentRendererTests {
 
     private func maxQuoteDepth(in blocks: [RenderedContentBlock]) -> Int {
         blocks.map { block -> Int in
-            guard case .quote(let quoteBlock) = block else { return 0 }
-            return 1 + maxQuoteDepth(in: quoteBlock.children)
+            switch block {
+            case .quote(let quoteBlock):
+                return 1 + maxQuoteDepth(in: quoteBlock.children)
+            case .magicTabs(let magicTabs):
+                return magicTabs.tabs.map { maxQuoteDepth(in: $0.blocks) }.max() ?? 0
+            case .text, .table, .codeBlock, .image, .iframeLink, .imagePlaceholder, .unsupported:
+                return 0
+            }
         }.max() ?? 0
+    }
+
+    private func magicTabs(in blocks: [RenderedContentBlock]) -> [RenderedMagicTab] {
+        blocks.flatMap { block -> [RenderedMagicTab] in
+            switch block {
+            case .magicTabs(let magicTabs):
+                return magicTabs.tabs
+            case .quote(let quoteBlock):
+                return magicTabs(in: quoteBlock.children)
+            case .text, .table, .codeBlock, .image, .iframeLink, .imagePlaceholder, .unsupported:
+                return []
+            }
+        }
     }
 }
 

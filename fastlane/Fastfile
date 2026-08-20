@@ -9,7 +9,7 @@ default_platform(:ios)
 ROOT = File.expand_path("..", __dir__)
 PROJECT = File.join(ROOT, "nodeseek.xcodeproj")
 SCHEME = "nodeseek"
-APP_IDENTIFIER = ENV["APP_IDENTIFIER"] || "com.mistj.nodeseek"
+APP_IDENTIFIER = ENV["APP_IDENTIFIER"] || "com.zeu1s.nodeseek"
 APP_STORE_CONNECT_APP_ID = ENV["APP_STORE_CONNECT_APP_ID"]
 INFO_PLIST = File.join(ROOT, "nodeseek/Resources/Info.plist")
 BUILD_DIR = File.join(ROOT, "build")

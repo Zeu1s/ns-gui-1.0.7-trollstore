@@ -39,7 +39,7 @@ final class NewDiscussionViewController: UIViewController {
     private let titleField = UITextField()
     private let categoryButton = UIButton(type: .system)
     private let visibilityButton = UIButton(type: .system)
-    private let editorTextView = UITextView()
+    private let editorTextView = FormattingTextView()
     private let editorPlaceholderLabel = UILabel()
     private let activityIndicator = UIActivityIndicatorView(style: .medium)
 
@@ -261,7 +261,7 @@ final class NewDiscussionViewController: UIViewController {
 
     @objc private func submitTapped() {
         let title = titleField.text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        let content = editorTextView.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let content = editorTextView.formattedSubmissionText().trimmingCharacters(in: .whitespacesAndNewlines)
         guard title.isEmpty == false else {
             presentError("标题不能为空。")
             return
@@ -447,8 +447,7 @@ final class NewDiscussionViewController: UIViewController {
                     apiKey: apiKey
                 )
                 guard let self, Task.isCancelled == false else { return }
-                let existing = editorTextView.text.trimmingCharacters(in: .whitespacesAndNewlines)
-                editorTextView.text = existing.isEmpty ? result.markdownText : "\(existing)\n\(result.markdownText)"
+                editorTextView.insertSubmissionText(result.markdownText, separatedByNewlines: true)
                 editorPlaceholderLabel.isHidden = true
             } catch {
                 guard let self, Task.isCancelled == false else { return }

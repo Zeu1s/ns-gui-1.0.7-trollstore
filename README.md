@@ -2,13 +2,13 @@
 
 ![Swift](https://img.shields.io/badge/Swift-5.9-F05138?logo=swift&logoColor=white)
 ![iOS](https://img.shields.io/badge/iOS-15%2B-000000?logo=apple&logoColor=white)
-![License](https://img.shields.io/github/license/Zeu1s/ns-connect-1.0.7-trollstore)
+![License](https://img.shields.io/github/license/Zeu1s/ns-gui-1.0.7-trollstore)
 
 NodeSeek iOS 是一个非官方三方 iOS 客户端，使用 UIKit 构建，通过 HTML/XPath 解析提供原生浏览、帖子详情、登录态复用、回复、图片查看和 NodeImage 图片上传等能力。
 
 本项目不隶属于 NodeSeek，也不代表 NodeSeek 官方。用户登录、授权和内容访问均发生在用户自己的 NodeSeek / NodeImage 账号上下文中。
 
-> 最新安装包请到 [Releases](https://github.com/Zeu1s/ns-connect-1.0.7-trollstore/releases/latest) 下载，TrollStore 可直接安装，无需 Apple 开发者证书，也无需 TestFlight。
+> 最新安装包请到 [Releases](https://github.com/Zeu1s/ns-gui-1.0.7-trollstore/releases/latest) 下载，TrollStore 可直接安装，无需 Apple 开发者证书，也无需 TestFlight。
 
 ## 功能
 
@@ -31,7 +31,7 @@ NodeSeek iOS 是一个非官方三方 iOS 客户端，使用 UIKit 构建，通�
 
 ## 安装（TrollStore）
 
-1. 前往 [Releases](https://github.com/Zeu1s/ns-connect-1.0.7-trollstore/releases/latest) 下载 `NS-Connect-2.4.0-trollstore.ipa`。
+1. 前往 [Releases](https://github.com/Zeu1s/ns-gui-1.0.7-trollstore/releases/latest) 下载 `NS-Connect-3.0.0-trollstore.ipa`。
 2. 将 IPA 发送到 iPhone（AirDrop / 网盘 / 文件 App）。
 3. 使用 TrollStore 打开并安装。
 4. 首次使用在 App 内登录 NodeSeek，并在设置中完成 NodeImage 图床授权（私信/回帖发图需要）。
@@ -54,7 +54,7 @@ TrollStore IPA 使用 GitHub Actions 构建，无需 Mac：
 
 1. 将本仓库 fork 或推送到你自己的 GitHub 仓库。
 2. 打开 **Actions** → **Build TrollStore IPA** → **Run workflow**。
-3. 构建完成后下载 `NS-Connect-1.0.7-trollstore-ipa` 工件，解压得到 IPA。
+3. 构建完成后下载 `NS-Connect-3.0.0-trollstore-ipa` 工件，解压得到 IPA。
 
 工作流在 macOS 构建机上编译未签名 App，再用 `ldid` 伪签名并打包上传。此流程不需要 Apple Developer 证书；源码不会上传任何账号 Cookie 或密钥。
 

@@ -345,7 +345,7 @@ extension PostDetailViewController {
         let startedAt = Date()
         let rawText = replyTextView.text ?? ""
         AppLog.info(.postDetail, "发送回复按钮点击: rawLength=\(rawText.count), trimmedLength=\(rawText.trimmingCharacters(in: .whitespacesAndNewlines).count), replies=\(replyComposerMode.replies.count), quotes=\(replyComposerMode.quotes.count), buttonEnabled=\(inlineReplySendButton.isEnabled), buttonUserInteraction=\(inlineReplySendButton.isUserInteractionEnabled), editorEditable=\(replyTextView.isEditable)")
-        guard let content = Self.trimmedNonEmpty(replyTextView.text) else {
+        guard let content = Self.trimmedNonEmpty(replyTextView.formattedSubmissionText()) else {
             AppLog.warning(.postDetail, "发送回复中止: 内容为空, elapsedMs=\(AppLog.elapsedMilliseconds(since: startedAt))")
             showError(message: "回复内容不能为空。")
             return
@@ -384,13 +384,7 @@ extension PostDetailViewController {
     }
 
     func insertStickerToken(_ token: String) {
-        let result = StickerTokenInsertion.inserting(
-            token: token,
-            into: replyTextView.text ?? "",
-            selectedRange: replyTextView.selectedRange
-        )
-        replyTextView.text = result.text
-        replyTextView.selectedRange = result.selectedRange
+        replyTextView.insertSubmissionText(token)
     }
 
     func setStickerPickerVisible(_ isVisible: Bool, animated: Bool) {

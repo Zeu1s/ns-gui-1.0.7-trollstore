@@ -9,6 +9,85 @@ import Foundation
 import Kanna
 
 extension DTCoreTextHTMLContentRenderer {
+    /// 将 NodeSeek 的网页标签转换为原生可切换的内容块，不再按顺序拍平所有页签。
+    func renderNodeSeekMagicTabs(
+        in fragment: String,
+        baseURL: URL,
+        maxImageWidth: CGFloat
+    ) -> [RenderedContentBlock]? {
+        guard fragment.contains("nsk-magic-tabs"),
+              let document = try? HTML(
+                html: "<div id=\"__nodeseek_fragment_root__\">\(fragment)</div>",
+                encoding: .utf8
+              ),
+              let root = document.at_css("#__nodeseek_fragment_root__") else {
+            return nil
+        }
+
+        var blocks: [RenderedContentBlock] = []
+        var pendingHTML = ""
+
+        func flushPendingHTML() {
+            guard pendingHTML.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false else {
+                pendingHTML.removeAll(keepingCapacity: true)
+                return
+            }
+            blocks.append(contentsOf: renderContentBlocks(
+                fragment: pendingHTML,
+                baseURL: baseURL,
+                maxImageWidth: maxImageWidth
+            ))
+            pendingHTML.removeAll(keepingCapacity: true)
+        }
+
+        for child in root.children {
+            if hasClass("nsk-magic-tabs", in: child) {
+                flushPendingHTML()
+                if let tabs = magicTabsBlock(from: child, baseURL: baseURL, maxImageWidth: maxImageWidth) {
+                    blocks.append(.magicTabs(tabs))
+                }
+            } else if let html = child.toHTML {
+                pendingHTML.append(html)
+            }
+        }
+        flushPendingHTML()
+        return blocks.isEmpty ? nil : blocks
+    }
+
+    private func magicTabsBlock(
+        from node: XMLElement,
+        baseURL: URL,
+        maxImageWidth: CGFloat
+    ) -> RenderedMagicTabsBlock? {
+        var tabs: [RenderedMagicTab] = []
+        var pendingTitle: String?
+
+        for child in node.children {
+            if hasClass("nsk-magic-tab-title", in: child) {
+                pendingTitle = child.text?.trimmingCharacters(in: .whitespacesAndNewlines)
+                continue
+            }
+
+            guard hasClass("nsk-magic-tab-body", in: child),
+                  let title = pendingTitle,
+                  title.isEmpty == false else {
+                continue
+            }
+            let bodyHTML = child.innerHTML ?? child.text ?? ""
+            let blocks = renderContentBlocks(
+                fragment: simplifiedMagicTabBodyHTML(bodyHTML),
+                baseURL: baseURL,
+                maxImageWidth: maxImageWidth
+            )
+            if blocks.isEmpty == false {
+                tabs.append(RenderedMagicTab(title: title, blocks: blocks))
+            }
+            pendingTitle = nil
+        }
+
+        return tabs.isEmpty ? nil : RenderedMagicTabsBlock(tabs: tabs)
+    }
+
     func expandNodeSeekMagicTabs(in fragment: String) -> String {
         guard fragment.contains("nsk-magic-tabs") else { return fragment }
         guard let document = try? HTML(

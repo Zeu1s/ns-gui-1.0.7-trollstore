@@ -533,7 +533,7 @@ final class PostBodyCellNode: ASCellNode, ThemeRefreshableNode {
     private func configureChickenLegActionButton(count: Int?, isClicked: Bool) {
         configureActionButton(
             chickenLegButtonNode,
-            systemImageName: "fork.knife",
+            systemImageName: "circle",
             accessibilityLabel: "加鸡腿",
             count: count,
             color: Self.chickenLegActionColor(isClicked: isClicked),

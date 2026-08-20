@@ -350,8 +350,10 @@ extension PostDetailViewController {
     }
 
     func indexPathForCurrentPageAnchor(_ anchorID: String) -> IndexPath? {
+        let normalizedAnchorID = normalizedAnchorText(anchorID)
         if let commentIndex = comments.firstIndex(where: { comment in
-            comment.anchorID == anchorID || comment.floorText == "#\(anchorID)"
+            normalizedAnchorText(comment.anchorID) == normalizedAnchorID
+                || normalizedAnchorText(comment.floorText) == normalizedAnchorID
         }), let row = detailRows.firstIndex(where: {
             if case .comment(let index) = $0 {
                 return index == commentIndex

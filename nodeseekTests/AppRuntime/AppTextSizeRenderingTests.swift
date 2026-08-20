@@ -37,6 +37,12 @@ struct AppTextSizeRenderingTests {
                 if let font = renderedFont(in: quoteBlock.children, matching: text) {
                     return font
                 }
+            case .magicTabs(let magicTabs):
+                for tab in magicTabs.tabs {
+                    if let font = renderedFont(in: tab.blocks, matching: text) {
+                        return font
+                    }
+                }
             case .table, .codeBlock, .image, .iframeLink, .imagePlaceholder, .unsupported:
                 continue
             }

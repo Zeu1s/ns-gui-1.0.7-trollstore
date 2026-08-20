@@ -115,6 +115,27 @@ enum DetailContentBlockNodeFactory {
                     onImageHeightReduced: onImageHeightReduced,
                     onLayoutInvalidated: onTextLayoutInvalidated
                 )
+            case .magicTabs(let magicTabs):
+                var tabs: [DetailMagicTabsNode.Tab] = []
+                for tab in magicTabs.tabs {
+                    let bodyNodes = makeNodes(
+                        from: tab.blocks,
+                        imageURLs: imageURLs,
+                        imageIndex: &imageIndex,
+                        onImageTapped: onImageTapped,
+                        onLinkTapped: onLinkTapped,
+                        onSignatureLinkCandidatesTapped: onSignatureLinkCandidatesTapped,
+                        onTextLayoutInvalidated: onTextLayoutInvalidated,
+                        imageSizeProvider: imageSizeProvider,
+                        onImageSizeResolved: onImageSizeResolved,
+                        onImageHeightReduced: onImageHeightReduced
+                    )
+                    if bodyNodes.isEmpty == false {
+                        tabs.append(DetailMagicTabsNode.Tab(title: tab.title, bodyNodes: bodyNodes))
+                    }
+                }
+                guard tabs.isEmpty == false else { return nil }
+                return DetailMagicTabsNode(tabs: tabs, onLayoutInvalidated: onTextLayoutInvalidated)
             case .iframeLink(let iframeBlock):
                 return DetailIFrameLinkNode(
                     iframeBlock: iframeBlock,
@@ -150,6 +171,8 @@ enum DetailContentBlockNodeFactory {
                 return [imageBlock.url]
             case .quote(let quoteBlock):
                 return imageURLs(in: quoteBlock.children)
+            case .magicTabs(let magicTabs):
+                return magicTabs.tabs.flatMap { imageURLs(in: $0.blocks) }
             case .text, .table, .codeBlock, .iframeLink, .imagePlaceholder, .unsupported:
                 return []
             }

@@ -49,6 +49,15 @@ struct RenderedImageBlock: Equatable {
     let altText: String?
 }
 
+struct RenderedMagicTab {
+    let title: String
+    let blocks: [RenderedContentBlock]
+}
+
+struct RenderedMagicTabsBlock {
+    let tabs: [RenderedMagicTab]
+}
+
 struct RenderedIFrameLinkBlock: Equatable {
     let source: String
     let displayDomain: String
@@ -70,6 +79,7 @@ enum RenderedContentBlock {
     case table(RenderedTableBlock)
     case codeBlock(RenderedCodeBlock)
     case image(RenderedImageBlock)
+    indirect case magicTabs(RenderedMagicTabsBlock)
     case iframeLink(RenderedIFrameLinkBlock)
     case imagePlaceholder(URL?)
     case unsupported(reason: String)

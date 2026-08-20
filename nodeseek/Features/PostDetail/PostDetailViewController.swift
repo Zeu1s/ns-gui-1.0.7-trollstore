@@ -466,8 +466,8 @@ class PostDetailViewController: UIViewController {
 
     let replyContextBarMaximumHeight: CGFloat = 86
 
-    let replyTextView: UITextView = {
-        let textView = UITextView()
+    let replyTextView: FormattingTextView = {
+        let textView = FormattingTextView()
         textView.font = .preferredFont(forTextStyle: .body)
         textView.backgroundColor = .secondarySystemBackground
         textView.layer.cornerRadius = 12

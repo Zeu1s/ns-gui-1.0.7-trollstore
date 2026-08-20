@@ -153,14 +153,17 @@ struct DTCoreTextHTMLContentRenderer {
         logDiagnostics(
             "render start fragmentLength=\(fragment.count) hasMagicTabs=\(fragment.contains("nsk-magic-tabs")) maxImageWidth=\(numberString(maxImageWidth))"
         )
-        let expandedFragment = expandNodeSeekMagicTabs(in: fragment)
-        let normalizedVideoFragment = normalizeVideoStickerSources(in: expandedFragment, baseURL: baseURL)
+        let normalizedVideoFragment = normalizeVideoStickerSources(in: fragment, baseURL: baseURL)
         let normalizedFragment = normalizeImageSources(in: normalizedVideoFragment, baseURL: baseURL)
         logDiagnostics(
-            "render normalized expandedLength=\(expandedFragment.count) normalizedLength=\(normalizedFragment.count)"
+            "render normalized sourceLength=\(fragment.count) normalizedLength=\(normalizedFragment.count)"
         )
 
-        let blocks = renderContentBlocks(
+        let blocks = renderNodeSeekMagicTabs(
+            in: normalizedFragment,
+            baseURL: baseURL,
+            maxImageWidth: maxImageWidth
+        ) ?? renderContentBlocks(
             fragment: normalizedFragment,
             baseURL: baseURL,
             maxImageWidth: maxImageWidth

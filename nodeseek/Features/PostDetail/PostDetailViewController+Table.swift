@@ -250,6 +250,15 @@ extension PostDetailViewController: ASTableDataSource, ASTableDelegate {
                     onQuoteTapped: { comment in
                         self?.handleQuote(comment)
                     },
+                    onReplyReferenceTapped: { referencedComment in
+                        let anchorID = referencedComment.anchorID
+                            ?? referencedComment.floorText?.trimmingCharacters(in: CharacterSet(charactersIn: "# "))
+                        guard let anchorID,
+                              anchorID.isEmpty == false else {
+                            return
+                        }
+                        self?.scrollToCurrentPageAnchor(anchorID)
+                    },
                     onTextLayoutInvalidated: {
                         self?.scheduleAttachmentLayoutRefresh()
                     },

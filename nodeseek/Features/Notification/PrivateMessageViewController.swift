@@ -20,7 +20,7 @@ final class PrivateMessageViewController: UIViewController {
     private let refreshControl = UIRefreshControl()
     private let emptyLabel = UILabel()
     private let inputBar = UIView()
-    private let messageTextView = UITextView()
+    private let messageTextView = FormattingTextView()
     private let markdownLabel = UILabel()
     private let markdownSwitch = UISwitch()
     private let imageButton = UIButton(type: .system)
@@ -236,7 +236,7 @@ final class PrivateMessageViewController: UIViewController {
     }
 
     private func sendCurrentMessage() {
-        let content = messageTextView.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let content = messageTextView.formattedSubmissionText().trimmingCharacters(in: .whitespacesAndNewlines)
         guard content.isEmpty == false, isSending == false else { return }
 
         isSending = true
@@ -371,8 +371,7 @@ final class PrivateMessageViewController: UIViewController {
                     apiKey: apiKey
                 )
                 guard let self, Task.isCancelled == false else { return }
-                let existing = messageTextView.text.trimmingCharacters(in: .whitespacesAndNewlines)
-                messageTextView.text = existing.isEmpty ? result.markdownText : "\(existing)\n\(result.markdownText)"
+                messageTextView.insertSubmissionText(result.markdownText, separatedByNewlines: true)
                 markdownSwitch.setOn(true, animated: true)
                 messageTextView.becomeFirstResponder()
             } catch {

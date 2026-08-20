@@ -94,6 +94,14 @@ extension PostDetailViewController {
                 styledSignatureBlock(child)
             }
             return children.isEmpty ? nil : .quote(RenderedQuoteBlock(children: children))
+        case .magicTabs(let magicTabs):
+            let tabs = magicTabs.tabs.map { tab in
+                RenderedMagicTab(
+                    title: tab.title,
+                    blocks: tab.blocks.compactMap(styledSignatureBlock)
+                )
+            }.filter { $0.blocks.isEmpty == false }
+            return tabs.isEmpty ? nil : .magicTabs(RenderedMagicTabsBlock(tabs: tabs))
         case .table, .codeBlock, .image, .iframeLink, .imagePlaceholder, .unsupported:
             return block
         }

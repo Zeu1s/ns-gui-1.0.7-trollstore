@@ -35,7 +35,7 @@ final class StickerAspectRatioCache: StickerAspectRatioProviding, @unchecked Sen
     private let maxDirtyBeforeFlush: Int
     private let writeDelay: TimeInterval
     private let lock = NSLock()
-    private let writeQueue = DispatchQueue(label: "com.mistj.nodeseek.sticker-aspect-ratio-cache", qos: .utility)
+    private let writeQueue = DispatchQueue(label: "com.zeu1s.nodeseek.sticker-aspect-ratio-cache", qos: .utility)
 
     private var entries: [String: Entry]
     private var dirtyCount = 0

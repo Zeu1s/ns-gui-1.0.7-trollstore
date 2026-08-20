@@ -166,25 +166,7 @@ extension PostDetailViewController {
     }
 
     func insertReplyText(_ insertedText: String) {
-        let currentText = replyTextView.text ?? ""
-        let range = replyTextView.selectedRange
-        guard let textRange = Range(range, in: currentText) else {
-            replyTextView.text = currentText + insertedText
-            replyTextView.selectedRange = NSRange(location: replyTextView.text.count, length: 0)
-            return
-        }
-
-        let prefix = currentText[..<textRange.lowerBound]
-        let suffix = currentText[textRange.upperBound...]
-        let needsLeadingNewline = prefix.isEmpty == false && prefix.last?.isNewline == false
-        let needsTrailingNewline = suffix.isEmpty == false && suffix.first?.isNewline == false
-        let replacement = [
-            needsLeadingNewline ? "\n" : "",
-            insertedText,
-            needsTrailingNewline ? "\n" : ""
-        ].joined()
-        replyTextView.text = String(prefix) + replacement + String(suffix)
-        replyTextView.selectedRange = NSRange(location: String(prefix).count + replacement.count, length: 0)
+        replyTextView.insertSubmissionText(insertedText, separatedByNewlines: true)
     }
 }
 

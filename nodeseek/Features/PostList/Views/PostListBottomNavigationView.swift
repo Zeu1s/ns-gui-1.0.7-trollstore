@@ -100,7 +100,7 @@ final class PostListBottomNavigationView: UIView {
 
     func refreshDisplayScale() {
         layer.cornerRadius = 0
-        selectionPillView.layer.cornerRadius = AppDisplayScaleSettings.scaled(18)
+        selectionPillView.layer.cornerRadius = AppDisplayScaleSettings.scaled(14)
         messageUnreadBadge.layer.cornerRadius = AppDisplayScaleSettings.scaled(6)
         stackLeadingConstraint?.constant = AppDisplayScaleSettings.scaled(8)
         stackTrailingConstraint?.constant = -AppDisplayScaleSettings.scaled(8)
@@ -131,7 +131,7 @@ final class PostListBottomNavigationView: UIView {
         ])
 
         selectionPillView.backgroundColor = Style.selectedBackground
-        selectionPillView.layer.cornerRadius = AppDisplayScaleSettings.scaled(18)
+        selectionPillView.layer.cornerRadius = AppDisplayScaleSettings.scaled(14)
         selectionPillView.isUserInteractionEnabled = false
         selectionPillView.translatesAutoresizingMaskIntoConstraints = true
         selectionPillView.frame = .zero
@@ -217,8 +217,8 @@ final class PostListBottomNavigationView: UIView {
         guard let button = buttons[selectedItem] else { return }
         let target = button.convert(button.bounds, to: self)
         let frame = target.insetBy(
-            dx: AppDisplayScaleSettings.scaled(6),
-            dy: AppDisplayScaleSettings.scaled(6)
+            dx: AppDisplayScaleSettings.scaled(8),
+            dy: AppDisplayScaleSettings.scaled(7)
         )
         let apply: () -> Void = { [weak self] in
             guard let self else { return }
@@ -242,7 +242,7 @@ final class PostListBottomNavigationView: UIView {
         isSelected: Bool
     ) {        guard let button else { return }
         let symbolConfiguration = UIImage.SymbolConfiguration(
-            pointSize: AppDisplayScaleSettings.scaled(19),
+            pointSize: AppDisplayScaleSettings.scaled(17),
             weight: isSelected ? .semibold : .regular
         )
         var configuration = UIButton.Configuration.plain()
@@ -252,18 +252,18 @@ final class PostListBottomNavigationView: UIView {
         )
         configuration.title = item.title
         configuration.imagePlacement = .top
-        configuration.imagePadding = AppDisplayScaleSettings.scaled(2)
+        configuration.imagePadding = AppDisplayScaleSettings.scaled(1)
         configuration.contentInsets = NSDirectionalEdgeInsets(
-            top: AppDisplayScaleSettings.scaled(5),
+            top: AppDisplayScaleSettings.scaled(4),
             leading: AppDisplayScaleSettings.scaled(2),
-            bottom: AppDisplayScaleSettings.scaled(5),
+            bottom: AppDisplayScaleSettings.scaled(4),
             trailing: AppDisplayScaleSettings.scaled(2)
         )
         configuration.baseForegroundColor = isSelected ? Style.selectedForeground : .label
         configuration.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { incoming in
             var outgoing = incoming
             outgoing.font = UIFont.systemFont(
-                ofSize: AppDisplayScaleSettings.scaled(13),
+                ofSize: AppDisplayScaleSettings.scaled(11),
                 weight: isSelected ? .semibold : .medium
             )
             return outgoing

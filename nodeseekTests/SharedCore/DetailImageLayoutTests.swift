@@ -120,10 +120,10 @@ struct DetailImageLayoutTests {
         #expect(DetailImageURLRules.imageURLs(in: "汇率图：\(url.absoluteString)。") == [url])
     }
 
-    @Test func imageKindResolutionDoesNotClassifyReportsByURLPath() throws {
+    @Test func imageKindResolutionClassifiesCheckPlaceReportsByURLPath() throws {
         let reportURL = try #require(URL(string: "https://report.check.place/ip/NPR7IUKQC.svg"))
 
-        #expect(DetailImageKind.resolved(isSticker: false, imageURL: reportURL) == .normal)
+        #expect(DetailImageKind.resolved(isSticker: false, imageURL: reportURL) == .report)
     }
 
     @Test func stickerURLRulesUsePathNotQueryText() throws {

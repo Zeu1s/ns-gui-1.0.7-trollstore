@@ -9,12 +9,15 @@ nonisolated struct NodeSeekUserInfo: Equatable, Sendable {
     let userID: Int
     let username: String?
     let createdAt: Date?
+    let bio: String? = nil
     let joinDays: Int
     let level: Int
     let coin: Int
     let stardust: Int
     let nPost: Int
     let nComment: Int
+    let follows: Int = 0
+    let fans: Int = 0
 
     var badgeText: String {
         "Lv \(level) · \(joinDays)天"
@@ -111,12 +114,15 @@ final class NodeSeekUserInfoClient: NodeSeekUserInfoLoading {
             userID: userID,
             username: detail.username,
             createdAt: createdAt,
+            bio: detail.bio,
             joinDays: joinDays,
             level: max(0, level),
             coin: coin,
             stardust: max(0, detail.stardust ?? 0),
             nPost: max(0, detail.nPost ?? 0),
-            nComment: max(0, detail.nComment ?? 0)
+            nComment: max(0, detail.nComment ?? 0),
+            follows: max(0, detail.follows ?? 0),
+            fans: max(0, detail.fans ?? 0)
         )
     }
 
@@ -150,11 +156,14 @@ private struct UserInfoResponse: Decodable {
 
     struct Detail: Decodable {
         let username: String?
+        let bio: String?
         let createdAt: String?
         let coin: Int?
         let stardust: Int?
         let nPost: Int?
         let nComment: Int?
+        let follows: Int?
+        let fans: Int?
         let rank: Int?
     }
 }

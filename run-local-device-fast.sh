@@ -5,7 +5,7 @@ PROJECT_PATH="${PROJECT_PATH:-nodeseek.xcodeproj}"
 SCHEME="${SCHEME:-nodeseek}"
 CONFIGURATION="${CONFIGURATION:-Debug}"
 DERIVED_DATA_PATH="${DERIVED_DATA_PATH:-.build/DerivedData}"
-BUNDLE_ID="${BUNDLE_ID:-com.mistj.nodeseek}"
+BUNDLE_ID="${BUNDLE_ID:-com.zeu1s.nodeseek}"
 DEVICE_ID_CACHE="${DEVICE_ID_CACHE:-.build/local-device-id}"
 DEVICE_ID="${DEVICE_ID:-${1:-}}"
 
