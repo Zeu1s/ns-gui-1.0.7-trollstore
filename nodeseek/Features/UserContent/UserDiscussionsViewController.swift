@@ -252,12 +252,12 @@ final class UserDiscussionsViewController: UIViewController {
                 .sorted { $0.frame.minY < $1.frame.minY }
             for (index, cell) in cells.enumerated() {
                 cell.alpha = 0
-                cell.transform = CGAffineTransform(translationX: 0, y: 14).scaledBy(x: 0.985, y: 0.985)
+                cell.transform = CGAffineTransform(translationX: 0, y: 16).scaledBy(x: 0.98, y: 0.98)
                 UIView.animate(
-                    withDuration: 0.36,
-                    delay: Double(index) * 0.026,
-                    usingSpringWithDamping: 0.88,
-                    initialSpringVelocity: 0.35,
+                    withDuration: 0.42,
+                    delay: Double(index) * 0.03,
+                    usingSpringWithDamping: 0.86,
+                    initialSpringVelocity: 0.4,
                     options: [.curveEaseOut, .allowUserInteraction, .beginFromCurrentState]
                 ) {
                     cell.alpha = 1

@@ -18,9 +18,23 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         let appRouter = AppRouter()
         window.rootViewController = NodeSeekSplashViewController { [weak window] in
             guard let window else { return }
+            // 用 Splash 快照盖在新根视图上做淡出，衔接顺滑且不暴露中间帧
+            let snapshot = window.snapshotView(afterScreenUpdates: false)
             UIView.performWithoutAnimation {
                 window.rootViewController = appRouter.makeRootViewController()
                 window.layoutIfNeeded()
+            }
+            guard let snapshot else { return }
+            window.addSubview(snapshot)
+            UIView.animate(
+                withDuration: 0.32,
+                delay: 0,
+                options: [.curveEaseInOut]
+            ) {
+                snapshot.alpha = 0
+                snapshot.transform = CGAffineTransform(scaleX: 1.04, y: 1.04)
+            } completion: { _ in
+                snapshot.removeFromSuperview()
             }
         }
         window.makeKeyAndVisible()

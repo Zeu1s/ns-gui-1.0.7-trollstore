@@ -35,6 +35,7 @@ final class NodeSeekSplashAnimator: NSObject {
     private let nodeCoreLayer = CAShapeLayer()
     private let nodeEyesLayer = CAShapeLayer()
     private let brandImageLayer = CALayer()
+    private let brandGlowLayer = CAGradientLayer()
     private let rightWaveLayer = CAShapeLayer()
     private let wordmarkLayer = CATextLayer()
     private let wordmarkLeftLayer = CATextLayer()
@@ -56,6 +57,7 @@ final class NodeSeekSplashAnimator: NSObject {
         layoutBrandLayers(in: view.bounds)
         view.layer.addSublayer(leftWaveLayer)
         view.layer.addSublayer(rightWaveLayer)
+        view.layer.addSublayer(brandGlowLayer)
         view.layer.addSublayer(nodeCoreLayer)
         view.layer.addSublayer(nodeEyesLayer)
         view.layer.addSublayer(brandImageLayer)
@@ -103,6 +105,7 @@ private extension NodeSeekSplashAnimator {
         nodeCoreLayer.name = "splash.nodeseek.core"
         nodeEyesLayer.name = "splash.nodeseek.eyes"
         brandImageLayer.name = "splash.nodeseek.image"
+        brandGlowLayer.name = "splash.nodeseek.glow"
         rightWaveLayer.name = "splash.nodeseek.rightWaves"
         wordmarkLayer.name = "splash.nodeseek.wordmark"
         wordmarkLeftLayer.name = "splash.nodeseek.wordmark.left"
@@ -142,6 +145,20 @@ private extension NodeSeekSplashAnimator {
         brandImageLayer.contentsScale = UIScreen.main.scale
         brandImageLayer.cornerRadius = brandSide * 0.2237
         brandImageLayer.masksToBounds = true
+
+        // 柔和的品牌色光晕，衬托 Logo 入场
+        let glowSide = brandSide * 1.9
+        brandGlowLayer.frame = CGRect(
+            x: glyphFrame.midX - glowSide / 2,
+            y: glyphFrame.midY - glowSide / 2,
+            width: glowSide,
+            height: glowSide
+        )
+        brandGlowLayer.type = .radial
+        brandGlowLayer.startPoint = CGPoint(x: 0.5, y: 0.5)
+        brandGlowLayer.endPoint = CGPoint(x: 1, y: 1)
+        brandGlowLayer.locations = [0, 0.55, 1]
+        brandGlowLayer.cornerRadius = glowSide / 2
 
         let eyeWidth = coreDiameter * 0.16
         let eyeHeight = coreDiameter * 0.25
@@ -221,7 +238,7 @@ private extension NodeSeekSplashAnimator {
         wordmarkRightLayer.alignmentMode = .left
         wordmarkRightLayer.contentsScale = UIScreen.main.scale
 
-        [leftWaveLayer, nodeCoreLayer, nodeEyesLayer, brandImageLayer, rightWaveLayer, wordmarkLayer, wordmarkLeftLayer, wordmarkRightLayer].forEach {
+        [leftWaveLayer, nodeCoreLayer, nodeEyesLayer, brandImageLayer, brandGlowLayer, rightWaveLayer, wordmarkLayer, wordmarkLeftLayer, wordmarkRightLayer].forEach {
             $0.opacity = 0
             $0.transform = CATransform3DIdentity
         }
@@ -253,6 +270,12 @@ private extension NodeSeekSplashAnimator {
         nodeEyesLayer.fillColor = eyeColor.cgColor
         leftWaveLayer.strokeColor = waveColor.cgColor
         rightWaveLayer.strokeColor = waveColor.cgColor
+        let glowAlpha: CGFloat = darkMode ? 0.30 : 0.20
+        brandGlowLayer.colors = [
+            UIColor.systemOrange.withAlphaComponent(glowAlpha).cgColor,
+            UIColor.systemOrange.withAlphaComponent(glowAlpha * 0.35).cgColor,
+            UIColor.systemOrange.withAlphaComponent(0).cgColor
+        ]
         wordmarkLayer.foregroundColor = NodeSeekSplashVector.wordmarkColor(for: traitCollection).cgColor
         wordmarkLeftLayer.foregroundColor = NodeSeekSplashVector.wordmarkColor(for: traitCollection).cgColor
         wordmarkRightLayer.foregroundColor = NodeSeekSplashVector.wordmarkColor(for: traitCollection).cgColor
@@ -380,32 +403,33 @@ private extension NodeSeekSplashAnimator {
             leftWaveLayer,
             translationX: -containerViewWidth * 0.28,
             beginTime: timelineBegin,
-            duration: 0.36
+            duration: 0.40
         )
         animateConvergingWaveLayer(
             rightWaveLayer,
             translationX: containerViewWidth * 0.28,
-            beginTime: timelineBegin + 0.10,
-            duration: 0.36
+            beginTime: timelineBegin + 0.08,
+            duration: 0.40
         )
+        animateGlowBloom(beginTime: timelineBegin + 0.22, duration: 0.72)
         animateBrandLayer(nodeCoreLayer, beginTime: timelineBegin + 0.26, duration: 0.30)
         animateBrandLayer(nodeEyesLayer, beginTime: timelineBegin + 0.46, duration: 0.22)
-        animateBrandImageLayer(beginTime: timelineBegin + 0.30, duration: 0.44)
+        animateBrandImageLayer(beginTime: timelineBegin + 0.30, duration: 0.52)
         animateConvergingWordmarkLayer(
             wordmarkLeftLayer,
             translationX: -containerViewWidth * 0.62,
-            beginTime: timelineBegin + 0.66,
-            duration: 0.38
+            beginTime: timelineBegin + 0.62,
+            duration: 0.42
         )
         animateConvergingWordmarkLayer(
             wordmarkRightLayer,
             translationX: containerViewWidth * 0.62,
-            beginTime: timelineBegin + 0.66,
-            duration: 0.38
+            beginTime: timelineBegin + 0.62,
+            duration: 0.42
         )
-        animateBrandLayer(wordmarkLayer, beginTime: timelineBegin + 1.02, duration: 0.12)
-        animateWordmarkSegmentExit(wordmarkLeftLayer, beginTime: timelineBegin + 1.02, duration: 0.12)
-        animateWordmarkSegmentExit(wordmarkRightLayer, beginTime: timelineBegin + 1.02, duration: 0.12)
+        animateWordmarkMergeSettle(beginTime: timelineBegin + 1.02, duration: 0.22)
+        animateWordmarkSegmentExit(wordmarkLeftLayer, beginTime: timelineBegin + 1.02, duration: 0.14)
+        animateWordmarkSegmentExit(wordmarkRightLayer, beginTime: timelineBegin + 1.02, duration: 0.14)
 
         DispatchQueue.main.asyncAfter(deadline: .now() + animationDuration) { [weak self] in
             guard let self else { return }
@@ -420,11 +444,12 @@ private extension NodeSeekSplashAnimator {
             $0.transform = CATransform3DIdentity
             $0.removeAllAnimations()
         }
-        [wordmarkLeftLayer, wordmarkRightLayer].forEach {
+        [wordmarkLeftLayer, wordmarkRightLayer, brandGlowLayer].forEach {
             $0.opacity = 0
             $0.transform = CATransform3DIdentity
             $0.removeAllAnimations()
         }
+        brandGlowLayer.opacity = 0.85
     }
 
     func complete() {
@@ -481,16 +506,71 @@ private extension NodeSeekSplashAnimator {
     }
 
     func animateBrandImageLayer(beginTime: CFTimeInterval, duration: CFTimeInterval) {
-        animateBrandLayer(brandImageLayer, beginTime: beginTime, duration: duration)
-        let scale = CABasicAnimation(keyPath: "transform.scale")
-        scale.fromValue = 0.82
-        scale.toValue = 1
+        animateBrandLayer(brandImageLayer, beginTime: beginTime, duration: duration * 0.6)
+        // 弹性入场：轻微过冲后回落，配合一点上浮，比线性缩放更有生气
+        let scale = CAKeyframeAnimation(keyPath: "transform.scale")
+        scale.values = [0.78, 1.045, 0.99, 1.0]
+        scale.keyTimes = [0, 0.55, 0.82, 1]
+        scale.timingFunctions = [
+            CAMediaTimingFunction(controlPoints: 0.22, 0.68, 0.32, 1.0),
+            CAMediaTimingFunction(name: .easeInEaseOut),
+            CAMediaTimingFunction(name: .easeOut)
+        ]
         scale.beginTime = beginTime
         scale.duration = duration
-        scale.timingFunction = CAMediaTimingFunction(name: .easeOut)
         scale.fillMode = .both
         scale.isRemovedOnCompletion = false
         brandImageLayer.add(scale, forKey: "brandImageScale")
+
+        let rise = CABasicAnimation(keyPath: "transform.translation.y")
+        rise.fromValue = 10
+        rise.toValue = 0
+        rise.beginTime = beginTime
+        rise.duration = duration
+        rise.timingFunction = CAMediaTimingFunction(controlPoints: 0.22, 0.68, 0.32, 1.0)
+        rise.fillMode = .both
+        rise.isRemovedOnCompletion = false
+        brandImageLayer.add(rise, forKey: "brandImageRise")
+    }
+
+    func animateGlowBloom(beginTime: CFTimeInterval, duration: CFTimeInterval) {
+        brandGlowLayer.opacity = 0.85
+
+        let fade = CAKeyframeAnimation(keyPath: "opacity")
+        fade.values = [0, 1, 0.85]
+        fade.keyTimes = [0, 0.62, 1]
+        fade.beginTime = beginTime
+        fade.duration = duration
+        fade.fillMode = .both
+        fade.isRemovedOnCompletion = false
+        brandGlowLayer.add(fade, forKey: "glowFade")
+
+        let scale = CABasicAnimation(keyPath: "transform.scale")
+        scale.fromValue = 0.6
+        scale.toValue = 1
+        scale.beginTime = beginTime
+        scale.duration = duration
+        scale.timingFunction = CAMediaTimingFunction(controlPoints: 0.22, 0.68, 0.32, 1.0)
+        scale.fillMode = .both
+        scale.isRemovedOnCompletion = false
+        brandGlowLayer.add(scale, forKey: "glowScale")
+    }
+
+    func animateWordmarkMergeSettle(beginTime: CFTimeInterval, duration: CFTimeInterval) {
+        animateBrandLayer(wordmarkLayer, beginTime: beginTime, duration: duration * 0.6)
+        // 合并瞬间轻微聚拢回弹，让 "Node"+"Seek" 的接合更自然
+        let settle = CAKeyframeAnimation(keyPath: "transform.scale")
+        settle.values = [1.03, 0.995, 1.0]
+        settle.keyTimes = [0, 0.7, 1]
+        settle.timingFunctions = [
+            CAMediaTimingFunction(name: .easeOut),
+            CAMediaTimingFunction(name: .easeInEaseOut)
+        ]
+        settle.beginTime = beginTime
+        settle.duration = duration
+        settle.fillMode = .both
+        settle.isRemovedOnCompletion = false
+        wordmarkLayer.add(settle, forKey: "wordmarkSettle")
     }
 
     func animateBrandLayer(_ layer: CALayer, beginTime: CFTimeInterval, duration: CFTimeInterval) {        layer.opacity = 1
@@ -517,7 +597,7 @@ private extension NodeSeekSplashAnimator {
         translation.toValue = 0
         translation.beginTime = beginTime
         translation.duration = duration
-        translation.timingFunction = CAMediaTimingFunction(name: .easeOut)
+        translation.timingFunction = CAMediaTimingFunction(controlPoints: 0.16, 0.72, 0.28, 1.0)
         translation.fillMode = .both
         translation.isRemovedOnCompletion = false
         layer.add(translation, forKey: "waveConvergence")
@@ -539,10 +619,20 @@ private extension NodeSeekSplashAnimator {
         translation.toValue = 0
         translation.beginTime = beginTime
         translation.duration = duration
-        translation.timingFunction = CAMediaTimingFunction(name: .easeOut)
+        translation.timingFunction = CAMediaTimingFunction(controlPoints: 0.16, 0.72, 0.28, 1.0)
         translation.fillMode = .both
         translation.isRemovedOnCompletion = false
         layer.add(translation, forKey: "wordmarkConvergence")
+
+        let rise = CABasicAnimation(keyPath: "transform.translation.y")
+        rise.fromValue = 6
+        rise.toValue = 0
+        rise.beginTime = beginTime
+        rise.duration = duration
+        rise.timingFunction = CAMediaTimingFunction(controlPoints: 0.16, 0.72, 0.28, 1.0)
+        rise.fillMode = .both
+        rise.isRemovedOnCompletion = false
+        layer.add(rise, forKey: "wordmarkRise")
     }
 
     func animateWordmarkSegmentExit(_ layer: CALayer, beginTime: CFTimeInterval, duration: CFTimeInterval) {

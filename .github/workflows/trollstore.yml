@@ -66,6 +66,7 @@ jobs:
       - name: Sign and package IPA
         env:
           APP_VERSION: ${{ inputs.version }}
+          BUILD_NUMBER: ${{ inputs.build_number }}
         run: |
           set -euo pipefail
           app_path="$RUNNER_TEMP/nodeseek.xcarchive/Products/Applications/nodeseek.app"
@@ -87,12 +88,13 @@ jobs:
           done < <(find build/Payload/nodeseek.app -type f -perm -111 -print0)
 
           ldid -S "$main_binary"
-          (cd build && zip -qry "Zeu1s-${APP_VERSION}-trollstore.ipa" Payload)
-          unzip -t "build/Zeu1s-${APP_VERSION}-trollstore.ipa"
+          ipa_name="Zeu1s-${APP_VERSION}-trollstore-build${BUILD_NUMBER}.ipa"
+          (cd build && zip -qry "$ipa_name" Payload)
+          unzip -t "build/$ipa_name"
 
       - name: Upload TrollStore IPA
         uses: actions/upload-artifact@v4
         with:
-          name: Zeu1s-${{ inputs.version }}-trollstore-ipa
-          path: build/Zeu1s-${{ inputs.version }}-trollstore.ipa
+          name: Zeu1s-${{ inputs.version }}-trollstore-build${{ inputs.build_number }}-ipa
+          path: build/Zeu1s-${{ inputs.version }}-trollstore-build${{ inputs.build_number }}.ipa
           if-no-files-found: error

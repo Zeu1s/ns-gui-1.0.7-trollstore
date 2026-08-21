@@ -326,15 +326,15 @@ final class PostTextureListView: UIView {
         shouldStreamContentAppearance = false
         for (index, cell) in cells.enumerated() {
             cell.alpha = 0
-            cell.transform = CGAffineTransform(translationX: 0, y: 14).scaledBy(x: 0.985, y: 0.985)
+            cell.transform = CGAffineTransform(translationX: 0, y: 16).scaledBy(x: 0.98, y: 0.98)
             if index == 0 {
                 tableNode.view.alpha = 1
             }
             UIView.animate(
-                withDuration: 0.36,
-                delay: Double(index) * 0.026,
-                usingSpringWithDamping: 0.88,
-                initialSpringVelocity: 0.35,
+                withDuration: 0.42,
+                delay: Double(index) * 0.03,
+                usingSpringWithDamping: 0.86,
+                initialSpringVelocity: 0.4,
                 options: [.curveEaseOut, .allowUserInteraction, .beginFromCurrentState]
             ) {
                 cell.alpha = 1
@@ -347,7 +347,7 @@ final class PostTextureListView: UIView {
             }
         }
 
-        let safetyDelay = Double(cells.count) * 0.026 + 0.55
+        let safetyDelay = Double(cells.count) * 0.03 + 0.65
         DispatchQueue.main.asyncAfter(deadline: .now() + safetyDelay) { [weak self] in
             guard let self, generation == self.streamGeneration else { return }
             self.completeStreamAppearance(for: generation)
@@ -357,10 +357,22 @@ final class PostTextureListView: UIView {
     private func completeStreamAppearance(for generation: Int) {
         guard generation == streamGeneration else { return }
         isStreamAnimating = false
-        tableNode.view.alpha = 1
-        for cell in tableNode.view.visibleCells {
-            cell.alpha = 1
-            cell.transform = .identity
+        // 只归位仍处于异常状态且已无动画在途的 cell。
+        // 全量强制复位会打断尚未结束的弹簧动画，导致完成瞬间整屏闪跳；
+        // 动画在途的 cell 其 model 值已是最终态，动画自然结束后即为正确状态。
+        UIView.performWithoutAnimation {
+            if tableNode.view.alpha != 1 {
+                tableNode.view.alpha = 1
+            }
+            for cell in tableNode.view.visibleCells {
+                guard cell.layer.animationKeys()?.isEmpty != false else { continue }
+                if cell.alpha != 1 {
+                    cell.alpha = 1
+                }
+                if cell.transform != .identity {
+                    cell.transform = .identity
+                }
+            }
         }
     }
 
