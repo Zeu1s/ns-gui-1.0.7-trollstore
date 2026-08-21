@@ -97,7 +97,7 @@ final class MainTabContainerViewController: UIViewController {
         if item == .history {
             refreshHistoryListIfVisible(in: stack)
         } else if item == .home, previousItem != .home {
-            refreshHomeListIfVisible(in: stack)
+            refreshSelectedHomeCategoryIfVisible(in: stack)
             recoverVisibleContent(in: stack)
         } else if reselectedCurrentItem {
             resetToTop(of: stack)
@@ -243,12 +243,12 @@ final class MainTabContainerViewController: UIViewController {
         }
     }
 
-    private func refreshHomeListIfVisible(in stack: UINavigationController) {
-        // 仅当首页位于第一级帖子列表时静默刷新；帖子详情页在导航栈顶时不刷新。
+    private func refreshSelectedHomeCategoryIfVisible(in stack: UINavigationController) {
+        // 仅当首页位于第一级帖子列表时静默刷新；保留用户上次选择的板块，不回落到“全部”。
         guard let postList = stack.topViewController as? PostListViewController else {
             return
         }
-        postList.refreshVisibleFirstPageIfNeeded()
+        postList.refreshSelectedCategoryAfterTabReturn()
     }
 
     private func findScrollViews(in view: UIView) -> [UIScrollView] {

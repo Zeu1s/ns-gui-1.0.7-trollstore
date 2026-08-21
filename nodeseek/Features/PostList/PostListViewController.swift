@@ -305,6 +305,12 @@ class PostListViewController: UIViewController {
         pageContainerViewController.refreshFirstPageKeepingContent(for: selectedCategory)
     }
 
+    /// 从其它主功能区返回首页时刷新用户停留的板块，不改写当前板块选择。
+    func refreshSelectedCategoryAfterTabReturn() {
+        guard isViewLoaded, categories.contains(selectedCategory) else { return }
+        pageContainerViewController.refreshFirstPageKeepingContent(for: selectedCategory)
+    }
+
     func replayStreamAppearanceIfNeeded() {
         guard isViewLoaded else { return }
         pageContainerViewController.replayStreamAppearanceIfNeeded()

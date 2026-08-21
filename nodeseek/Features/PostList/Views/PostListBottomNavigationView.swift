@@ -46,12 +46,12 @@ enum PostListBottomNavigationItem: CaseIterable {
 final class PostListBottomNavigationView: UIView {
     private enum Style {
         static let selectedForeground = UIColor.systemOrange
-        // 对应 1.3 版底栏选中项的浅米色底。
+        // 使用中性浅灰底，保留橙色作为选中图标和文字的强调色。
         static let selectedBackground = UIColor { traits in
             if traits.userInterfaceStyle == .dark {
-                return .systemOrange.withAlphaComponent(0.28)
+                return .tertiarySystemFill
             }
-            return UIColor(red: 0.988, green: 0.906, blue: 0.765, alpha: 1)
+            return .systemGray5
         }
     }
 
@@ -217,17 +217,18 @@ final class PostListBottomNavigationView: UIView {
     }
 
     private var selectionPillHeight: CGFloat {
-        AppDisplayScaleSettings.scaled(52)
+        AppDisplayScaleSettings.scaled(60)
     }
 
     private func updateSelectionPill(animated: Bool) {
         guard let button = buttons[selectedItem] else { return }
         let target = button.convert(button.bounds, to: self)
         selectionPillView.layer.cornerRadius = selectionPillHeight / 2
-        let insetX = AppDisplayScaleSettings.scaled(8)
+        let insetX = AppDisplayScaleSettings.scaled(2)
         let frame = CGRect(
             x: target.minX + insetX,
-            y: target.midY - selectionPillHeight / 2,
+            // 按底栏整体居中，避开安全区导致的上下留白不一致。
+            y: bounds.midY - selectionPillHeight / 2,
             width: target.width - insetX * 2,
             height: selectionPillHeight
         )
