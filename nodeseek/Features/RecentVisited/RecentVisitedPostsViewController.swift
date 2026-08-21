@@ -108,10 +108,10 @@ final class RecentVisitedPostsViewController: UIViewController {
     }
 
     private func reloadRecords() {
-        hasMoreRecords = true
-        records.removeAll()
-        listView.setItems([])
-        loadNextPageIfNeeded()
+        let firstPage = visitedStore.recentRecords(offset: 0, limit: Self.pageSize)
+        records = firstPage
+        hasMoreRecords = firstPage.count == Self.pageSize
+        listView.setItems(records.map(postItem(from:)))
         listView.hideRefreshing()
         updateEmptyState()
     }

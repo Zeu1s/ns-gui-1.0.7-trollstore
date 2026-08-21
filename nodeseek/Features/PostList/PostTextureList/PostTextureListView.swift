@@ -41,6 +41,8 @@ final class PostTextureListView: UIView {
     private var shouldStreamContentAppearance = false
     private var isStreamAnimating = false
     private var streamGeneration = 0
+    private let streamActivationRetryLimit = 12
+    private let streamActivationRetryDelay: TimeInterval = 0.04
 
     private let loadMoreIndicator: UIActivityIndicatorView = {
         let indicator = UIActivityIndicatorView(style: .medium)
@@ -301,16 +303,24 @@ final class PostTextureListView: UIView {
     private func activateStreamAppearance(for generation: Int, attempt: Int) {
         DispatchQueue.main.async { [weak self] in
             guard let self, generation == self.streamGeneration else { return }
-            guard self.window != nil else {
-                self.isStreamAnimating = false
+            guard self.isReadyToAnimateStreamAppearance else {
+                guard attempt < self.streamActivationRetryLimit else {
+                    self.completeStreamAppearance(for: generation)
+                    return
+                }
+                DispatchQueue.main.asyncAfter(deadline: .now() + self.streamActivationRetryDelay) { [weak self] in
+                    self?.activateStreamAppearance(for: generation, attempt: attempt + 1)
+                }
                 return
             }
             self.tableNode.view.layoutIfNeeded()
             let cells = self.tableNode.view.visibleCells
                 .sorted { $0.frame.minY < $1.frame.minY }
             guard cells.isEmpty == false else {
-                if attempt < 8 {
-                    self.activateStreamAppearance(for: generation, attempt: attempt + 1)
+                if attempt < self.streamActivationRetryLimit {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + self.streamActivationRetryDelay) { [weak self] in
+                        self?.activateStreamAppearance(for: generation, attempt: attempt + 1)
+                    }
                 } else {
                     self.completeStreamAppearance(for: generation)
                 }
@@ -386,6 +396,16 @@ final class PostTextureListView: UIView {
             cell.alpha = 1
             cell.transform = .identity
         }
+    }
+
+    private var isReadyToAnimateStreamAppearance: Bool {
+        guard window != nil else { return false }
+        var candidate: UIView? = self
+        while let view = candidate {
+            guard view.isHidden == false, view.alpha > 0.01 else { return false }
+            candidate = view.superview
+        }
+        return true
     }
 
     override func didMoveToWindow() {

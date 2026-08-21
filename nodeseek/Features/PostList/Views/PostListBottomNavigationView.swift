@@ -107,8 +107,8 @@ final class PostListBottomNavigationView: UIView {
         messageUnreadBadge.layer.cornerRadius = AppDisplayScaleSettings.scaled(6)
         stackLeadingConstraint?.constant = AppDisplayScaleSettings.scaled(8)
         stackTrailingConstraint?.constant = -AppDisplayScaleSettings.scaled(8)
-        stackTopConstraint?.constant = AppDisplayScaleSettings.scaled(2)
-        stackBottomConstraint?.constant = -AppDisplayScaleSettings.scaled(2)
+        stackTopConstraint?.constant = 0
+        stackBottomConstraint?.constant = -AppDisplayScaleSettings.scaled(6)
         unreadBadgeWidthConstraint?.constant = AppDisplayScaleSettings.scaled(12)
         unreadBadgeHeightConstraint?.constant = AppDisplayScaleSettings.scaled(12)
         unreadBadgeCenterYConstraint?.constant = -AppDisplayScaleSettings.scaled(10)
@@ -175,11 +175,11 @@ final class PostListBottomNavigationView: UIView {
         )
         let stackTopConstraint = stackView.topAnchor.constraint(
             equalTo: topAnchor,
-            constant: AppDisplayScaleSettings.scaled(2)
+            constant: 0
         )
         let stackBottomConstraint = stackView.bottomAnchor.constraint(
             equalTo: bottomAnchor,
-            constant: -AppDisplayScaleSettings.scaled(2)
+            constant: -AppDisplayScaleSettings.scaled(6)
         )
         let unreadBadgeWidthConstraint = messageUnreadBadge.widthAnchor.constraint(
             equalToConstant: AppDisplayScaleSettings.scaled(12)
@@ -217,7 +217,7 @@ final class PostListBottomNavigationView: UIView {
     }
 
     private var selectionPillHeight: CGFloat {
-        AppDisplayScaleSettings.scaled(46)
+        AppDisplayScaleSettings.scaled(52)
     }
 
     private func updateSelectionPill(animated: Bool) {
@@ -255,7 +255,7 @@ final class PostListBottomNavigationView: UIView {
         isSelected: Bool
     ) {        guard let button else { return }
         let symbolConfiguration = UIImage.SymbolConfiguration(
-            pointSize: AppDisplayScaleSettings.scaled(19),
+            pointSize: AppDisplayScaleSettings.scaled(22),
             weight: isSelected ? .semibold : .regular
         )
         var configuration = UIButton.Configuration.plain()
@@ -265,18 +265,18 @@ final class PostListBottomNavigationView: UIView {
         )
         configuration.title = item.title
         configuration.imagePlacement = .top
-        configuration.imagePadding = AppDisplayScaleSettings.scaled(2)
+        configuration.imagePadding = AppDisplayScaleSettings.scaled(3)
         configuration.contentInsets = NSDirectionalEdgeInsets(
-            top: AppDisplayScaleSettings.scaled(3),
+            top: 0,
             leading: AppDisplayScaleSettings.scaled(4),
-            bottom: AppDisplayScaleSettings.scaled(3),
+            bottom: AppDisplayScaleSettings.scaled(6),
             trailing: AppDisplayScaleSettings.scaled(4)
         )
         configuration.baseForegroundColor = isSelected ? Style.selectedForeground : .label
         configuration.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { incoming in
             var outgoing = incoming
             outgoing.font = UIFont.systemFont(
-                ofSize: AppDisplayScaleSettings.scaled(10.5),
+                ofSize: AppDisplayScaleSettings.scaled(11.5),
                 weight: isSelected ? .semibold : .medium
             )
             return outgoing

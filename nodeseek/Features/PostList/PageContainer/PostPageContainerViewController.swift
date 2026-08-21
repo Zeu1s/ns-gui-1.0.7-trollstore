@@ -115,8 +115,8 @@ final class PostPageContainerViewController: UIPageViewController {
     func recoverVisiblePageIfNeeded() {
         guard let category = currentCategory ?? categories.first else { return }
         guard pendingCategory == nil else {
-            // A hidden parent tab must not leave this pager permanently locked.
-            pagingScrollView?.isScrollEnabled = true
+            // 目标板块首屏未完成时必须保持锁定；提前解锁会让显示页与选中板块失步。
+            pagingScrollView?.isScrollEnabled = false
             return
         }
         setCurrentCategory(category, animated: false, notifyDelegate: false)

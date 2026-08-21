@@ -90,7 +90,10 @@ final class MainTabContainerViewController: UIViewController {
         let previousItem = currentItem
         let stack = stack(for: item)
         currentItem = item
-        show(stack)
+        show(stack) { [weak self, weak stack] in
+            guard let self, self.currentItem == item, self.visibleStack === stack else { return }
+            self.replayStreamAppearanceIfNeeded(for: item)
+        }
         if item == .history {
             refreshHistoryListIfVisible(in: stack)
         } else if item == .home, previousItem != .home {
@@ -101,7 +104,6 @@ final class MainTabContainerViewController: UIViewController {
         } else {
             recoverVisibleContent(in: stack)
         }
-        replayStreamAppearanceIfNeeded(for: item)
         bottomNavigationView.setSelectedItem(item)
         bottomNavigationView.setUnreadMessagesVisible(unreadBadgeVisible)
     }
@@ -124,7 +126,7 @@ final class MainTabContainerViewController: UIViewController {
         return stack
     }
 
-    private func show(_ stack: UINavigationController) {
+    private func show(_ stack: UINavigationController, completion: @escaping () -> Void) {
         if stack.parent == nil {
             addChild(stack)
             stack.view.translatesAutoresizingMaskIntoConstraints = false
@@ -144,6 +146,7 @@ final class MainTabContainerViewController: UIViewController {
             stack.view.alpha = 1
             stack.view.isUserInteractionEnabled = true
             containerView.bringSubviewToFront(stack.view)
+            DispatchQueue.main.async(execute: completion)
             return
         }
 
@@ -162,6 +165,7 @@ final class MainTabContainerViewController: UIViewController {
 
         guard let previousStack else {
             stack.view.alpha = 1
+            DispatchQueue.main.async(execute: completion)
             return
         }
 
@@ -174,10 +178,12 @@ final class MainTabContainerViewController: UIViewController {
         ) {
             stack.view.alpha = 1
             previousStack.view.alpha = 0
-        } completion: { [weak self, weak previousStack] _ in
+        } completion: { [weak self, weak previousStack, weak stack] _ in
+            guard let self, let stack, self.visibleStack === stack else { return }
             previousStack?.view.alpha = 1
             previousStack?.view.isHidden = true
-            self?.visibleStack = stack
+            self.visibleStack = stack
+            completion()
         }
     }
 

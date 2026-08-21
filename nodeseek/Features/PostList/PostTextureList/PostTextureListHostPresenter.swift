@@ -21,6 +21,7 @@ final class PostTextureListHostPresenter: PostTextureListHostPresenterProtocol {
     private var isLoadingFirstPage = false
     private var isRefreshing = false
     private var isLoadingMore = false
+    private var pendingFirstPageRefresh = false
     private var specialFollowAutoFetchPagesRemaining = 0
     private var temporaryFailureRetryCount = 0
     private var temporaryFailureRetryWorkItem: DispatchWorkItem?
@@ -72,7 +73,16 @@ final class PostTextureListHostPresenter: PostTextureListHostPresenterProtocol {
             loadFirstPageIfNeeded()
             return
         }
-        guard !isRefreshing, !isLoadingFirstPage, !isLoadingMore else { return }
+        guard !isRefreshing, !isLoadingFirstPage else { return }
+        guard !isLoadingMore else {
+            // 分页请求无法安全取消，完成后补做一次首页刷新，避免双击刷新被静默吞掉。
+            pendingFirstPageRefresh = true
+            return
+        }
+        startFirstPageRefresh()
+    }
+
+    private func startFirstPageRefresh() {
         isRefreshing = true
         interactor.loadPosts(category: category, sortMode: sortMode)
     }
@@ -124,6 +134,7 @@ extension PostTextureListHostPresenter: PostTextureListHostInteractorOutput {
         isLoadingFirstPage = false
         isRefreshing = false
         isLoadingMore = false
+        pendingFirstPageRefresh = false
         temporaryFailureRetryCount = 0
         temporaryFailureRetryWorkItem?.cancel()
         temporaryFailureRetryWorkItem = nil
@@ -153,6 +164,7 @@ extension PostTextureListHostPresenter: PostTextureListHostInteractorOutput {
             hasMorePages = false
             AppLog.info(.postList, "帖子列表加载更多结束: 无更多分页 page=\(page), category=\(category.rawValue)")
             view?.hideLoadingMore()
+            runPendingFirstPageRefreshIfNeeded()
             return
         }
 
@@ -168,6 +180,7 @@ extension PostTextureListHostPresenter: PostTextureListHostInteractorOutput {
             view?.setItems(items)
         }
         view?.hideLoadingMore()
+        runPendingFirstPageRefreshIfNeeded()
         if category.isSpecialFollow, items.isEmpty, specialFollowAutoFetchPagesRemaining > 0 {
             fetchNextSpecialFollowPageIfNeeded()
         }
@@ -183,6 +196,7 @@ extension PostTextureListHostPresenter: PostTextureListHostInteractorOutput {
         isLoadingFirstPage = false
         isRefreshing = false
         isLoadingMore = false
+        pendingFirstPageRefresh = false
         view?.hideLoadingSkeleton()
         view?.hideRefreshing()
         view?.hideLoadingMore()
@@ -200,6 +214,7 @@ extension PostTextureListHostPresenter: PostTextureListHostInteractorOutput {
         isLoadingMore = false
         AppLog.warning(.postList, "帖子列表加载更多失败: page=\(page), category=\(category.rawValue), error=\(error)")
         view?.hideLoadingMore()
+        runPendingFirstPageRefreshIfNeeded()
     }
 }
 
@@ -215,6 +230,7 @@ private extension PostTextureListHostPresenter {
         hasLoadedFirstPage = false
         isRefreshing = false
         isLoadingMore = false
+        pendingFirstPageRefresh = false
         view?.setItems([])
         view?.hideFirstPageError()
         loadFirstPageIfNeeded()
@@ -234,12 +250,13 @@ private extension PostTextureListHostPresenter {
     }
 
     func refreshFirstPage() {
-        guard hasLoadedFirstPage else { return }
-        guard !isRefreshing else { return }
-        guard !isLoadingFirstPage else { return }
-        guard !isLoadingMore else { return }
-        isRefreshing = true
-        interactor.loadPosts(category: category, sortMode: sortMode)
+        refreshFirstPageKeepingContent()
+    }
+
+    func runPendingFirstPageRefreshIfNeeded() {
+        guard pendingFirstPageRefresh else { return }
+        pendingFirstPageRefresh = false
+        refreshFirstPageKeepingContent()
     }
 
     func loadMoreIfNeeded(currentIndex: Int, totalCount: Int) {
@@ -255,7 +272,7 @@ private extension PostTextureListHostPresenter {
             AppLog.debug(.postList, "忽略帖子列表加载更多: 正在加载更多 category=\(category.rawValue)")
             return
         }
-        guard !isLoadingFirstPage else {
+        guard !isLoadingFirstPage, !isRefreshing else {
             AppLog.debug(.postList, "忽略帖子列表加载更多: 首屏仍在加载 category=\(category.rawValue)")
             return
         }
@@ -292,7 +309,7 @@ private extension PostTextureListHostPresenter {
     private func fetchNextSpecialFollowPageIfNeeded() {
         guard category.isSpecialFollow else { return }
         guard specialFollowAutoFetchPagesRemaining > 0 else { return }
-        guard !isLoadingMore, !isLoadingFirstPage else { return }
+        guard !isLoadingMore, !isLoadingFirstPage, !isRefreshing else { return }
         guard hasMorePages else { return }
         specialFollowAutoFetchPagesRemaining -= 1
         isLoadingMore = true
