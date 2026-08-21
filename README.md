@@ -24,9 +24,9 @@ NodeSeek iOS 是一个非官方三方 iOS 客户端，使用 UIKit 构建，通�
 ## 截图
 
 <p>
-  <img src="screenshots/1.jpg" width="250" />
-  <img src="screenshots/2.jpg" width="250" />
-  <img src="screenshots/3.jpg" width="250" />
+  <img src="screenshots/1.png" width="250" />
+  <img src="screenshots/2.png" width="250" />
+  <img src="screenshots/3.png" width="250" />
 </p>
 
 ## 安装（TrollStore）
