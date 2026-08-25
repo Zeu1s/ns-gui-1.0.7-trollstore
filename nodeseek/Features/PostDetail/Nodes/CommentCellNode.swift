@@ -82,6 +82,14 @@ enum CommentReplyReferenceResolver {
         options: [.caseInsensitive, .dotMatchesLineSeparators]
     )
 
+    private static let blockquoteTagPattern = try! NSRegularExpression(
+        pattern: #"</?blockquote\b[^>]*>"#,
+        options: [.caseInsensitive]
+    )
+    private static let leadingBreakPattern = try! NSRegularExpression(
+        pattern: #"^\s*(?:<br\s*/?>|<p>\s*</p>)+\s*"#,
+        options: [.caseInsensitive]
+    )
     private static let htmlImagePattern = try! NSRegularExpression(
         pattern: #"<img\b[^>]*>"#,
         options: [.caseInsensitive]
@@ -121,6 +129,21 @@ enum CommentReplyReferenceResolver {
         ].compactMap { $0 }
         guard targetAnchorIDs.isEmpty == false else { return contentHTML }
 
+        let targets = Set(targetAnchorIDs)
+        let withoutLeadingLink = removingLeadingAnchorLink(
+            from: contentHTML,
+            matching: targets
+        )
+        return removingLeadingReferenceQuote(
+            from: withoutLeadingLink,
+            matching: targets
+        )
+    }
+
+    private static func removingLeadingAnchorLink(
+        from contentHTML: String,
+        matching targetAnchorIDs: Set<String>? = nil
+    ) -> String {
         let fullRange = NSRange(contentHTML.startIndex..., in: contentHTML)
         guard let match = hrefPattern.firstMatch(in: contentHTML, options: [], range: fullRange),
               let hrefRangeIndex = (1...3).first(where: { match.range(at: $0).location != NSNotFound }),
@@ -136,7 +159,7 @@ enum CommentReplyReferenceResolver {
             options: .regularExpression
         ) != nil,
         let anchorID = normalizedAnchorID(fromHref: String(contentHTML[hrefRange])),
-        targetAnchorIDs.contains(anchorID) else {
+        targetAnchorIDs?.contains(anchorID) ?? true else {
             return contentHTML
         }
 
@@ -149,6 +172,51 @@ enum CommentReplyReferenceResolver {
             removalEnd = breakRange.upperBound
         }
         return String(contentHTML[..<linkRange.lowerBound]) + String(contentHTML[removalEnd...])
+    }
+
+    private static func removingLeadingReferenceQuote(
+        from contentHTML: String,
+        matching targetAnchorIDs: Set<String>
+    ) -> String {
+        guard let quoteRange = leadingBlockquoteRange(in: contentHTML) else { return contentHTML }
+        let quoteHTML = String(contentHTML[quoteRange])
+        let quoteAnchorIDs = Set(referencedAnchorIDs(in: quoteHTML))
+        guard quoteAnchorIDs.isDisjoint(with: targetAnchorIDs) == false else { return contentHTML }
+
+        let prefix = String(contentHTML[..<quoteRange.lowerBound])
+        let suffix = String(contentHTML[quoteRange.upperBound...])
+        let suffixRange = NSRange(suffix.startIndex..., in: suffix)
+        let cleanedSuffix = leadingBreakPattern.firstMatch(in: suffix, options: [], range: suffixRange)
+            .flatMap { Range($0.range, in: suffix) }
+            .map { String(suffix[$0.upperBound...]) }
+            ?? suffix
+        return prefix + cleanedSuffix
+    }
+
+    private static func leadingBlockquoteRange(in contentHTML: String) -> Range<String.Index>? {
+        let fullRange = NSRange(contentHTML.startIndex..., in: contentHTML)
+        let matches = blockquoteTagPattern.matches(in: contentHTML, options: [], range: fullRange)
+        guard let firstMatch = matches.first,
+              let openingRange = Range(firstMatch.range, in: contentHTML),
+              String(contentHTML[..<openingRange.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              String(contentHTML[openingRange]).lowercased().hasPrefix("<blockquote") else {
+            return nil
+        }
+
+        var depth = 0
+        for match in matches {
+            guard let tagRange = Range(match.range, in: contentHTML) else { continue }
+            let tag = String(contentHTML[tagRange])
+            if tag.hasPrefix("</") {
+                depth -= 1
+                if depth == 0 {
+                    return openingRange.lowerBound..<tagRange.upperBound
+                }
+            } else {
+                depth += 1
+            }
+        }
+        return nil
     }
     static func commentIndex(among comments: [Comment]) -> [String: Comment] {
         var index: [String: Comment] = [:]
@@ -210,9 +278,10 @@ enum CommentReplyReferenceResolver {
     }
 
     private static func summary(from html: String) -> String {
-        let fullRange = NSRange(html.startIndex..., in: html)
+        let htmlWithoutReplyLink = removingLeadingAnchorLink(from: html)
+        let fullRange = NSRange(htmlWithoutReplyLink.startIndex..., in: htmlWithoutReplyLink)
         var text = nestedQuotePattern.stringByReplacingMatches(
-            in: html,
+            in: htmlWithoutReplyLink,
             options: [],
             range: fullRange,
             withTemplate: " "
@@ -231,11 +300,10 @@ enum CommentReplyReferenceResolver {
             .filter { $0.isEmpty == false }
             .joined(separator: " ")
         guard collapsed.isEmpty == false else {
-            return mediaFallbackText(from: html)
+            return mediaFallbackText(from: htmlWithoutReplyLink)
         }
         return collapsed
     }
-
     private static func mediaFallbackText(from html: String) -> String {
         let range = NSRange(html.startIndex..., in: html)
         let imageCount = htmlImagePattern.matches(in: html, options: [], range: range).count
@@ -665,7 +733,7 @@ final class CommentCellNode: ASCellNode, ThemeRefreshableNode {
         replyReferenceTextNode.maximumNumberOfLines = 0
         replyReferenceTextNode.truncationMode = .byWordWrapping
         let text = NSAttributedString(
-            string: replyReference.flatDisplayText,
+            string: replyReference.displayText,
             attributes: [
                 .font: UIFont.preferredFont(forTextStyle: .caption1).withSize(AppDisplayScaleSettings.scaled(13)),
                 .foregroundColor: UIColor.label
