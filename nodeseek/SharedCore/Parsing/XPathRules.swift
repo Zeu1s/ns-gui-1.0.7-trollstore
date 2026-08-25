@@ -1,0 +1,63 @@
+//
+//  XPathRules.swift
+//  nodeseek
+//
+//  Created by Codex on 2026/4/27.
+//
+
+enum XPathRules {
+    static let accountUserCard = "//*[@id='nsk-right-panel-container']//*[contains(concat(' ', normalize-space(@class), ' '), ' user-card ')][1]"
+    static let accountUsername = ".//a[contains(concat(' ', normalize-space(@class), ' '), ' Username ')]"
+    static let accountProfileLink = ".//a[contains(@href, '/space/')][1]"
+    static let accountAvatar = ".//img[contains(@class, 'avatar') or contains(@src, '/avatar/')]"
+    static let accountStatLinks = ".//*[contains(concat(' ', normalize-space(@class), ' '), ' user-stat ')]//a[normalize-space()]"
+    static let accountStatSpans = ".//*[contains(concat(' ', normalize-space(@class), ' '), ' user-stat ')]//span[normalize-space()]"
+    static let accountTempScript = "//script[@id='temp-script'][1]"
+    static let accountCapturedConfig = "//script[@id='nodeseek-captured-config'][1]"
+    static let accountNotificationLink = "//*[@id='nsk-head']//a[contains(@href, '/notification')][1]"
+    static let accountNotificationIcon = ".//*[contains(concat(' ', normalize-space(@class), ' '), ' iconpark-icon ')][1]"
+
+    static let postListItems = "//article[contains(@class, 'post-item')] | //li[contains(@class, 'post-list-item')]"
+    static let postTitle = ".//*[contains(@class, 'post-title') and self::a] | .//*[contains(@class, 'post-title')]//a[contains(@href, '/post-') or contains(@href, '/post/')]"
+    static let postPinned = ".//*[contains(@class, 'post-title')]//*[@title='置顶' or contains(concat(' ', normalize-space(@class), ' '), ' pined ') or (local-name()='use' and @*[local-name()='href' and .='#pin'])]"
+    static let postLocked = ".//*[contains(@class, 'post-title')]//*[local-name()='use' and @*[local-name()='href' and .='#lock']]"
+    static let postLockBadge = ".//*[contains(@class, 'post-title')]//*[local-name()='use' and @*[local-name()='href' and .='#lock']]/ancestor::*[self::span or self::a][1]"
+    static let postAvatar = ".//img[contains(@class, 'avatar') or contains(@src, '/avatar/')]"
+    static let postAuthor = ".//*[contains(@class, 'post-author')] | .//*[contains(@class, 'info-author')]//a"
+    static let postAuthorBadges = ".//*[contains(@class, 'post-author') or contains(@class, 'info-author')]//*[contains(@class, 'nsk-badge') or contains(@class, 'role-tag') or contains(@class, 'role-')]"
+    static let postNode = ".//*[contains(@class, 'post-node')] | .//*[contains(@class, 'post-category')]"
+    static let viewCount = ".//*[contains(@class, 'info-views')]//span"
+    static let replyCount = ".//*[contains(@class, 'reply-count')] | .//*[contains(@class, 'info-comments-count')]//span[last()]"
+    static let lastActive = ".//*[contains(@class, 'last-active')] | .//*[contains(@class, 'info-last-comment-time')]//time"
+    static let fallbackPostLinks = "//a[(contains(@href, '/post-') or contains(@href, '/post/')) and not(ancestor::footer)]"
+    static let fallbackPostContainer = "./ancestor::*[self::article or self::li or self::tr or self::div][1]"
+    static let fallbackAvatar = ".//img[contains(@src, '/avatar/')]"
+    static let fallbackAuthor = ".//a[contains(@href, '/space/') or contains(@href, '/user/')]"
+    static let fallbackNode = ".//a[contains(@href, '/go/') or contains(@href, '/categories/')]"
+    static let fallbackLastActive = ".//time"
+
+    static let postDetailTitleLink = "//*[contains(@class, 'post-title')]//a[contains(@class, 'post-title-link')]"
+    static let postDetailTitleFallback = "//*[contains(@class, 'post-title')]//h1"
+    static let postDetailRequiredReadingLevel = "//*[contains(@class, 'post-title')]//a[contains(@class, 'post-title-link')]/following-sibling::*[.//*[local-name()='svg']][1]//*[normalize-space()][last()]"
+    static let postDetailBodyItem = "//*[contains(concat(' ', normalize-space(@class), ' '), ' nsk-post ')]//*[contains(concat(' ', normalize-space(@class), ' '), ' content-item ') and not(ancestor::ul[contains(concat(' ', normalize-space(@class), ' '), ' comments ')])][1]"
+    static let postDetailComments = "//*[contains(concat(' ', normalize-space(@class), ' '), ' comments ')]/*[contains(concat(' ', normalize-space(@class), ' '), ' content-item ')]"
+    static let postDetailPagination = "//*[contains(@class, 'post-top-pager') or contains(@class, 'post-bottom-pager')][1]"
+    static let pagerPositionItems = ".//*[contains(@class, 'pager-pos')]"
+    static let pagerPrevious = ".//*[contains(@class, 'pager-prev') and not(@aria-disabled='true')]"
+    static let pagerNext = ".//*[contains(@class, 'pager-next') and not(@aria-disabled='true')]"
+    static let postDetailNextPage = "//*[contains(@class, 'comment-container')]//a[@rel='next' and contains(@class, 'pager-next')]"
+    static let contentAuthor = ".//*[contains(@class, 'author-name')]"
+    static let contentPosterBadge = ".//*[contains(concat(' ', normalize-space(@class), ' '), ' author-info ')]//*[contains(concat(' ', normalize-space(@class), ' '), ' is-poster ') and normalize-space()='楼主']"
+    static let contentAuthorBadges = ".//*[contains(concat(' ', normalize-space(@class), ' '), ' author-info ')]//*[contains(concat(' ', normalize-space(@class), ' '), ' nsk-badge ') or contains(concat(' ', normalize-space(@class), ' '), ' role-tag ') or contains(@class, 'role-')]"
+    static let contentAuthorProfileLink = ".//*[contains(@class, 'author-name') and @href]"
+    static let contentAvatarProfileLink = ".//*[contains(concat(' ', normalize-space(@class), ' '), ' avatar-wrapper ')]//a[contains(@href, '/space/')]"
+    static let contentCreatedAt = ".//*[contains(@class, 'date-created')]//time"
+    static let contentCategory = ".//*[contains(@class, 'content-category')]//a"
+    static let contentFloor = ".//*[contains(@class, 'floor-link')]"
+    static let contentHotBadge = ".//*[contains(concat(' ', normalize-space(@class), ' '), ' hot-badge ')]"
+    static let contentArticle = ".//*[self::article or self::div][contains(concat(' ', normalize-space(@class), ' '), ' post-content ')]"
+    static let contentSignature = "./*[contains(concat(' ', normalize-space(@class), ' '), ' signature ')][1]"
+    static let postDetailBodyLeft = "//*[@id='nsk-body-left'][1]"
+    static let postVoteRoot = "//*[@id='vote-editor-mount'][1]"
+    static let postDetailRestrictedNotice = "//*[@id='nsk-body-left']//*[(contains(normalize-space(.), '需要注册用户才能查看') or contains(normalize-space(.), '权限不足')) and not(*)][1] | //*[contains(concat(' ', normalize-space(@class), ' '), ' restricted-post ')]//*[(contains(normalize-space(.), '需要注册用户才能查看') or contains(normalize-space(.), '权限不足'))][1]"
+}

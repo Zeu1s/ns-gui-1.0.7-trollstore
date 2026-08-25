@@ -1,0 +1,42 @@
+# macOS
+.DS_Store
+**/.DS_Store
+._*
+.Spotlight-V100
+.Trashes
+
+# Xcode user data
+xcuserdata/
+*.xcuserstate
+*.xcworkspace/xcuserdata/
+*.xcodeproj/xcuserdata/
+*.xcodeproj/project.xcworkspace/xcuserdata/
+*.xccheckout
+*.moved-aside
+*.xcscmblueprint
+*.xcbkptlist
+
+# Build artifacts
+DerivedData/
+.derivedData/
+build/
+.build/
+*.xcresult
+*.dSYM
+*.dSYM.zip
+*.ipa
+
+# Swift Package Manager local state
+.swiftpm/
+
+# Optional local tooling artifacts
+.worktrees/
+.idea/
+.superpowers/
+fastlane/test_output/
+fastlane/report.xml
+fastlane/Preview.html
+fastlane/app_privacy_details.json
+fastlane/app_rating_config.json
+fastlane/metadata/
+fastlane/screenshots/

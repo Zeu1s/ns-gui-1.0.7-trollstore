@@ -1,0 +1,100 @@
+name: Build TrollStore IPA
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "应用版本号，例如 3.0.0"
+        required: false
+        default: "3.0.0"
+        type: string
+      build_number:
+        description: "构建号，仅允许数字"
+        required: false
+        default: "30"
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build and sign for TrollStore
+    runs-on: macos-15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Select Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - name: Install ldid
+        run: brew install ldid
+
+      - name: Resolve Swift packages
+        run: xcodebuild -resolvePackageDependencies -project nodeseek.xcodeproj -scheme nodeseek
+
+      - name: Build unsigned archive
+        env:
+          APP_VERSION: ${{ inputs.version }}
+          BUILD_NUMBER: ${{ inputs.build_number }}
+        run: |
+          set -euo pipefail
+          if [[ ! "${BUILD_NUMBER}" =~ ^[0-9]+$ ]]; then
+            echo "构建号必须是数字: ${BUILD_NUMBER}" >&2
+            exit 1
+          fi
+
+          xcodebuild \
+            -project nodeseek.xcodeproj \
+            -scheme nodeseek \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -archivePath "$RUNNER_TEMP/nodeseek.xcarchive" \
+            MARKETING_VERSION="${APP_VERSION}" \
+            CURRENT_PROJECT_VERSION="${BUILD_NUMBER}" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            DEVELOPMENT_TEAM="" \
+            clean archive
+
+      - name: Sign and package IPA
+        env:
+          APP_VERSION: ${{ inputs.version }}
+          BUILD_NUMBER: ${{ inputs.build_number }}
+        run: |
+          set -euo pipefail
+          app_path="$RUNNER_TEMP/nodeseek.xcarchive/Products/Applications/nodeseek.app"
+          test -d "$app_path"
+
+          rm -rf build
+          mkdir -p build/Payload
+          cp -R "$app_path" build/Payload/
+
+          # 先签名嵌套 Mach-O，再签名主 App，避免嵌套代码被主签名覆盖。
+          main_binary="build/Payload/nodeseek.app/nodeseek"
+          while IFS= read -r -d '' candidate; do
+            if [[ "$candidate" == "$main_binary" ]]; then
+              continue
+            fi
+            if file "$candidate" | grep -q 'Mach-O'; then
+              ldid -S "$candidate"
+            fi
+          done < <(find build/Payload/nodeseek.app -type f -perm -111 -print0)
+
+          ldid -S "$main_binary"
+          ipa_name="Zeu1s-${APP_VERSION}-trollstore-build${BUILD_NUMBER}.ipa"
+          (cd build && zip -qry "$ipa_name" Payload)
+          unzip -t "build/$ipa_name"
+
+      - name: Upload TrollStore IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: Zeu1s-${{ inputs.version }}-trollstore-build${{ inputs.build_number }}-ipa
+          path: build/Zeu1s-${{ inputs.version }}-trollstore-build${{ inputs.build_number }}.ipa
+          if-no-files-found: error
