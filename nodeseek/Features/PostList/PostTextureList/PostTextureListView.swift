@@ -38,10 +38,20 @@ final class PostTextureListView: UIView {
     private let leadingScreensForBatching: CGFloat = 2.0
     private var skeletonRowCount: Int = 8
     private var lastBatchFetchRequestedItemCount: Int?
-    private var streamGeneration = 0
+    /// 流式浮现参数集中一处，调手感只改这里。
+    private enum StreamAppearance {
+        static let rowStaggerDelay: TimeInterval = 0.035
+        static let duration: TimeInterval = 0.42
+        static let springDamping: CGFloat = 0.86
+        static let springVelocity: CGFloat = 0.4
+        static let offsetY: CGFloat = 16
+        static let initialScale: CGFloat = 0.98
+        static let maximumInitialRowCount = 24
+    }
     private var pendingStreamRowIndexes = Set<Int>()
-    private var activeStreamAnimationCount = 0
-    private let maximumInitialStreamRowCount = 24
+    /// token → 动画器：计数天然精确，取消时也能逐个平滑收尾。
+    private var activeStreamAnimators: [Int: UIViewPropertyAnimator] = [:]
+    private var nextStreamAnimationToken = 0
     private var isPostSelectionLocked = false
     private var selectionUnlockWorkItem: DispatchWorkItem?
 
@@ -300,7 +310,7 @@ final class PostTextureListView: UIView {
             prepareIncomingStreamAppearance()
             return
         }
-        animateStreamAppearance(cells, generation: nextStreamGeneration())
+        animateStreamAppearance(cells)
     }
 
     /// 列表内容到达时只登记首屏行，等 Texture 发出 willDisplay 回调再逐行播放。
@@ -311,18 +321,12 @@ final class PostTextureListView: UIView {
     }
 
     private func prepareIncomingStreamAppearance() {
-        streamGeneration += 1
-        activeStreamAnimationCount = 0
-        pendingStreamRowIndexes = Set(0..<min(items.count, maximumInitialStreamRowCount))
-    }
-
-    private func nextStreamGeneration() -> Int {
-        streamGeneration += 1
-        return streamGeneration
+        stopAllStreamAnimators()
+        pendingStreamRowIndexes = Set(0..<min(items.count, StreamAppearance.maximumInitialRowCount))
     }
 
     private var hasPendingStreamAppearance: Bool {
-        pendingStreamRowIndexes.isEmpty == false || activeStreamAnimationCount > 0
+        pendingStreamRowIndexes.isEmpty == false || activeStreamAnimators.isEmpty == false
     }
 
     private var isReadyToStreamAppearance: Bool {
@@ -350,44 +354,41 @@ final class PostTextureListView: UIView {
         else {
             return
         }
-        let generation = streamGeneration
-        animateStreamAppearance(cell, sequence: index, generation: generation)
+        animateStreamAppearance(cell, sequence: index)
         finalizeIncomingStreamAppearanceIfViewportIsCovered()
     }
 
-    private func animateStreamAppearance(_ cells: [UITableViewCell], generation: Int) {
-        guard generation == streamGeneration else { return }
+    private func animateStreamAppearance(_ cells: [UITableViewCell]) {
         for (index, cell) in cells.enumerated() {
-            animateStreamAppearance(cell, sequence: index, generation: generation)
+            animateStreamAppearance(cell, sequence: index)
         }
     }
 
-    private func animateStreamAppearance(
-        _ cell: UIView,
-        sequence: Int,
-        generation: Int
-    ) {
-        activeStreamAnimationCount += 1
-        let delay = Double(sequence) * 0.035
-        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self, weak cell] in
-            guard let self, let cell, generation == self.streamGeneration else { return }
-            cell.layer.removeAllAnimations()
-            cell.alpha = 0
-            cell.transform = CGAffineTransform(translationX: 0, y: 16).scaledBy(x: 0.98, y: 0.98)
-            UIView.animate(
-                withDuration: 0.42,
-                delay: 0,
-                usingSpringWithDamping: 0.86,
-                initialSpringVelocity: 0.4,
-                options: [.curveEaseOut, .allowUserInteraction, .beginFromCurrentState]
-            ) {
-                cell.alpha = 1
-                cell.transform = .identity
-            } completion: { [weak self] _ in
-                guard let self, generation == self.streamGeneration else { return }
-                self.activeStreamAnimationCount = max(0, self.activeStreamAnimationCount - 1)
-            }
+    /// 登记即进入初始态、按延迟启动动画：cell 不会先完整可见再瞬间消失，避免闪烁。
+    private func animateStreamAppearance(_ cell: UIView, sequence: Int) {
+        cell.layer.removeAllAnimations()
+        cell.alpha = 0
+        cell.transform = CGAffineTransform(translationX: 0, y: StreamAppearance.offsetY)
+            .scaledBy(x: StreamAppearance.initialScale, y: StreamAppearance.initialScale)
+
+        let animator = UIViewPropertyAnimator(
+            duration: StreamAppearance.duration,
+            timingParameters: UISpringTimingParameters(
+                dampingRatio: StreamAppearance.springDamping,
+                initialVelocity: CGVector(dx: 0, dy: StreamAppearance.springVelocity)
+            )
+        )
+        animator.addAnimations { [weak cell] in
+            cell?.alpha = 1
+            cell?.transform = .identity
         }
+        let token = nextStreamAnimationToken
+        nextStreamAnimationToken += 1
+        animator.addCompletion { [weak self] _ in
+            self?.activeStreamAnimators.removeValue(forKey: token)
+        }
+        activeStreamAnimators[token] = animator
+        animator.startAnimation(afterDelay: Double(sequence) * StreamAppearance.rowStaggerDelay)
     }
 
     /// Texture 可能在首行显示后才提交底部行。等真实可见行覆盖到视口底部再结束首屏流式，
@@ -412,13 +413,24 @@ final class PostTextureListView: UIView {
     }
 
     private func cancelStreamAppearance() {
-        streamGeneration += 1
+        stopAllStreamAnimators()
         pendingStreamRowIndexes.removeAll()
-        activeStreamAnimationCount = 0
         for cell in tableNode.view.visibleCells {
             cell.layer.removeAllAnimations()
             cell.alpha = 1
             cell.transform = .identity
+        }
+    }
+
+    /// stop 之后必须 finish 才能释放；已自然结束的动画器停在 inactive，按状态跳过。
+    private func stopAllStreamAnimators() {
+        let animators = Array(activeStreamAnimators.values)
+        activeStreamAnimators.removeAll()
+        for animator in animators {
+            animator.stopAnimation(true)
+            if animator.state == .stopped {
+                animator.finishAnimation(at: .current)
+            }
         }
     }
 
@@ -530,7 +542,14 @@ extension PostTextureListView: ASTableDelegate {
         else {
             return
         }
-        streamRowIfNeeded(node.view, at: indexPath.row)
+        if pendingStreamRowIndexes.contains(indexPath.row) {
+            streamRowIfNeeded(node.view, at: indexPath.row)
+        } else if node.view.alpha != 1 || node.view.transform != .identity {
+            // 复用的 cell 可能残留流式初始态（透明+位移），进屏前恢复默认外观。
+            node.view.layer.removeAllAnimations()
+            node.view.alpha = 1
+            node.view.transform = .identity
+        }
     }
 
     func tableNode(_ tableNode: ASTableNode, didSelectRowAt indexPath: IndexPath) {
