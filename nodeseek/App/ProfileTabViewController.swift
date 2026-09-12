@@ -52,6 +52,7 @@ final class ProfileTabViewController: UIViewController {
     private var readmeContentHeight: CGFloat = 64
     private var readmeLoadGeneration = 0
     private var hasResolvedReadme = false
+    private var readmeLoadFailed = false
     private var loadTask: Task<Void, Never>?
     private var isChangingFollowState = false
     private var followState: NodeSeekFollowState = .notFollowing
@@ -253,13 +254,17 @@ final class ProfileTabViewController: UIViewController {
         tableView.reloadData()
         Task { [weak self] in
             guard let self else { return }
-            let profile = try? await self.accountSettingsClient.loadProfile(userID: userID)
-            guard self.readmeLoadGeneration == generation, self.activeUserID == userID else { return }
-            if let profile {
+            do {
+                let profile = try await self.accountSettingsClient.loadProfile(userID: userID)
+                guard self.readmeLoadGeneration == generation, self.activeUserID == userID else { return }
                 let trimmedReadme = profile.readme.trimmingCharacters(in: .whitespacesAndNewlines)
                 self.readme = trimmedReadme.isEmpty ? nil : trimmedReadme
-            } else {
+                self.readmeLoadFailed = false
+            } catch {
+                guard self.readmeLoadGeneration == generation, self.activeUserID == userID else { return }
                 self.readme = nil
+                self.readmeLoadFailed = true
+                AppLog.warning(.account, "Readme 加载失败: " + error.localizedDescription)
             }
             self.hasResolvedReadme = true
             self.tableView.reloadData()
@@ -583,7 +588,7 @@ extension ProfileTabViewController: UITableViewDataSource, UITableViewDelegate {
             if let readme {
                 cell.configure(markdown: readme)
             } else {
-                cell.configureEmptyState(message: hasResolvedReadme ? "暂无 Readme" : "正在加载 Readme...")
+                cell.configureEmptyState(message: readmeLoadFailed ? "Readme 加载失败，下拉重试" : (hasResolvedReadme ? "暂无 Readme" : "正在加载 Readme..."))
             }
             return cell
         case .content, .utility:
@@ -1143,6 +1148,22 @@ private final class ProfileReadmeCell: UITableViewCell, WKNavigationDelegate, WK
             .replacingOccurrences(of: "&", with: "&amp;")
             .replacingOccurrences(of: "<", with: "&lt;")
             .replacingOccurrences(of: ">", with: "&gt;")
+
+        // 围栏代码块先摘出占位，避免内部内容被后续行内转换污染。
+        var codeBlocks: [String] = []
+        if let fenceRegex = try? NSRegularExpression(pattern: "```[a-zA-Z0-9_+-]*\\n([\\s\\S]*?)```") {
+            html = fenceRegex.stringByReplacingMatches(
+                in: html,
+                options: [],
+                range: NSRange(html.startIndex..., in: html)
+            ) { match in
+                let code = match.range(at: 1)
+                let source = (html as NSString).substring(with: code)
+                codeBlocks.append(source)
+                return "\u{E000}NSCODE\(codeBlocks.count - 1)\u{E001}"
+            }
+        }
+
         if let iframeRegex = try? NSRegularExpression(
             pattern: "(?s)&lt;iframe\\b.*?\\bsrc\\s*=\\s*[\\\"'](https://[^\\\"'\\s]+)[\\\"'].*?&gt;(?:\\s*&lt;/iframe&gt;)?",
             options: []
@@ -1193,8 +1214,109 @@ private final class ProfileReadmeCell: UITableViewCell, WKNavigationDelegate, WK
                 withTemplate: "<em>$1</em>"
             )
         }
+        if let strikeRegex = try? NSRegularExpression(pattern: "~~([^~\\n]+)~~", options: []) {
+            html = strikeRegex.stringByReplacingMatches(
+                in: html,
+                options: [],
+                range: NSRange(html.startIndex..., in: html),
+                withTemplate: "<del>$1</del>"
+            )
+        }
+        if let inlineCodeRegex = try? NSRegularExpression(pattern: "`([^`\\n]+)`", options: []) {
+            html = inlineCodeRegex.stringByReplacingMatches(
+                in: html,
+                options: [],
+                range: NSRange(html.startIndex..., in: html),
+                withTemplate: "<code style=\"background:rgba(128,128,128,0.16);padding:1px 4px;border-radius:3px;\">$1</code>"
+            )
+        }
+
+        // 列表 / 引用 / 分割线：逐行分组后整块输出（不产生内部换行，避免被 <br> 污染）。
+        html = Self.renderLineBlocks(in: html)
+
         html = html.replacingOccurrences(of: "\n", with: "<br>")
+
+        // 还原围栏代码块：<pre> 内保留原始换行。
+        for (index, code) in codeBlocks.enumerated() {
+            let token = "\u{E000}NSCODE\(index)\u{E001}"
+            let escaped = code
+                .replacingOccurrences(of: "&", with: "&amp;")
+                .replacingOccurrences(of: "<", with: "&lt;")
+                .replacingOccurrences(of: ">", with: "&gt;")
+            html = html.replacingOccurrences(
+                of: token,
+                with: "<pre style=\"background:rgba(128,128,128,0.14);padding:8px;border-radius:6px;overflow-x:auto;white-space:pre\"><code>\(escaped)</code></pre>"
+            )
+        }
         return html
+    }
+
+    /// 把连续的列表行 / 引用行 / 分割线分组渲染为整块 HTML。
+    private static func renderLineBlocks(in text: String) -> String {
+        var outputLines: [String] = []
+        var listBuffer: [String] = []
+        var listOrdered = false
+        var quoteBuffer: [String] = []
+
+        func flushList() {
+            guard listBuffer.isEmpty == false else { return }
+            let tag = listOrdered ? "ol" : "ul"
+            outputLines.append("<\(tag) style=\"margin:4px 0;padding-left:22px\">"
+                + listBuffer.map({ "<li>\($0)</li>" }).joined()
+                + "</\(tag)>")
+            listBuffer.removeAll()
+        }
+        func flushQuote() {
+            guard quoteBuffer.isEmpty == false else { return }
+            outputLines.append("<blockquote style=\"margin:4px 0;padding:4px 10px;border-left:3px solid rgba(128,128,128,0.5);color:inherit\">"
+                + quoteBuffer.joined(separator: "<br>")
+                + "</blockquote>")
+            quoteBuffer.removeAll()
+        }
+
+        for rawLine in text.components(separatedBy: "\n") {
+            let line = rawLine.trimmingCharacters(in: .whitespaces)
+            let trimmed = line.dropFirst(1).trimmingCharacters(in: .whitespaces)
+            if line == "---" || line == "***" || line == "___" {
+                flushList(); flushQuote()
+                outputLines.append("<hr style=\"border:0;border-top:1px solid rgba(128,128,128,0.4)\">")
+                continue
+            }
+            if line.hasPrefix("- ") || line.hasPrefix("* ") {
+                flushQuote()
+                if listBuffer.isEmpty {
+                    listOrdered = false
+                } else if listOrdered {
+                    flushList()
+                }
+                listBuffer.append(trimmed)
+                continue
+            }
+            if line.hasPrefix("> ") || line == ">" {
+                flushList()
+                quoteBuffer.append(String(line.dropFirst(line.hasPrefix("> ") ? 2 : 1)))
+                continue
+            }
+            let ordered = Self.matchOrderedListItem(line)
+            if let item = ordered {
+                flushQuote()
+                if listBuffer.isEmpty { listOrdered = true }
+                if listOrdered == false, listBuffer.isEmpty == false { flushList() }
+                listBuffer.append(item)
+                continue
+            }
+            flushList(); flushQuote()
+            outputLines.append(line)
+        }
+        flushList(); flushQuote()
+        return outputLines.joined(separator: "\n")
+    }
+
+    private static func matchOrderedListItem(_ line: String) -> String? {
+        guard let spaceIndex = line.firstIndex(of: " ") else { return nil }
+        let marker = line[line.startIndex..<spaceIndex]
+        guard marker.hasSuffix("."), marker.dropLast().allSatisfy(\.isNumber), marker.count <= 4 else { return nil }
+        return line[spaceIndex...].dropFirst().trimmingCharacters(in: .whitespaces)
     }
 
     private static func renderHeaders(in text: String) -> String {
