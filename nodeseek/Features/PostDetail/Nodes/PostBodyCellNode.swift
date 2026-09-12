@@ -284,8 +284,8 @@ final class PostBodyCellNode: ASCellNode, ThemeRefreshableNode {
         configureOpposeActionButton(count: content.opposeCount, isClicked: content.isOpposeClicked)
         configureFavoriteActionButton(count: content.favoriteCount, isCollected: content.isFavoriteCollected)
         configureActionButton(replyButtonNode, systemImageName: "arrowshape.turn.up.left", accessibilityLabel: "回复楼主")
-        configureActionButton(commentButtonNode, systemImageName: NodeSeekIconName.comments, accessibilityLabel: "评论帖子")
-        configureActionButton(editButtonNode, systemImageName: NodeSeekIconName.topics, accessibilityLabel: "编辑帖子")
+        configureActionButton(commentButtonNode, systemImageName: "text.bubble", accessibilityLabel: "评论帖子")
+        configureActionButton(editButtonNode, systemImageName: "square.and.pencil", accessibilityLabel: "编辑帖子")
         configureLevelDaysBadge()
     }
 
@@ -440,8 +440,7 @@ final class PostBodyCellNode: ASCellNode, ThemeRefreshableNode {
         accessibilityLabel: String,
         count: Int? = nil,
         color: UIColor = UIColor.secondaryLabel.withAlphaComponent(PostDetailContentLayout.inactiveReactionAlpha),
-        customImage: UIImage? = nil,
-        customImageFillWhenClicked: Bool = false
+        customImage: UIImage? = nil
     ) {
         let configuration = UIImage.SymbolConfiguration(
             pointSize: PostDetailContentLayout.reactionSymbolPointSize,
@@ -450,16 +449,6 @@ final class PostBodyCellNode: ASCellNode, ThemeRefreshableNode {
         let image: UIImage?
         if let customImage {
             image = customImage.withTintColor(color, renderingMode: .alwaysTemplate)
-        } else if let siteIcon = NodeSeekIconRenderer.icon(systemImageName, pointSize: PostDetailContentLayout.reactionSymbolPointSize) {
-            // 站点官方图标：点击态用同源实心图形填充（实心版不可用时退回描边模板着色）。
-            if customImageFillWhenClicked {
-                let fillName = fillVariantName(for: systemImageName)
-                image = (fillName.flatMap { NodeSeekIconRenderer.icon($0, pointSize: PostDetailContentLayout.reactionSymbolPointSize) }
-                    ?? siteIcon)
-                    .withTintColor(color, renderingMode: .alwaysTemplate)
-            } else {
-                image = siteIcon.withTintColor(color, renderingMode: .alwaysTemplate)
-            }
         } else {
             image = UIImage(systemName: systemImageName, withConfiguration: configuration)?
                 .withTintColor(color, renderingMode: .alwaysOriginal)
@@ -551,20 +540,10 @@ final class PostBodyCellNode: ASCellNode, ThemeRefreshableNode {
         isClicked ? .systemRed : UIColor.secondaryLabel.withAlphaComponent(PostDetailContentLayout.inactiveReactionAlpha)
     }
 
-    /// 站点图标没有 SF Symbol 那样的 fill 变体，点击态映射到同源实心图形。
-    private func fillVariantName(for name: String) -> String? {
-        switch name {
-        case NodeSeekIconName.like: return NodeSeekIconName.likeFilled
-        case NodeSeekIconName.oppose: return NodeSeekIconName.opposeFilled
-        case NodeSeekIconName.favorite: return NodeSeekIconName.collection
-        default: return nil
-        }
-    }
-
     private func configureLikeActionButton(count: Int?, isClicked: Bool) {
         configureActionButton(
             likeButtonNode,
-            systemImageName: NodeSeekIconName.like,
+            systemImageName: isClicked ? "hand.thumbsup.fill" : "hand.thumbsup",
             accessibilityLabel: "点赞",
             count: count,
             color: Self.likeActionColor(isClicked: isClicked)
@@ -574,7 +553,7 @@ final class PostBodyCellNode: ASCellNode, ThemeRefreshableNode {
     private func configureOpposeActionButton(count: Int?, isClicked: Bool) {
         configureActionButton(
             opposeButtonNode,
-            systemImageName: NodeSeekIconName.oppose,
+            systemImageName: isClicked ? "hand.thumbsdown.fill" : "hand.thumbsdown",
             accessibilityLabel: "反对",
             count: count,
             color: Self.opposeActionColor(isClicked: isClicked)
@@ -598,11 +577,10 @@ final class PostBodyCellNode: ASCellNode, ThemeRefreshableNode {
     private func configureFavoriteActionButton(count: Int?, isCollected: Bool) {
         configureActionButton(
             favoriteButtonNode,
-            systemImageName: NodeSeekIconName.favorite,
+            systemImageName: isCollected ? "star.fill" : "star",
             accessibilityLabel: "收藏",
             count: count,
-            color: Self.favoriteActionColor(isCollected: isCollected),
-            customImageFillWhenClicked: isCollected
+            color: Self.favoriteActionColor(isCollected: isCollected)
         )
     }
 
