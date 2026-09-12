@@ -29,9 +29,9 @@ final class ProfileTabViewController: UIViewController {
 
         var imageName: String {
             switch self {
-            case .discussions: return "doc.text"
-            case .comments: return "text.bubble"
-            case .collections: return "bookmark"
+            case .discussions: return NodeSeekIconName.topics
+            case .comments: return NodeSeekIconName.comments
+            case .collections: return NodeSeekIconName.collection
             }
         }
     }
@@ -561,7 +561,9 @@ extension ProfileTabViewController: UITableViewDataSource, UITableViewDelegate {
                     return UITableViewCell()
                 }
                 configuration.text = row.title
-                configuration.image = UIImage(systemName: row.imageName)
+                // 站点官方图标优先，未覆盖的名称回退 SF Symbol。
+                configuration.image = NodeSeekIconRenderer.icon(row.imageName, pointSize: 18)
+                    ?? UIImage(systemName: row.imageName)
                 configuration.imageProperties.tintColor = .systemOrange
                 cell.accessoryType = .disclosureIndicator
                 cell.isUserInteractionEnabled = activeUserID != nil
@@ -686,11 +688,11 @@ private final class ProfileHeaderView: UIView {
         setActionsVisible(!isCurrentUser)
         setFollowState(followState)
         setMetrics([
-            ProfileMetric(title: "等级", value: "Lv \(userInfo.level)", image: UIImage(systemName: "diamond")),
+            ProfileMetric(title: "等级", value: "Lv \(userInfo.level)", siteIconName: NodeSeekIconName.level),
             ProfileMetric(
                 title: "主题帖",
                 value: "\(userInfo.nPost)",
-                image: UIImage(systemName: "square.and.pencil"),
+                siteIconName: NodeSeekIconName.topics,
                 onTap: onDiscussionsTapped
             ),
             ProfileMetric(
@@ -703,13 +705,13 @@ private final class ProfileHeaderView: UIView {
             ProfileMetric(
                 title: "评论数",
                 value: "\(userInfo.nComment)",
-                image: UIImage(systemName: "text.bubble"),
+                siteIconName: NodeSeekIconName.comments,
                 onTap: onCommentsTapped
             ),
             ProfileMetric(
                 title: "星辰",
                 value: "\(userInfo.stardust)",
-                image: UIImage(systemName: "wallet.pass"),
+                siteIconName: NodeSeekIconName.stardust,
                 onTap: onStardustTapped
             ),
             ProfileMetric(title: "粉丝", value: "\(userInfo.fans)", image: UIImage(systemName: "dot.radiowaves.left.and.right"))
@@ -890,16 +892,16 @@ private final class ProfileHeaderView: UIView {
     }
 
     private static let placeholderMetrics: [ProfileMetric] = [
-        ProfileMetric(title: "等级", value: "-", image: UIImage(systemName: "diamond")),
-        ProfileMetric(title: "主题帖", value: "-", image: UIImage(systemName: "square.and.pencil")),
+        ProfileMetric(title: "等级", value: "-", siteIconName: NodeSeekIconName.level),
+        ProfileMetric(title: "主题帖", value: "-", siteIconName: NodeSeekIconName.topics),
         ProfileMetric(
             title: "鸡腿",
             value: "-",
             image: ReactionIconRenderer.chickenLeg(pointSize: 18),
             imageTintColor: .secondaryLabel
         ),
-        ProfileMetric(title: "评论数", value: "-", image: UIImage(systemName: "text.bubble")),
-        ProfileMetric(title: "星辰", value: "-", image: UIImage(systemName: "wallet.pass")),
+        ProfileMetric(title: "评论数", value: "-", siteIconName: NodeSeekIconName.comments),
+        ProfileMetric(title: "星辰", value: "-", siteIconName: NodeSeekIconName.stardust),
         ProfileMetric(title: "粉丝", value: "-", image: UIImage(systemName: "dot.radiowaves.left.and.right"))
     ]
 }
@@ -1199,6 +1201,24 @@ private struct ProfileMetric {
         self.image = image
         self.imageTintColor = imageTintColor
         self.onTap = onTap
+    }
+
+    /// 用站点官方 IconPark 图标构造（与 nodeseek.com 同源观感）。
+    init(
+        title: String,
+        value: String,
+        siteIconName: String,
+        pointSize: CGFloat = 16,
+        imageTintColor: UIColor? = nil,
+        onTap: (() -> Void)? = nil
+    ) {
+        self.init(
+            title: title,
+            value: value,
+            image: NodeSeekIconRenderer.icon(siteIconName, pointSize: pointSize),
+            imageTintColor: imageTintColor,
+            onTap: onTap
+        )
     }
 }
 

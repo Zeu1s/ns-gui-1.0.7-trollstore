@@ -684,8 +684,8 @@ final class CommentCellNode: ASCellNode, ThemeRefreshableNode {
         configureChickenLegActionButton(count: comment.chickenLegCount, isClicked: comment.isChickenLegClicked)
         configureOpposeActionButton(count: comment.opposeCount, isClicked: comment.isOpposeClicked)
         configureActionButton(replyButtonNode, systemImageName: "arrowshape.turn.up.left", accessibilityLabel: "回复评论")
-        configureActionButton(quoteButtonNode, systemImageName: "quote.bubble", accessibilityLabel: "引用评论")
-        configureActionButton(editButtonNode, systemImageName: "square.and.pencil", accessibilityLabel: "编辑评论")
+        configureActionButton(quoteButtonNode, systemImageName: NodeSeekIconName.edit, accessibilityLabel: "引用评论")
+        configureActionButton(editButtonNode, systemImageName: NodeSeekIconName.topics, accessibilityLabel: "编辑评论")
     }
 
     private func configureLevelDaysBadge() {
@@ -850,7 +850,8 @@ final class CommentCellNode: ASCellNode, ThemeRefreshableNode {
         accessibilityLabel: String,
         count: Int? = nil,
         color: UIColor = UIColor.secondaryLabel.withAlphaComponent(PostDetailContentLayout.inactiveReactionAlpha),
-        customImage: UIImage? = nil
+        customImage: UIImage? = nil,
+        customImageFillWhenClicked: Bool = false
     ) {
         let configuration = UIImage.SymbolConfiguration(
             pointSize: PostDetailContentLayout.reactionSymbolPointSize,
@@ -859,6 +860,16 @@ final class CommentCellNode: ASCellNode, ThemeRefreshableNode {
         let image: UIImage?
         if let customImage {
             image = customImage.withTintColor(color, renderingMode: .alwaysTemplate)
+        } else if let siteIcon = NodeSeekIconRenderer.icon(systemImageName, pointSize: PostDetailContentLayout.reactionSymbolPointSize) {
+            // 站点官方图标：点击态映射到同源实心图形（不可用时退回描边模板着色）。
+            if customImageFillWhenClicked {
+                let fillName = Self.fillVariantName(for: systemImageName)
+                image = (fillName.flatMap { NodeSeekIconRenderer.icon($0, pointSize: PostDetailContentLayout.reactionSymbolPointSize) }
+                    ?? siteIcon)
+                    .withTintColor(color, renderingMode: .alwaysTemplate)
+            } else {
+                image = siteIcon.withTintColor(color, renderingMode: .alwaysTemplate)
+            }
         } else {
             image = UIImage(systemName: systemImageName, withConfiguration: configuration)?
                 .withTintColor(color, renderingMode: .alwaysOriginal)
@@ -911,10 +922,20 @@ final class CommentCellNode: ASCellNode, ThemeRefreshableNode {
         isClicked ? .systemRed : UIColor.secondaryLabel.withAlphaComponent(PostDetailContentLayout.inactiveReactionAlpha)
     }
 
+    /// 站点图标没有 SF Symbol 那样的 fill 变体，点击态映射到同源实心图形。
+    private static func fillVariantName(for name: String) -> String? {
+        switch name {
+        case NodeSeekIconName.like: return NodeSeekIconName.likeFilled
+        case NodeSeekIconName.oppose: return NodeSeekIconName.opposeFilled
+        case NodeSeekIconName.favorite: return NodeSeekIconName.collection
+        default: return nil
+        }
+    }
+
     private func configureLikeActionButton(count: Int?, isClicked: Bool) {
         configureActionButton(
             likeButtonNode,
-            systemImageName: isClicked ? "hand.thumbsup.fill" : "hand.thumbsup",
+            systemImageName: NodeSeekIconName.like,
             accessibilityLabel: "点赞",
             count: count,
             color: Self.likeActionColor(isClicked: isClicked)
@@ -924,7 +945,7 @@ final class CommentCellNode: ASCellNode, ThemeRefreshableNode {
     private func configureOpposeActionButton(count: Int?, isClicked: Bool) {
         configureActionButton(
             opposeButtonNode,
-            systemImageName: isClicked ? "hand.thumbsdown.fill" : "hand.thumbsdown",
+            systemImageName: NodeSeekIconName.oppose,
             accessibilityLabel: "反对",
             count: count,
             color: Self.opposeActionColor(isClicked: isClicked)
