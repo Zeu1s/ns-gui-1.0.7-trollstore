@@ -362,8 +362,22 @@ final class ProfileTabViewController: UIViewController {
     }
 
     private func openLevelInfo() {
-        let url = NodeSeekSite.baseURL.appendingPathComponent("about")
-        navigationController?.pushViewController(NodeSeekWebViewController(url: url), animated: true)
+        // 站内没有独立的等级说明页（/about 会 302 到官方介绍帖），
+        // 改为本地弹窗展示等级与鸡腿的对应规则（App 内等级计算同源）。
+        let message = [
+            "Lv1：鸡腿 ≥ 100",
+            "Lv2：鸡腿 ≥ 400",
+            "Lv3：鸡腿 ≥ 900",
+            "Lv4：鸡腿 ≥ 1600",
+            "Lv5：鸡腿 ≥ 2500",
+            "Lv6：鸡腿 ≥ 3600",
+            "",
+            "等级由鸡腿数目按开方公式折算，发帖被送鸡腿即可提升。"
+        ].joined(separator: "
+")
+        let alert = UIAlertController(title: "等级说明", message: message, preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: "知道了", style: .default))
+        present(alert, animated: true)
     }
 
     private func openFansList() {

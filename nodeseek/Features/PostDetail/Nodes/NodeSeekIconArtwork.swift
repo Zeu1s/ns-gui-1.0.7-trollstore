@@ -90,8 +90,9 @@ enum NodeSeekIconArtwork {
 <svg xmlns="http://www.w3.org/2000/svg" id="personal-collection" viewBox="0 0 48 48" fill="none"><circle stroke-linejoin="round" stroke-linecap="round" stroke-width="4" stroke="#000000" r="7" cy="11" cx="24"></circle><path stroke-linejoin="round" stroke-linecap="round" stroke-width="4" stroke="#000000" d="M4 41c0-8.837 8.059-16 18-16m9.85 3C29.724 28 28 30.009 28 32.486c0 4.487 4.55 8.565 7 9.514 2.45-.949 7-5.027 7-9.514C42 30.01 40.276 28 38.15 28c-1.302 0-2.453.753-3.15 1.906C34.303 28.753 33.152 28 31.85 28Z"></path></svg>
 """#
 
+    /// stardust3 是填充型图标（原站用 currentColor 填充），补 stroke+fill 保证 SVGKit/tint 可见。
     static let stardust = #"""
-<svg xmlns="http://www.w3.org/2000/svg" id="stardust3" viewBox="0 0 24 24" fill="none"><path d="M11.017 2.814a1 1 0 0 1 1.966 0l1.051 5.558a2 2 0 0 0 1.594 1.594l5.558 1.051a1 1 0 0 1 0 1.966l-5.558 1.051a2 2 0 0 0-1.594 1.594l-1.051 5.558a1 1 0 0 1-1.966 0l-1.051-5.558a2 2 0 0 0-1.594-1.594l-5.558-1.051a1 1 0 0 1 0-1.966l5.558-1.051a2 2 0 0 0 1.594-1.594zM20 2v4m2-2h-4"></path><circle r="2" cy="20" cx="4"></circle></svg>
+<svg xmlns="http://www.w3.org/2000/svg" id="stardust3" viewBox="0 0 24 24" fill="none"><path stroke-linejoin="round" stroke-linecap="round" stroke-width="2" stroke="#000000" fill="#000000" d="M11.017 2.814a1 1 0 0 1 1.966 0l1.051 5.558a2 2 0 0 0 1.594 1.594l5.558 1.051a1 1 0 0 1 0 1.966l-5.558 1.051a2 2 0 0 0-1.594 1.594l-1.051 5.558a1 1 0 0 1-1.966 0l-1.051-5.558a2 2 0 0 0-1.594-1.594l-5.558-1.051a1 1 0 0 1 0-1.966l5.558-1.051a2 2 0 0 0 1.594-1.594zM20 2v4m2-2h-4"></path><circle fill="#000000" stroke="#000000" stroke-width="1" r="2" cy="20" cx="4"></circle></svg>
 """#
 
     static let follow = #"""

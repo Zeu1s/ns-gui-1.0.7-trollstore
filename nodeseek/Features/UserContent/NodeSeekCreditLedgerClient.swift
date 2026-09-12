@@ -20,21 +20,28 @@ enum CreditLedgerClientError: LocalizedError {
 }
 
 /// 星辰/鸡腿账簿客户端。
-/// 首选 JSON 接口（星辰 list 已确认存在）；响应字段名以多候选容错解析，
-/// 避免线上字段名与推测不一致导致整页失败。
+/// - 星辰：/api/stardust/list（对象行）
+/// - 鸡腿：/api/account/credit/page-N（站点 credit.js 实测：数组行 [变动, 总计, 理由, 时间]，每页 20，total 总数）
+/// 请求前统一做 cookie 准备（游客态会得到 USER NOT FOUND/422）。
 final class NodeSeekCreditLedgerClient {
     private let session: URLSession
     private let baseURL: URL
+    private let cookiePreparer: @Sendable () async -> Void
 
     init(
         session: URLSession = .shared,
-        baseURL: URL = NodeSeekSite.baseURL
+        baseURL: URL = NodeSeekSite.baseURL,
+        cookiePreparer: @escaping @Sendable () async -> Void = {
+            await NodeSeekCookieSession().prepareHTTPLoad()
+        }
     ) {
         self.session = session
         self.baseURL = baseURL
+        self.cookiePreparer = cookiePreparer
     }
 
     func loadLedger(kind: CreditLedgerRecord.Kind, page: Int, uid: Int) async throws -> [CreditLedgerRecord] {
+        await cookiePreparer()
         switch kind {
         case .stardust:
             return try await loadStardust(page: page, uid: uid)
@@ -43,7 +50,7 @@ final class NodeSeekCreditLedgerClient {
         }
     }
 
-    /// 星辰明细：/api/stardust/list（member_id + page，已确认端点存在）。
+    /// 星辰明细：/api/stardust/list（member_id + page）。
     private func loadStardust(page: Int, uid: Int) async throws -> [CreditLedgerRecord] {
         let request = makeJSONRequest(
             path: "/api/stardust/list",
@@ -57,26 +64,31 @@ final class NodeSeekCreditLedgerClient {
         guard (root["success"] as? Bool) != false else {
             throw CreditLedgerClientError.unsuccessfulResponse(root["message"] as? String)
         }
-        let rows = Self.rows(in: root, preferredNames: ["list", "records", "data", "items", "detail"])
-        return rows.compactMap { Self.stardustRecord(from: $0) }
+        // data 可能是对象行数组，也可能与鸡腿一致是数组行——两种都处理。
+        if let objectRows = Self.rows(in: root, preferredNames: ["list", "records", "data", "items", "detail"]), objectRows.isEmpty == false {
+            return objectRows.compactMap { Self.stardustRecord(from: $0) }
+        }
+        if let arrayRows = Self.arrayRows(in: root, preferredNames: ["data", "list", "records"]) {
+            return arrayRows.map { Self.ledgerRecord(fromArrayRow: $0, kind: .stardust) }
+        }
+        return []
     }
 
-    /// 鸡腿明细：未发现稳定 JSON 端点，走账簿 HTML 页解析（App 带 cookie 的 HTTP 客户端）。
+    /// 鸡腿明细：/api/account/credit/page-N，数组行 [变动, 总计, 理由, 时间]。
     private func loadCoin(page: Int, uid: Int) async throws -> [CreditLedgerRecord] {
-        let client = HTTPHTMLClient()
-        var components = URLComponents(url: baseURL.appendingPathComponent("credit"), resolvingAgainstBaseURL: false)
-        if page > 1 {
-            // 网页账簿分页形如 /credit#/p-2；服务端渲染版用 query 兜底，两态都能解析。
-            components?.queryItems = [URLQueryItem(name: "page", value: "\(page)")]
+        let request = makeJSONRequest(
+            path: "/api/account/credit/page-\(max(1, page))",
+            queryItems: [],
+            refererUID: uid
+        )
+        let root = try await fetchJSONObject(from: request)
+        guard (root["success"] as? Bool) != false else {
+            throw CreditLedgerClientError.unsuccessfulResponse(root["message"] as? String)
         }
-        guard let url = components?.url else {
-            throw CreditLedgerClientError.httpStatus(0)
+        guard let arrayRows = Self.arrayRows(in: root, preferredNames: ["data", "list", "records"]) else {
+            return []
         }
-        let response = try await client.get(url)
-        guard (200..<300).contains(response.statusCode) else {
-            throw CreditLedgerClientError.httpStatus(response.statusCode)
-        }
-        return CreditLedgerHTMLParser.parse(html: response.html, kind: .coin)
+        return arrayRows.map { Self.ledgerRecord(fromArrayRow: $0, kind: .coin) }
     }
 
     private func makeJSONRequest(path: String, queryItems: [URLQueryItem], refererUID: Int) -> URLRequest {
@@ -96,6 +108,11 @@ final class NodeSeekCreditLedgerClient {
         let (data, urlResponse) = try await session.data(for: request)
         if let httpResponse = urlResponse as? HTTPURLResponse,
            (200..<300).contains(httpResponse.statusCode) == false {
+            // 服务器用 500 包裹业务错误（如 USER NOT FOUND），取 message 更友好。
+            if let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+               let message = object["message"] as? String {
+                throw CreditLedgerClientError.unsuccessfulResponse(message)
+            }
             throw CreditLedgerClientError.httpStatus(httpResponse.statusCode)
         }
         guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
@@ -106,7 +123,60 @@ final class NodeSeekCreditLedgerClient {
 }
 
 extension NodeSeekCreditLedgerClient {
-    /// 星辰行 → 记录。字段名按可能的写法多候选容错。
+    static func rows(in root: [String: Any], preferredNames: [String]) -> [[String: Any]]? {
+        for name in preferredNames {
+            if let array = root[name] as? [[String: Any]] {
+                return array
+            }
+        }
+        for wrapperName in ["detail", "data"] {
+            guard let wrapper = root[wrapperName] as? [String: Any] else { continue }
+            for name in preferredNames {
+                if let array = wrapper[name] as? [[String: Any]] {
+                    return array
+                }
+            }
+        }
+        return nil
+    }
+
+    /// 数组行形态：data 本身是 [[Any]]。
+    static func arrayRows(in root: [String: Any], preferredNames: [String]) -> [[Any]]? {
+        for name in preferredNames {
+            if let array = root[name] as? [[Any]] {
+                return array
+            }
+        }
+        for wrapperName in ["detail", "data"] {
+            guard let wrapper = root[wrapperName] as? [String: Any] else { continue }
+            for name in preferredNames {
+                if let array = wrapper[name] as? [[Any]] {
+                    return array
+                }
+            }
+        }
+        return nil
+    }
+
+    /// 数组行 [变动, 总计, 理由, 时间] → 记录。
+    static func ledgerRecord(fromArrayRow row: [Any], kind: CreditLedgerRecord.Kind) -> CreditLedgerRecord {
+        let change = Self.intValue(row.count > 0 ? row[0] : nil) ?? 0
+        let balance = Self.intValue(row.count > 1 ? row[1] : nil)
+        let reason = Self.stringValue(row.count > 2 ? row[2] : nil) ?? ""
+        let date = Self.dateValue(row.count > 3 ? row[3] : nil)
+
+        return CreditLedgerRecord(
+            kind: kind,
+            title: reason.isEmpty ? "账户变动" : reason,
+            detail: nil,
+            amount: abs(change),
+            direction: change >= 0 ? .income : .outcome,
+            balanceAfter: balance,
+            date: date
+        )
+    }
+
+    /// 星辰对象行 → 记录（字段多候选容错）。
     static func stardustRecord(from row: [String: Any]) -> CreditLedgerRecord? {
         let title = Self.string(in: row, keys: ["title", "name", "reason", "description", "remark", "memo", "content"])
             ?? "星辰变动"
@@ -139,13 +209,47 @@ extension NodeSeekCreditLedgerClient {
         )
     }
 
+    static func stringValue(_ value: Any?) -> String? {
+        guard let value else { return nil }
+        if let text = value as? String { return text }
+        if let number = value as? NSNumber { return number.stringValue }
+        return nil
+    }
+
+    static func intValue(_ value: Any?) -> Int? {
+        guard let value else { return nil }
+        if let number = value as? NSNumber { return number.intValue }
+        if let text = value as? String { return Int(text) }
+        return nil
+    }
+
+    static func dateValue(_ value: Any?) -> Date? {
+        guard let value else { return nil }
+        if let number = value as? NSNumber {
+            let seconds = number.doubleValue
+            return seconds > 1_000_000_000_000
+                ? Date(timeIntervalSince1970: seconds / 1000)
+                : Date(timeIntervalSince1970: seconds)
+        }
+        guard let text = value as? String else { return nil }
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let date = formatter.date(from: text) { return date }
+        formatter.formatOptions = [.withInternetDateTime]
+        if let date = formatter.date(from: text) { return date }
+        let plain = DateFormatter()
+        plain.timeZone = TimeZone.current
+        for format in ["yyyy-MM-dd HH:mm:ss", "yyyy-MM-dd HH:mm", "yyyy-MM-dd"] {
+            plain.dateFormat = format
+            if let date = plain.date(from: text) { return date }
+        }
+        return nil
+    }
+
     static func string(in row: [String: Any], keys: [String]) -> String? {
         for key in keys {
-            if let value = row[key] as? String, value.isEmpty == false {
+            if let value = Self.stringValue(row[key]), value.isEmpty == false {
                 return value
-            }
-            if let number = row[key] as? NSNumber {
-                return number.stringValue
             }
         }
         return nil
@@ -153,10 +257,7 @@ extension NodeSeekCreditLedgerClient {
 
     static func int(in row: [String: Any], keys: [String]) -> Int? {
         for key in keys {
-            if let number = row[key] as? NSNumber {
-                return number.intValue
-            }
-            if let text = row[key] as? String, let value = Int(text) {
+            if let value = Self.intValue(row[key]) {
                 return value
             }
         }
@@ -165,51 +266,10 @@ extension NodeSeekCreditLedgerClient {
 
     static func date(in row: [String: Any], keys: [String]) -> Date? {
         for key in keys {
-            if let interval = row[key] as? NSNumber {
-                let seconds = interval.doubleValue
-                return seconds > 1_000_000_000_000
-                    ? Date(timeIntervalSince1970: seconds / 1000)
-                    : Date(timeIntervalSince1970: seconds)
-            }
-            if let text = row[key] as? String {
-                let formatter = ISO8601DateFormatter()
-                formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-                if let date = formatter.date(from: text) {
-                    return date
-                }
-                formatter.formatOptions = [.withInternetDateTime]
-                if let date = formatter.date(from: text) {
-                    return date
-                }
-                let formats = ["yyyy-MM-dd HH:mm:ss", "yyyy-MM-dd HH:mm", "yyyy-MM-dd"]
-                let plain = DateFormatter()
-                plain.timeZone = TimeZone.current
-                for format in formats {
-                    plain.dateFormat = format
-                    if let date = plain.date(from: text) {
-                        return date
-                    }
-                }
+            if let date = Self.dateValue(row[key]) {
+                return date
             }
         }
         return nil
-    }
-
-    static func rows(in root: [String: Any], preferredNames: [String]) -> [[String: Any]] {
-        for name in preferredNames {
-            if let array = root[name] as? [[String: Any]] {
-                return array
-            }
-        }
-        // 兜底：嵌套在 detail/data 里再找一层
-        for wrapperName in ["detail", "data"] {
-            guard let wrapper = root[wrapperName] as? [String: Any] else { continue }
-            for name in preferredNames {
-                if let array = wrapper[name] as? [[String: Any]] {
-                    return array
-                }
-            }
-        }
-        return []
     }
 }

@@ -113,7 +113,8 @@ final class FansListViewController: UIViewController {
         }
     }
 
-    /// HTTP 首选拉空间页；解析不到成员时走 WebView 回退（SPA 渲染）。
+    /// 空间页粉丝/关注列表由登录态 SPA 渲染（数据 chunk 登录后才加载），
+    /// 直接走隐藏 WebView 拿渲染完成的 HTML；HTTP 结果不含成员卡，仅作兜底跳过。
     private static func fetchEntries(kind: ListKind, uid: Int) async -> [FansListEntry] {
         let baseURL = NodeSeekSite.baseURL
         var components = URLComponents(url: baseURL.appendingPathComponent("space"), resolvingAgainstBaseURL: false)
@@ -122,18 +123,19 @@ final class FansListViewController: UIViewController {
         guard let url = components?.url else { return [] }
 
         let client = HTMLLoadingStrategyFactory.makeDefaultClient()
-        var html: String?
-        if let response = try? await client.get(url),
-           (200..<300).contains(response.statusCode) {
-            html = response.html
-        }
-        let parsed = parseEntries(html: html ?? "", kind: kind)
-        if parsed.isEmpty, let fallbackClient = client as? any WebViewFallbackRetrying {
+        if let fallbackClient = client as? any WebViewFallbackRetrying {
             if let response = try? await fallbackClient.getUsingWebViewFallback(url) {
-                return parseEntries(html: response.html, kind: kind)
+                let parsed = parseEntries(html: response.html, kind: kind)
+                if parsed.isEmpty == false {
+                    return parsed
+                }
             }
         }
-        return parsed
+        if let response = try? await client.get(url),
+           (200..<300).contains(response.statusCode) {
+            return parseEntries(html: response.html, kind: kind)
+        }
+        return []
     }
 
     private static func parseEntries(html: String, kind: ListKind) -> [FansListEntry] {
@@ -212,8 +214,12 @@ enum FansListHTMLParser {
         var entries: [FansListEntry] = []
         let seenIDs = NSMutableSet()
 
-        // 空间页成员卡：/space/xxx 链接 + 头像 + 名称
-        let anchors = document.xpath("//a[contains(@href,'/space/')]")
+        // 空间页成员卡：优先在成员列表容器内找（class 含 member/fans/follow/list），
+        // 避免把页面导航/介绍区的 space 链接误判为粉丝。
+        var anchors = document.xpath("//*[contains(@class,'member') or contains(@class,'fans') or contains(@class,'follow')]//a[contains(@href,'/space/')]")
+        if anchors.isEmpty {
+            anchors = document.xpath("//a[contains(@href,'/space/')]")
+        }
         for anchor in anchors {
             let href = anchor["href"] ?? ""
             guard let userID = Self.userID(fromHref: href), userID > 0 else { continue }
