@@ -46,5 +46,28 @@ enum AppCrashReporter {
         let header = "崩溃时间: \(Date())\n"
         try? (header + text).write(to: url, atomically: true, encoding: .utf8)
         AppLog.important(.error, .runtime, "已保存崩溃报告: \(url.lastPathComponent)")
+        // 崩溃堆栈全文同步写入监控日志：导出监控日志即可获得完整崩溃数据，
+        // 不依赖单独的 crash 文件。
+        AppLog.important(.error, .runtime, "===== 崩溃报告开始 =====")
+        for chunk in Self.chunked(text, size: 3_800) {
+            AppLog.important(.error, .runtime, chunk)
+        }
+        AppLog.important(.error, .runtime, "===== 崩溃报告结束 =====")
+    }
+
+    private static func chunked(_ text: String, size: Int) -> [String] {
+        var chunks: [String] = []
+        var current = ""
+        for line in text.components(separatedBy: "\n") {
+            if current.count + line.count + 1 > size, current.isEmpty == false {
+                chunks.append(current)
+                current = ""
+            }
+            current += line + "\n"
+        }
+        if current.isEmpty == false {
+            chunks.append(current)
+        }
+        return chunks
     }
 }
