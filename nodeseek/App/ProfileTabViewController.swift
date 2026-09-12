@@ -373,8 +373,7 @@ final class ProfileTabViewController: UIViewController {
             "Lv6：鸡腿 ≥ 3600",
             "",
             "等级由鸡腿数目按开方公式折算，发帖被送鸡腿即可提升。"
-        ].joined(separator: "
-")
+        ].joined(separator: "\n")
         let alert = UIAlertController(title: "等级说明", message: message, preferredStyle: .alert)
         alert.addAction(UIAlertAction(title: "知道了", style: .default))
         present(alert, animated: true)
