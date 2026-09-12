@@ -368,7 +368,8 @@ extension PostDetailViewController: ASTableDataSource, ASTableDelegate {
         guard Date() >= nextAutomaticCommentPageRequestDate else { return }
         let visibleBottom = scrollView.contentOffset.y + scrollView.bounds.height - scrollView.adjustedContentInset.bottom
         let remainingDistance = scrollView.contentSize.height - visibleBottom
-        guard remainingDistance <= 140 else { return }
+        // 距底约一屏即开始预加载下一页，翻页衔接无停顿。
+        guard remainingDistance <= 620 else { return }
 
         lastBatchFetchRequestedCommentCount = comments.count
         // 快速惯性滚动时，等本页插入后的布局稳定再请求下一页，避免请求、节点创建和图片

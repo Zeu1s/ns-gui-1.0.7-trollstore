@@ -232,10 +232,24 @@ extension PostDetailViewController: PostDetailViewProtocol {
         pagination = detail.pagination
         comments.append(contentsOf: detail.comments)
         loadedCommentPageRanges[detail.page] = oldCommentCount..<comments.count
+        let oldRowCount = detailRows.count
         cachedThreadedRows = nil
         cachedCommentAnchorIndex = nil
-        tableNode.reloadData()
-        AppLog.debug(.postDetail, "详情评论追加后整表刷新完成: appended=\(detail.comments.count), totalComments=\(comments.count)")
+        let newRowCount = detailRows.count
+        // 行级插入保留滚动位置与已挂载节点：整表 reloadData 会让列表
+        // 重建并向上跳动（用户感知为“回弹一下”）。
+        tableNode.performBatch(animated: false, updates: { [weak self] in
+            guard let self else { return }
+            if newRowCount > oldRowCount {
+                self.tableNode.insertRows(
+                    at: (oldRowCount..<newRowCount).map { IndexPath(row: $0, section: 0) },
+                    with: .none
+                )
+            } else {
+                self.tableNode.reloadData()
+            }
+        })
+        AppLog.debug(.postDetail, "详情评论追加持平完成: appended=\(detail.comments.count), totalComments=\(comments.count), rows=\(oldRowCount)->\(newRowCount)")
         preheatCommentRender(for: detail.comments)
         updateLoadMoreCommentsFooter()
         updateReplyButtonVisibility()
