@@ -597,11 +597,9 @@ extension ProfileTabViewController: UITableViewDataSource, UITableViewDelegate {
     }
 }
 private final class ProfileHeaderView: UIView {
-    static let preferredHeight: CGFloat = 156
-
-    /// 根据操作按钮是否可见计算头部高度，头像/账号/等级/指标整体居中。
+    /// 根据操作按钮是否可见计算头部高度：头像行 + 简介 + 统计卡 + 操作按钮。
     var preferredHeight: CGFloat {
-        actionStack.isHidden ? 114 : 156
+        actionStack.isHidden ? 192 : 236
     }
 
     var onHeightNeedsUpdate: (() -> Void)?
@@ -668,14 +666,15 @@ private final class ProfileHeaderView: UIView {
             .toAvatar(requestID: "profile-\(userInfo.userID)")
             .into(avatarImageView)
         let nickname = userInfo.username ?? (isCurrentUser ? "我的账号" : "未知用户")
-        nameLabel.text = "用户ID: \(userInfo.userID) · \(nickname)"
+        // 对照官方 PWA：主标题为昵称，ID 并入简介行。
+        nameLabel.text = nickname
         let bio = userInfo.bio?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let highlightedAttributes: [NSAttributedString.Key: Any] = [
             .foregroundColor: UIColor.systemOrange,
             .font: UIFont.preferredFont(forTextStyle: .footnote)
         ]
         let status = NSMutableAttributedString(
-            string: "Lv \(userInfo.level) · 加入 NodeSeek \(userInfo.joinDays) 天",
+            string: "ID \(userInfo.userID) · Lv \(userInfo.level) · 加入 \(userInfo.joinDays) 天",
             attributes: highlightedAttributes
         )
         if bio.isEmpty == false {
@@ -750,13 +749,14 @@ private final class ProfileHeaderView: UIView {
         // 与下方 insetGrouped 内容单元保持相同的左右边距。
         layoutMargins = UIEdgeInsets(top: 0, left: 20, bottom: 0, right: 20)
 
+        // 对照官方 PWA：大头像（圆角方形）、名字与简介、等宽统计卡一行。
         avatarImageView.translatesAutoresizingMaskIntoConstraints = false
         avatarImageView.contentMode = .scaleAspectFill
         avatarImageView.clipsToBounds = true
-        avatarImageView.layer.cornerRadius = 28
+        avatarImageView.layer.cornerRadius = 12
 
         nameLabel.translatesAutoresizingMaskIntoConstraints = false
-        nameLabel.font = .preferredFont(forTextStyle: .headline)
+        nameLabel.font = .preferredFont(forTextStyle: .title3)
         nameLabel.textColor = .label
         nameLabel.textAlignment = .left
         nameLabel.adjustsFontForContentSizeCategory = true
@@ -769,16 +769,17 @@ private final class ProfileHeaderView: UIView {
         statusLabel.textColor = .secondaryLabel
         statusLabel.textAlignment = .left
         statusLabel.adjustsFontForContentSizeCategory = true
-        statusLabel.numberOfLines = 1
+        statusLabel.numberOfLines = 2
         statusLabel.lineBreakMode = .byTruncatingTail
 
         metricContainer.translatesAutoresizingMaskIntoConstraints = false
-        metricContainer.backgroundColor = .clear
+        metricContainer.backgroundColor = .secondarySystemGroupedBackground
+        metricContainer.layer.cornerRadius = 10
 
         metricStack.translatesAutoresizingMaskIntoConstraints = false
-        metricStack.axis = .vertical
+        metricStack.axis = .horizontal
         metricStack.distribution = .fillEqually
-        metricStack.spacing = 0
+        metricStack.spacing = 2
         metricContainer.addSubview(metricStack)
 
         configureActionButton(transferButton, title: "转账", imageName: "arrow.left.arrow.right")
@@ -804,31 +805,31 @@ private final class ProfileHeaderView: UIView {
         addSubview(actionStack)
         NSLayoutConstraint.activate([
             avatarImageView.leadingAnchor.constraint(equalTo: layoutMarginsGuide.leadingAnchor),
-            avatarImageView.topAnchor.constraint(equalTo: topAnchor, constant: 8),
-            avatarImageView.widthAnchor.constraint(equalToConstant: 56),
-            avatarImageView.heightAnchor.constraint(equalToConstant: 56),
+            avatarImageView.topAnchor.constraint(equalTo: topAnchor, constant: 12),
+            avatarImageView.widthAnchor.constraint(equalToConstant: 64),
+            avatarImageView.heightAnchor.constraint(equalToConstant: 64),
 
-            metricContainer.leadingAnchor.constraint(equalTo: avatarImageView.trailingAnchor, constant: 10),
-            metricContainer.trailingAnchor.constraint(equalTo: layoutMarginsGuide.trailingAnchor),
-            metricContainer.topAnchor.constraint(equalTo: topAnchor, constant: 8),
-            metricContainer.heightAnchor.constraint(equalToConstant: 60),
-
-            metricStack.leadingAnchor.constraint(equalTo: metricContainer.leadingAnchor),
-            metricStack.trailingAnchor.constraint(equalTo: metricContainer.trailingAnchor),
-            metricStack.topAnchor.constraint(equalTo: metricContainer.topAnchor),
-            metricStack.bottomAnchor.constraint(equalTo: metricContainer.bottomAnchor),
-
-            nameLabel.leadingAnchor.constraint(equalTo: layoutMarginsGuide.leadingAnchor),
-            nameLabel.topAnchor.constraint(equalTo: avatarImageView.bottomAnchor, constant: 5),
-            nameLabel.trailingAnchor.constraint(equalTo: layoutMarginsGuide.trailingAnchor),
+            nameLabel.leadingAnchor.constraint(equalTo: avatarImageView.trailingAnchor, constant: 12),
+            nameLabel.centerYAnchor.constraint(equalTo: avatarImageView.centerYAnchor),
+            nameLabel.trailingAnchor.constraint(lessThanOrEqualTo: layoutMarginsGuide.trailingAnchor),
 
             statusLabel.leadingAnchor.constraint(equalTo: layoutMarginsGuide.leadingAnchor),
-            statusLabel.topAnchor.constraint(equalTo: nameLabel.bottomAnchor, constant: 2),
+            statusLabel.topAnchor.constraint(equalTo: avatarImageView.bottomAnchor, constant: 8),
             statusLabel.trailingAnchor.constraint(equalTo: layoutMarginsGuide.trailingAnchor),
+
+            metricContainer.leadingAnchor.constraint(equalTo: layoutMarginsGuide.leadingAnchor),
+            metricContainer.trailingAnchor.constraint(equalTo: layoutMarginsGuide.trailingAnchor),
+            metricContainer.topAnchor.constraint(equalTo: statusLabel.bottomAnchor, constant: 10),
+            metricContainer.heightAnchor.constraint(equalToConstant: 64),
+
+            metricStack.leadingAnchor.constraint(equalTo: metricContainer.leadingAnchor, constant: 4),
+            metricStack.trailingAnchor.constraint(equalTo: metricContainer.trailingAnchor, constant: -4),
+            metricStack.topAnchor.constraint(equalTo: metricContainer.topAnchor, constant: 6),
+            metricStack.bottomAnchor.constraint(equalTo: metricContainer.bottomAnchor, constant: -6),
 
             actionStack.leadingAnchor.constraint(equalTo: layoutMarginsGuide.leadingAnchor),
             actionStack.trailingAnchor.constraint(equalTo: layoutMarginsGuide.trailingAnchor),
-            actionStack.topAnchor.constraint(equalTo: statusLabel.bottomAnchor, constant: 5),
+            actionStack.topAnchor.constraint(equalTo: metricContainer.bottomAnchor, constant: 10),
             actionStack.heightAnchor.constraint(equalToConstant: 34)
         ])
         setLoading()
@@ -853,29 +854,17 @@ private final class ProfileHeaderView: UIView {
         onHeightNeedsUpdate?()
     }
 
+    /// 对照官方 PWA：六个统计项一行等宽排布（card-block 的 space-between 等效实现）。
     private func setMetrics(_ metrics: [ProfileMetric]) {
         metricStack.arrangedSubviews.forEach {
             metricStack.removeArrangedSubview($0)
             $0.removeFromSuperview()
         }
-        for row in stride(from: 0, to: metrics.count, by: 3) {
-            let rowStack = UIStackView()
-            rowStack.axis = .horizontal
-            rowStack.alignment = .fill
-            rowStack.distribution = .fillEqually
-            rowStack.spacing = 4
-            rowStack.addArrangedSubview(ProfileMetricView(metric: metrics[row]))
-            if row + 1 < metrics.count {
-                rowStack.addArrangedSubview(ProfileMetricView(metric: metrics[row + 1]))
-            } else {
-                rowStack.addArrangedSubview(UIView())
-            }
-            if row + 2 < metrics.count {
-                rowStack.addArrangedSubview(ProfileMetricView(metric: metrics[row + 2]))
-            } else {
-                rowStack.addArrangedSubview(UIView())
-            }
-            metricStack.addArrangedSubview(rowStack)
+        metricStack.axis = .horizontal
+        metricStack.distribution = .fillEqually
+        metricStack.spacing = 2
+        for metric in metrics {
+            metricStack.addArrangedSubview(ProfileMetricView(metric: metric))
         }
     }
 
@@ -1225,6 +1214,7 @@ private struct ProfileMetric {
 private final class ProfileMetricView: UIView {
     private let imageView = UIImageView()
     private let textLabel = UILabel()
+    private let valueLabel = UILabel()
     private let contentStack = UIStackView()
 
     private let imageTintColor: UIColor?
@@ -1235,7 +1225,8 @@ private final class ProfileMetricView: UIView {
         onTap = metric.onTap
         super.init(frame: .zero)
         imageView.image = metric.image
-        textLabel.text = "\(metric.title) \(metric.value)"
+        textLabel.text = metric.title
+        valueLabel.text = metric.value
         accessibilityLabel = "\(metric.title) \(metric.value)"
         accessibilityTraits = metric.onTap == nil ? .staticText : .button
         setupUI()
@@ -1245,26 +1236,34 @@ private final class ProfileMetricView: UIView {
         fatalError("init(coder:) has not been implemented")
     }
 
+    /// 对照官方 PWA 的 card-item：图标+数值一行居中，标题小字在下，等宽小卡。
     private func setupUI() {
         imageView.translatesAutoresizingMaskIntoConstraints = false
-        imageView.tintColor = imageTintColor ?? .label
+        imageView.tintColor = imageTintColor ?? .secondaryLabel
         imageView.contentMode = .scaleAspectFit
 
+        valueLabel.translatesAutoresizingMaskIntoConstraints = false
+        valueLabel.font = .preferredFont(forTextStyle: .subheadline)
+        valueLabel.textColor = .label
+        valueLabel.textAlignment = .center
+        valueLabel.adjustsFontForContentSizeCategory = true
+        valueLabel.adjustsFontSizeToFitWidth = true
+        valueLabel.minimumScaleFactor = 0.66
+        valueLabel.lineBreakMode = .byTruncatingTail
+
         textLabel.translatesAutoresizingMaskIntoConstraints = false
-        textLabel.font = .preferredFont(forTextStyle: .subheadline)
-        textLabel.textColor = .label
-        textLabel.textAlignment = .left
+        textLabel.font = .preferredFont(forTextStyle: .caption2)
+        textLabel.textColor = .secondaryLabel
+        textLabel.textAlignment = .center
         textLabel.adjustsFontForContentSizeCategory = true
-        textLabel.adjustsFontSizeToFitWidth = true
-        textLabel.minimumScaleFactor = 0.66
         textLabel.lineBreakMode = .byTruncatingTail
-        textLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
         contentStack.translatesAutoresizingMaskIntoConstraints = false
-        contentStack.axis = .horizontal
+        contentStack.axis = .vertical
         contentStack.alignment = .center
         contentStack.spacing = 3
         contentStack.addArrangedSubview(imageView)
+        contentStack.addArrangedSubview(valueLabel)
         contentStack.addArrangedSubview(textLabel)
         addSubview(contentStack)
         if onTap != nil {
@@ -1272,11 +1271,16 @@ private final class ProfileMetricView: UIView {
             addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(metricTapped)))
         }
         NSLayoutConstraint.activate([
-            contentStack.leadingAnchor.constraint(equalTo: leadingAnchor),
+            contentStack.centerXAnchor.constraint(equalTo: centerXAnchor),
             contentStack.centerYAnchor.constraint(equalTo: centerYAnchor),
-            contentStack.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -2),
-            imageView.widthAnchor.constraint(equalToConstant: 18),
-            imageView.heightAnchor.constraint(equalToConstant: 18)
+            contentStack.leadingAnchor.constraint(greaterThanOrEqualTo: leadingAnchor, constant: 1),
+            contentStack.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -1),
+            valueLabel.leadingAnchor.constraint(equalTo: contentStack.leadingAnchor),
+            valueLabel.trailingAnchor.constraint(equalTo: contentStack.trailingAnchor),
+            textLabel.leadingAnchor.constraint(equalTo: contentStack.leadingAnchor),
+            textLabel.trailingAnchor.constraint(equalTo: contentStack.trailingAnchor),
+            imageView.widthAnchor.constraint(equalToConstant: 16),
+            imageView.heightAnchor.constraint(equalToConstant: 16)
         ])
     }
 
