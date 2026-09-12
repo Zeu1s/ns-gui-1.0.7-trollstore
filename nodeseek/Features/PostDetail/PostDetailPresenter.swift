@@ -1131,7 +1131,7 @@ extension PostDetailPresenter: PostDetailInteractorOutput {
 
     func didFailAddPostLike(error: String) {
         isSubmittingPostLike = false
-        if error.contains(.like.alreadyActionSuffix) == false {
+        if error.contains(ReactionKind.like.alreadyActionSuffix) == false {
             rollbackPostReaction(kind: .like)
         }
         handleReactionFailure(error: error, kind: .like)
@@ -1144,7 +1144,7 @@ extension PostDetailPresenter: PostDetailInteractorOutput {
 
     func didFailAddCommentLike(commentID: String, error: String) {
         submittingCommentLikeIDs.remove(commentID)
-        if error.contains(.like.alreadyActionSuffix) == false {
+        if error.contains(ReactionKind.like.alreadyActionSuffix) == false {
             rollbackCommentReaction(commentID: commentID, kind: .like)
         }
         handleReactionFailure(error: error, kind: .like)
@@ -1157,7 +1157,7 @@ extension PostDetailPresenter: PostDetailInteractorOutput {
 
     func didFailAddPostChickenLeg(error: String) {
         isSubmittingPostChickenLeg = false
-        if error.contains(.chickenLeg.alreadyActionSuffix) == false {
+        if error.contains(ReactionKind.chickenLeg.alreadyActionSuffix) == false {
             rollbackPostReaction(kind: .chickenLeg)
         }
         handleReactionFailure(error: error, kind: .chickenLeg)
@@ -1170,7 +1170,7 @@ extension PostDetailPresenter: PostDetailInteractorOutput {
 
     func didFailAddCommentChickenLeg(commentID: String, error: String) {
         submittingCommentChickenLegIDs.remove(commentID)
-        if error.contains(.chickenLeg.alreadyActionSuffix) == false {
+        if error.contains(ReactionKind.chickenLeg.alreadyActionSuffix) == false {
             rollbackCommentReaction(commentID: commentID, kind: .chickenLeg)
         }
         handleReactionFailure(error: error, kind: .chickenLeg)
@@ -1183,7 +1183,7 @@ extension PostDetailPresenter: PostDetailInteractorOutput {
 
     func didFailAddPostOppose(error: String) {
         isSubmittingPostOppose = false
-        if error.contains(.oppose.alreadyActionSuffix) == false {
+        if error.contains(ReactionKind.oppose.alreadyActionSuffix) == false {
             rollbackPostReaction(kind: .oppose)
         }
         handleReactionFailure(error: error, kind: .oppose)
@@ -1196,7 +1196,7 @@ extension PostDetailPresenter: PostDetailInteractorOutput {
 
     func didFailAddCommentOppose(commentID: String, error: String) {
         submittingCommentOpposeIDs.remove(commentID)
-        if error.contains(.oppose.alreadyActionSuffix) == false {
+        if error.contains(ReactionKind.oppose.alreadyActionSuffix) == false {
             rollbackCommentReaction(commentID: commentID, kind: .oppose)
         }
         handleReactionFailure(error: error, kind: .oppose)

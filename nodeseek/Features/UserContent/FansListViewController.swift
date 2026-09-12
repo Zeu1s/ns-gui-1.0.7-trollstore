@@ -4,6 +4,7 @@
 //
 
 import UIKit
+import Kanna
 
 struct FansListEntry: Equatable {
     let userID: Int?
@@ -40,7 +41,7 @@ final class FansListViewController: UIViewController {
         case error
     }
 
-    init(kind: ListKind = .fans, uid: Int) {
+    private init(kind: ListKind, uid: Int) {
         self.kind = kind
         self.uid = uid
         super.init(nibName: nil, bundle: nil)
@@ -205,34 +206,47 @@ extension FansListViewController: UITableViewDataSource, UITableViewDelegate {
 /// 空间页 HTML 的成员列表容错解析。
 enum FansListHTMLParser {
     static func parse(html: String, kindKeyword: String) -> [FansListEntry] {
-        guard let document = try? Kanna.HTML(html: html, encoding: .utf8) else {
+        guard let document = try? HTML(html: html, encoding: .utf8) else {
             return []
         }
         var entries: [FansListEntry] = []
         let seenIDs = NSMutableSet()
 
         // 空间页成员卡：/space/xxx 链接 + 头像 + 名称
-        for anchor in document.xpath("//a[contains(@href,'/space/')]") {
+        let anchors = document.xpath("//a[contains(@href,'/space/')]")
+        for anchor in anchors {
             let href = anchor["href"] ?? ""
             guard let userID = Self.userID(fromHref: href), userID > 0 else { continue }
             if seenIDs.contains(userID) { continue }
-            // 取链接所在的成员卡容器，找头像与名称
             let card = anchor.parent ?? anchor
-            let nameNode = card.xpath(".//img/@alt").first?.text
-                ?? card.xpath(".//img/@title").first?.text
-                ?? anchor.text?.trimmingCharacters(in: .whitespacesAndNewlines)
-            let name = (nameNode ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            let name = Self.name(fromCard: card, anchor: anchor)
             guard name.isEmpty == false else { continue }
-            let avatarHref = card.xpath(".//img/@src").first?.text ?? ""
+            let avatarHref = Self.avatarHref(fromCard: card)
             seenIDs.add(userID)
+            let avatarURL = URL(string: avatarHref, relativeTo: NodeSeekSite.baseURL)?.absoluteURL
             entries.append(FansListEntry(
                 userID: userID,
                 name: name,
-                avatarURL: URL(string: avatarHref, relativeTo: NodeSeekSite.baseURL)?.absoluteURL,
+                avatarURL: avatarURL,
                 metaText: nil
             ))
         }
         return entries
+    }
+
+    private static func name(fromCard card: XMLElement, anchor: XMLElement) -> String {
+        if let alt = card.xpath(".//img/@alt").first?.text {
+            return alt.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        if let title = card.xpath(".//img/@title").first?.text {
+            return title.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        let anchorText = anchor.text ?? ""
+        return anchorText.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private static func avatarHref(fromCard card: XMLElement) -> String {
+        card.xpath(".//img/@src").first?.text ?? ""
     }
 
     private static func userID(fromHref href: String) -> Int? {

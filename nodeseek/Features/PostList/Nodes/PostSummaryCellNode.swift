@@ -113,12 +113,12 @@ final class PostSummaryCellNode: ASCellNode, ThemeRefreshableNode {
 
         let workItem = DispatchWorkItem { [weak self] in
             guard let self, let mark = self.newArrivalMarkNode else { return }
-            mark.view?.alpha = 0
+            mark.view.alpha = 0
             UIView.animate(
                 withDuration: 1.2,
                 delay: 0,
                 options: [.allowUserInteraction, .beginFromCurrentState],
-                animations: { mark.view?.alpha = 0 }
+                animations: { mark.view.alpha = 0 }
             ) { [weak self] _ in
                 mark.removeFromSupernode()
                 self?.newArrivalMarkNode = nil
@@ -132,7 +132,7 @@ final class PostSummaryCellNode: ASCellNode, ThemeRefreshableNode {
     override func layoutDidFinish() {
         super.layoutDidFinish()
         guard let mark = newArrivalMarkNode else { return }
-        mark.view?.frame = CGRect(x: 0, y: (bounds.height - 44) / 2, width: 3, height: 44)
+        mark.view.frame = CGRect(x: 0, y: (bounds.height - 44) / 2, width: 3, height: 44)
     }
 
     override func didEnterDisplayState() {
