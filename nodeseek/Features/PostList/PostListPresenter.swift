@@ -74,7 +74,13 @@ class PostListPresenter: PostListPresenterProtocol {
     func didReceiveNotificationUnreadCountUpdate(_ unreadCount: NodeSeekNotificationUnreadCount) {
         notificationUnreadRefreshTask?.cancel()
         lastNotificationUnreadRefreshDate = currentDateProvider()
-        view?.renderNotificationUnreadBadge(unreadCount: unreadCount)
+        let ownerID = CurrentAccountStore.shared.syncCachedUserID()
+        // 事件发布方可能未做本地已读修正（如预取器消息落地前），此处统一兜底。
+        let badgeCount = NodeSeekNotificationMemoryCache.shared.badgeReadyUnreadCount(
+            unreadCount,
+            ownerID: ownerID
+        )
+        view?.renderNotificationUnreadBadge(unreadCount: badgeCount)
     }
 
     func didSelectCategory(_ category: PostListCategoryItem) {
@@ -238,9 +244,15 @@ private extension PostListPresenter {
             do {
                 let unreadCount = try await notificationUnreadCountInteractor.loadUnreadCount()
                 guard Task.isCancelled == false else { return }
+                let ownerID = await CurrentAccountStore.shared.snapshot()?.account.nodeSeekUID
                 await MainActor.run { [weak self] in
-                    NodeSeekNotificationUnreadCountEvent.post(unreadCount)
-                    self?.view?.renderNotificationUnreadBadge(unreadCount: unreadCount)
+                    // 服务器计数可能滞后于本地已读状态（已读是异步 WebView 提交），先修正再上角标。
+                    let badgeCount = NodeSeekNotificationMemoryCache.shared.badgeReadyUnreadCount(
+                        unreadCount,
+                        ownerID: ownerID
+                    )
+                    NodeSeekNotificationUnreadCountEvent.post(badgeCount)
+                    self?.view?.renderNotificationUnreadBadge(unreadCount: badgeCount)
                 }
             } catch {
                 guard Task.isCancelled == false else { return }

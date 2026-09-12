@@ -279,6 +279,14 @@ final class NodeSeekNotificationMemoryCache {
         return reconciled
     }
 
+    /// 任何要上角标的计数都先过这里：本地已有消息会话记录时，以本地已读状态为准，
+    /// 覆盖服务器可能滞后的 message 计数（服务端已读提交是异步 WebView，经常回写慢）。
+    /// 这是"假角标亮一下又消失"的统一防线，三个发布入口都必须走。
+    func badgeReadyUnreadCount(_ remoteCount: NodeSeekNotificationUnreadCount, ownerID: Int?) -> NodeSeekNotificationUnreadCount {
+        guard prepare(for: ownerID) else { return remoteCount }
+        return reconciledUnreadCount(remoteCount)
+    }
+
     private func prepare(for ownerID: Int?) -> Bool {
         guard let ownerID else { return false }
         if self.ownerID != ownerID {
@@ -553,7 +561,12 @@ final class NodeSeekNotificationPrefetcher {
                 unreadCount: count,
                 ownerID: ownerID
             ) ?? count
-            NodeSeekNotificationUnreadCountEvent.post(reconciledCount)
+            // 消息列表可能尚未落地，reconcile 后再发布，避免陈旧 message 计数上角标。
+            let badgeReadyCount = NodeSeekNotificationMemoryCache.shared.badgeReadyUnreadCount(
+                reconciledCount,
+                ownerID: ownerID
+            )
+            NodeSeekNotificationUnreadCountEvent.post(badgeReadyCount)
             NodeSeekNotificationCacheEvent.post(ownerID: ownerID)
         } catch is CancellationError {
             return
