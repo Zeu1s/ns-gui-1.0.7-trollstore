@@ -201,7 +201,7 @@ final class UserDiscussionCellNode: ASCellNode {
         levelDaysBadgeNode.accessibilityLabel = badgeText
 
         statisticsNode.attributedText = UserContentText.metadata(
-            "浏览 \(post.viewCount)  ·  评论 \(post.replyCount)"
+            "浏览 \(record.viewCount ?? post.viewCount)  ·  评论 \(record.replyCount ?? post.replyCount)"
         )
 
         let resolvedLastReply = post.lastActivityText?.trimmingCharacters(in: .whitespacesAndNewlines)

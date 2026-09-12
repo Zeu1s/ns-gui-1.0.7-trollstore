@@ -117,6 +117,10 @@ nonisolated struct PostDetail: Equatable, Sendable {
     let metadataText: String?
     let contentHTML: String
     let signatureHTML: String?
+    /// 详情页运行时 postData.views（内联脚本提取），用于列表页浏览数回填。
+    let viewCountFromDetail: Int?
+    /// 详情页板块中文名（postData.categoryWord）。
+    let categoryWord: String?
     let likeCount: Int?
     let isLikeClicked: Bool
     let chickenLegCount: Int?
@@ -143,6 +147,8 @@ nonisolated struct PostDetail: Equatable, Sendable {
         metadataText: String?,
         contentHTML: String,
         signatureHTML: String? = nil,
+        viewCountFromDetail: Int? = nil,
+        categoryWord: String? = nil,
         likeCount: Int? = nil,
         isLikeClicked: Bool = false,
         chickenLegCount: Int? = nil,
@@ -168,6 +174,8 @@ nonisolated struct PostDetail: Equatable, Sendable {
         self.metadataText = metadataText
         self.contentHTML = contentHTML
         self.signatureHTML = signatureHTML
+        self.viewCountFromDetail = viewCountFromDetail
+        self.categoryWord = categoryWord
         self.likeCount = likeCount
         self.isLikeClicked = isLikeClicked
         self.chickenLegCount = chickenLegCount

@@ -389,6 +389,11 @@ struct KannaNodeSeekParser: NodeSeekParser {
         let createdAtText = bodyItem.flatMap { firstText(in: $0, xpaths: [XPathRules.contentCreatedAt]) }
         let categoryText = bodyItem.flatMap { firstText(in: $0, xpaths: [XPathRules.contentCategory]) }
         let metadataText = [createdAtText, categoryText].compactMap(\.self).joined(separator: " · ").trimmedNonEmpty
+
+        // 新版帖子页把 views/categoryWord 放在内联 __config__ 脚本里，
+        // 用于列表页浏览数与板块名的数据回填。
+        let viewCountFromDetail = firstMatchedInteger(in: html, pattern: #""views":(\d+)"#)
+        let categoryWord = firstMatchedString(in: html, pattern: #""categoryWord":"([^"]+)""#)
         let contentHTML = postDetailContentHTML(bodyItem: bodyItem, document: document)
         let signatureHTML = contentSignatureHTML(in: bodyItem)
         let requiredReadingLevel = document
@@ -434,6 +439,8 @@ struct KannaNodeSeekParser: NodeSeekParser {
             authorBadgeTexts: authorBadgeTexts,
             metadataText: metadataText,
             contentHTML: contentHTML,
+            viewCountFromDetail: viewCountFromDetail,
+            categoryWord: categoryWord,
             signatureHTML: signatureHTML,
             likeCount: bodyLikeCount,
             isLikeClicked: bodyItem.map { parseReactionClicked(in: $0, kind: .like) } ?? false,
@@ -1094,4 +1101,30 @@ private extension Kanna.XMLElement {
             .split(whereSeparator: { $0.isWhitespace })
             .contains { $0 == className }
     }
+}
+
+
+/// 从帖子页内联脚本提取整数字段（如 "views":12345）。
+fileprivate func firstMatchedInteger(in html: String, pattern: String) -> Int? {
+    guard let regex = try? NSRegularExpression(pattern: pattern) else { return nil }
+    let range = NSRange(html.startIndex..., in: html)
+    guard let match = regex.firstMatch(in: html, options: [], range: range),
+          match.numberOfRanges > 1,
+          let valueRange = Range(match.range(at: 1), in: html),
+          let value = Int(html[valueRange]) else {
+        return nil
+    }
+    return value
+}
+
+/// 从帖子页内联脚本提取字符串字段（如 "categoryWord":"技术"）。
+fileprivate func firstMatchedString(in html: String, pattern: String) -> String? {
+    guard let regex = try? NSRegularExpression(pattern: pattern) else { return nil }
+    let range = NSRange(html.startIndex..., in: html)
+    guard let match = regex.firstMatch(in: html, options: [], range: range),
+          match.numberOfRanges > 1,
+          let valueRange = Range(match.range(at: 1), in: html) else {
+        return nil
+    }
+    return html[valueRange]
 }
