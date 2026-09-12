@@ -12,6 +12,7 @@ final class DetailImageBlockNode: ASDisplayNode {
     private let onLayoutInvalidated: () -> Void
     private let onImageHeightReduced: () -> Void
     private let onImageSizeResolved: (URL, CGSize) -> Void
+    private let onImageLongPressed: (URL) -> Void
     private let imageURL: URL
     private var imageKind: DetailImageKind
     private let animateAppearance: Bool
@@ -34,6 +35,7 @@ final class DetailImageBlockNode: ASDisplayNode {
         self.onLayoutInvalidated = onLayoutInvalidated
         self.onImageHeightReduced = onImageHeightReduced
         self.onImageSizeResolved = onImageSizeResolved
+        self.onImageLongPressed = onImageLongPressed
         self.imageURL = imageBlock.url
         self.imageKind = resolvedKind ?? DetailImageKind.resolved(isSticker: false, imageURL: imageBlock.url)
         self.animateAppearance = animateAppearance
@@ -54,8 +56,9 @@ final class DetailImageBlockNode: ASDisplayNode {
                 onImageTapped: {
                     onImageTapped(imageURLs, imageIndex)
                 },
-                onImageLongPressed: {
-                    onImageLongPressed(imageURL)
+                onImageLongPressed: { [weak self] in
+                    guard let self else { return }
+                    self.onImageLongPressed(self.imageURL)
                 }
             )
         }
@@ -106,6 +109,7 @@ private final class DetailImageBlockView: UIView {
     private let animateAppearance: Bool
     private let onImageLoaded: (CGSize, DetailImageKind?) -> Void
     private let onImageTapped: () -> Void
+    private let onImageLongPressed: () -> Void
     private let imageView = UIImageView()
     private var hasStartedLoad = false
     private var resolvedImageKind: DetailImageKind
@@ -115,12 +119,14 @@ private final class DetailImageBlockView: UIView {
         initialImageKind: DetailImageKind,
         animateAppearance: Bool = false,
         onImageLoaded: @escaping (CGSize, DetailImageKind?) -> Void,
-        onImageTapped: @escaping () -> Void
+        onImageTapped: @escaping () -> Void,
+        onImageLongPressed: @escaping () -> Void = {}
     ) {
         self.imageBlock = imageBlock
         self.animateAppearance = animateAppearance
         self.onImageLoaded = onImageLoaded
         self.onImageTapped = onImageTapped
+        self.onImageLongPressed = onImageLongPressed
         self.resolvedImageKind = initialImageKind
         super.init(frame: .zero)
         configureView()
@@ -154,6 +160,7 @@ private final class DetailImageBlockView: UIView {
         imageView.isUserInteractionEnabled = true
         imageView.accessibilityLabel = imageBlock.altText
         imageView.addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(handleTap)))
+        imageView.addGestureRecognizer(UILongPressGestureRecognizer(target: self, action: #selector(handleLongPress)))
         addSubview(imageView)
     }
 
