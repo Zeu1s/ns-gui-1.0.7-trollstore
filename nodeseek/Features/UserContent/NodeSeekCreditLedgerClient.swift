@@ -58,7 +58,7 @@ final class NodeSeekCreditLedgerClient {
             throw CreditLedgerClientError.unsuccessfulResponse(root["message"] as? String)
         }
         let rows = Self.rows(in: root, preferredNames: ["list", "records", "data", "items", "detail"])
-        return rows.compactMap { Self.record(from: $0, kind: .stardust) }
+        return rows.compactMap { Self.stardustRecord(from: $0) }
     }
 
     /// 鸡腿明细：未发现稳定 JSON 端点，走账簿 HTML 页解析（App 带 cookie 的 HTTP 客户端）。
@@ -106,6 +106,95 @@ final class NodeSeekCreditLedgerClient {
 }
 
 extension NodeSeekCreditLedgerClient {
+    /// 星辰行 → 记录。字段名按可能的写法多候选容错。
+    static func stardustRecord(from row: [String: Any]) -> CreditLedgerRecord? {
+        let title = Self.string(in: row, keys: ["title", "name", "reason", "description", "remark", "memo", "content"])
+            ?? "星辰变动"
+        let detail = Self.string(in: row, keys: ["detail", "desc", "note", "from_name", "target_name", "member_name"])
+        let amount = Self.int(in: row, keys: ["num", "amount", "value", "change", "stardust", "count"]) ?? 0
+        let signed = Self.int(in: row, keys: ["change", "delta", "offset"]) != nil
+        let balance = Self.int(in: row, keys: ["balance", "after", "remain", "total"])
+        let date = Self.date(in: row, keys: ["created_at", "createdAt", "time", "date", "created_time"])
+
+        var direction: CreditLedgerRecord.Direction = .neutral
+        if let typeText = Self.string(in: row, keys: ["type", "direction", "action"]) {
+            let lowered = typeText.lowercased()
+            if lowered.contains("in") || lowered.contains("add") || lowered.contains("income") || lowered.contains("recv") {
+                direction = .income
+            } else if lowered.contains("out") || lowered.contains("sub") || lowered.contains("pay") || lowered.contains("send") || lowered.contains("use") {
+                direction = .outcome
+            }
+        }
+        if direction == .neutral, signed {
+            direction = amount >= 0 ? .income : .outcome
+        }
+        return CreditLedgerRecord(
+            kind: .stardust,
+            title: title,
+            detail: detail,
+            amount: abs(amount),
+            direction: direction,
+            balanceAfter: balance,
+            date: date
+        )
+    }
+
+    static func string(in row: [String: Any], keys: [String]) -> String? {
+        for key in keys {
+            if let value = row[key] as? String, value.isEmpty == false {
+                return value
+            }
+            if let number = row[key] as? NSNumber {
+                return number.stringValue
+            }
+        }
+        return nil
+    }
+
+    static func int(in row: [String: Any], keys: [String]) -> Int? {
+        for key in keys {
+            if let number = row[key] as? NSNumber {
+                return number.intValue
+            }
+            if let text = row[key] as? String, let value = Int(text) {
+                return value
+            }
+        }
+        return nil
+    }
+
+    static func date(in row: [String: Any], keys: [String]) -> Date? {
+        for key in keys {
+            if let interval = row[key] as? NSNumber {
+                let seconds = interval.doubleValue
+                return seconds > 1_000_000_000_000
+                    ? Date(timeIntervalSince1970: seconds / 1000)
+                    : Date(timeIntervalSince1970: seconds)
+            }
+            if let text = row[key] as? String {
+                let formatter = ISO8601DateFormatter()
+                formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+                if let date = formatter.date(from: text) {
+                    return date
+                }
+                formatter.formatOptions = [.withInternetDateTime]
+                if let date = formatter.date(from: text) {
+                    return date
+                }
+                let formats = ["yyyy-MM-dd HH:mm:ss", "yyyy-MM-dd HH:mm", "yyyy-MM-dd"]
+                let plain = DateFormatter()
+                plain.timeZone = TimeZone.current
+                for format in formats {
+                    plain.dateFormat = format
+                    if let date = plain.date(from: text) {
+                        return date
+                    }
+                }
+            }
+        }
+        return nil
+    }
+
     static func rows(in root: [String: Any], preferredNames: [String]) -> [[String: Any]] {
         for name in preferredNames {
             if let array = root[name] as? [[String: Any]] {
