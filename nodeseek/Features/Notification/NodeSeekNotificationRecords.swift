@@ -296,6 +296,9 @@ actor NodeSeekNotificationContentResolver {
     private var cachedDetails: [String: PostDetail] = [:]
     private var cachedDetailKeys: [String] = []
     private var inFlightDetails: [String: Task<PostDetail?, Never>] = [:]
+    /// 帖子已删除/私有化的会话级记录：这类 404 是永久失败，
+    /// 反复探测只会触发 Cloudflare 限流与挑战（曾导致挑战轮询期间崩溃）。
+    private var notFoundPostIDs: Set<Int> = []
     private var activeDetailRequestCount = 0
     private var detailRequestWaiters: [CheckedContinuation<Void, Never>] = []
     private var lastDetailRequestStartDate: Date?
@@ -309,6 +312,7 @@ actor NodeSeekNotificationContentResolver {
 
     func resolveContent(for record: NodeSeekNotificationRecord) async -> ResolvedContent? {
         guard record.postID > 0 else { return nil }
+        guard notFoundPostIDs.contains(record.postID) == false else { return nil }
 
         // 前十楼固定在首屏，不需要额外探测。
         if record.floorID <= 10,
@@ -366,7 +370,6 @@ actor NodeSeekNotificationContentResolver {
         inFlightDetails[key] = request
         let resolved = await request.value
         inFlightDetails[key] = nil
-        guard Task.isCancelled == false else { return nil }
         if let resolved {
             cachedDetails[key] = resolved
             cachedDetailKeys.append(key)
@@ -377,8 +380,11 @@ actor NodeSeekNotificationContentResolver {
             }
             failedDetailRetryDates[key] = nil
         } else {
+            // 失败记录必须先于取消检查：补全任务每轮都会被取消重启，
+            // 取消路径漏记会让下一轮立刻重打同一批 404。
             failedDetailRetryDates[key] = Date().addingTimeInterval(DetailRequestLimit.failedRequestRetryInterval)
         }
+        guard Task.isCancelled == false else { return nil }
         return resolved
     }
 
@@ -396,6 +402,11 @@ actor NodeSeekNotificationContentResolver {
             guard case let .value(detail) = result else { return nil }
             return detail
         } catch {
+            if error.localizedDescription.contains("不存在") {
+                notFoundPostIDs.insert(postID)
+                AppLog.warning(.service, "通知帖子已不存在，本会话不再补全: postID=\(postID)")
+                return nil
+            }
             guard Task.isCancelled == false else { return nil }
             AppLog.warning(.service, "通知回复补全失败，postID=\(postID), page=\(page): \(error.localizedDescription)")
             return nil
