@@ -217,7 +217,7 @@ enum FansListHTMLParser {
         // 空间页成员卡：优先在成员列表容器内找（class 含 member/fans/follow/list），
         // 避免把页面导航/介绍区的 space 链接误判为粉丝。
         var anchors = document.xpath("//*[contains(@class,'member') or contains(@class,'fans') or contains(@class,'follow')]//a[contains(@href,'/space/')]")
-        if anchors.isEmpty {
+        if anchors.count == 0 {
             anchors = document.xpath("//a[contains(@href,'/space/')]")
         }
         for anchor in anchors {

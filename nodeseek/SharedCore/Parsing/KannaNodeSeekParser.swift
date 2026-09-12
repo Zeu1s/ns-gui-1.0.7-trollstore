@@ -439,9 +439,9 @@ struct KannaNodeSeekParser: NodeSeekParser {
             authorBadgeTexts: authorBadgeTexts,
             metadataText: metadataText,
             contentHTML: contentHTML,
+            signatureHTML: signatureHTML,
             viewCountFromDetail: viewCountFromDetail,
             categoryWord: categoryWord,
-            signatureHTML: signatureHTML,
             likeCount: bodyLikeCount,
             isLikeClicked: bodyItem.map { parseReactionClicked(in: $0, kind: .like) } ?? false,
             chickenLegCount: bodyChickenLegCount,
@@ -1107,24 +1107,21 @@ private extension Kanna.XMLElement {
 /// 从帖子页内联脚本提取整数字段（如 "views":12345）。
 fileprivate func firstMatchedInteger(in html: String, pattern: String) -> Int? {
     guard let regex = try? NSRegularExpression(pattern: pattern) else { return nil }
-    let range = NSRange(html.startIndex..., in: html)
-    guard let match = regex.firstMatch(in: html, options: [], range: range),
-          match.numberOfRanges > 1,
-          let valueRange = Range(match.range(at: 1), in: html),
-          let value = Int(html[valueRange]) else {
+    let ns = html as NSString
+    guard let match = regex.firstMatch(in: html, options: [], range: NSRange(location: 0, length: ns.length)),
+          match.numberOfRanges > 1 else {
         return nil
     }
-    return value
+    return Int(ns.substring(with: match.range(at: 1)))
 }
 
 /// 从帖子页内联脚本提取字符串字段（如 "categoryWord":"技术"）。
 fileprivate func firstMatchedString(in html: String, pattern: String) -> String? {
     guard let regex = try? NSRegularExpression(pattern: pattern) else { return nil }
-    let range = NSRange(html.startIndex..., in: html)
-    guard let match = regex.firstMatch(in: html, options: [], range: range),
-          match.numberOfRanges > 1,
-          let valueRange = Range(match.range(at: 1), in: html) else {
+    let ns = html as NSString
+    guard let match = regex.firstMatch(in: html, options: [], range: NSRange(location: 0, length: ns.length)),
+          match.numberOfRanges > 1 else {
         return nil
     }
-    return html[valueRange]
+    return ns.substring(with: match.range(at: 1))
 }
