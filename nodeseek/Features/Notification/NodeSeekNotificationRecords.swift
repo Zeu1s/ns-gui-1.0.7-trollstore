@@ -279,9 +279,10 @@ actor NodeSeekNotificationContentResolver {
     static let shared = NodeSeekNotificationContentResolver()
 
     private enum DetailRequestLimit {
-        // 通知正文只是辅助信息，不能与用户正在浏览的帖子争抢请求和 WebView 资源。
-        static let maximumConcurrentRequests = 1
-        static let minimumRequestInterval: TimeInterval = 1.2
+        // 补全走 HTTP-first，不占 WebView 资源；2 并发 + 0.5s 间隔下
+        // 首屏可见行的正文预览数秒内即可补齐。
+        static let maximumConcurrentRequests = 2
+        static let minimumRequestInterval: TimeInterval = 0.5
         static let failedRequestRetryInterval: TimeInterval = 600
         static let maximumCachedDetails = 40
 

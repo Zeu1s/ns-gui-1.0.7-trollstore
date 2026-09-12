@@ -242,6 +242,11 @@ final class NotificationViewController: UIViewController {
                 updateSegmentTitles()
                 updateMarkAllButton()
                 loadUnreadCount(publishUpdate: true)
+                // 缓存秒开路径同样立即补全被@/回复内容，不等网络刷新完成，
+                // 否则网络缓慢时可见行长时间没有正文预览。
+                if selectedTab == .atMe || selectedTab == .reply {
+                    enrichMissingCommentContent(for: selectedTab)
+                }
                 refreshAllNotificationData()
                 return
             }
@@ -534,6 +539,9 @@ final class NotificationViewController: UIViewController {
             }
             loadedTabs.insert(.atMe)
             hasCompletedInitialAtMeLoad = true
+            if selectedTab == .atMe {
+                enrichMissingCommentContent(for: .atMe)
+            }
         }
 
         if let incomingRecords = snapshot.replyRecords {
@@ -551,6 +559,9 @@ final class NotificationViewController: UIViewController {
                 selectedTabChanged = selectedTab == .reply
             }
             loadedTabs.insert(.reply)
+            if selectedTab == .reply {
+                enrichMissingCommentContent(for: .reply)
+            }
         }
 
         if let incomingRecords = snapshot.messageRecords {
