@@ -40,3 +40,4 @@ fastlane/app_privacy_details.json
 fastlane/app_rating_config.json
 fastlane/metadata/
 fastlane/screenshots/
+.put.json
