@@ -415,8 +415,10 @@ final class NodeSeekNotificationPrefetcher {
     private var contentEnrichmentRecordIDs: [NodeSeekNotificationTab: Set<Int>] = [:]
 
     /// 通知正文补全会继续按需进行，但不能在首页启动时占满网络和 WebView 进程。
+    /// 每轮 30 条会连续触发十余次隐藏 WebView 抓取（每帖 ~250KB），曾导致内存峰值崩溃，
+    /// 降为 8 条分多轮消化。
     private static let maxConcurrentContentResolutions = 1
-    private static let maximumContentEnrichmentRecords = 30
+    private static let maximumContentEnrichmentRecords = 8
 
     init(
         client: NodeSeekNotificationClientProtocol = NodeSeekNotificationClient(),

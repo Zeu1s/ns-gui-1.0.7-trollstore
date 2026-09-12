@@ -17,6 +17,7 @@ final class DetailInlineImageView: AnimatedImageView {
     private let usesDetailImageOptimization: Bool
     private let onImageLoaded: (URL, CGSize) -> Void
     private let onImageTapped: (URL) -> Void
+    private let onImageLongPressed: (URL) -> Void
     private var loadToken: UUID?
     private let diagnosticID = String(UUID().uuidString.prefix(8))
 
@@ -28,7 +29,8 @@ final class DetailInlineImageView: AnimatedImageView {
         allowsInlineAnimation: Bool,
         usesDetailImageOptimization: Bool,
         onImageLoaded: @escaping (URL, CGSize) -> Void,
-        onImageTapped: @escaping (URL) -> Void
+        onImageTapped: @escaping (URL) -> Void,
+        onImageLongPressed: @escaping (URL) -> Void = { _ in }
     ) {
         self.imageURL = imageURL
         self.targetPixelWidth = targetPixelWidth
@@ -37,6 +39,7 @@ final class DetailInlineImageView: AnimatedImageView {
         self.usesDetailImageOptimization = usesDetailImageOptimization
         self.onImageLoaded = onImageLoaded
         self.onImageTapped = onImageTapped
+        self.onImageLongPressed = onImageLongPressed
         super.init(frame: frame)
         autoPlayAnimatedImage = true
         framePreloadCount = 6
@@ -44,6 +47,7 @@ final class DetailInlineImageView: AnimatedImageView {
         purgeFramesOnBackground = true
         isUserInteractionEnabled = true
         addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(handleTap)))
+        addGestureRecognizer(UILongPressGestureRecognizer(target: self, action: #selector(handleLongPress)))
     }
 
     required init?(coder: NSCoder) {
@@ -134,6 +138,11 @@ final class DetailInlineImageView: AnimatedImageView {
     @objc
     private func handleTap() {
         onImageTapped(imageURL)
+    }
+
+    @objc
+    private func handleLongPress() {
+        onImageLongPressed(imageURL)
     }
 
     private func logDiagnostics(_ message: String) {

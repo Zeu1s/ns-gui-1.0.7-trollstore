@@ -24,6 +24,7 @@ final class DetailRichTextView: DTAttributedTextContentView, DTAttributedTextCon
     }
 
     private var imageTapHandler: (([URL], Int) -> Void)?
+    private var imageLongPressHandler: ((URL) -> Void)?
     private var linkTapHandler: ((URL) -> Void)?
     private var signatureLinkCandidatesTapHandler: (([DetailLinkCandidate]) -> Void)?
     private var layoutInvalidatedHandler: (() -> Void)?
@@ -96,6 +97,7 @@ final class DetailRichTextView: DTAttributedTextContentView, DTAttributedTextCon
     func configure(
         _ attributedText: NSAttributedString?,
         onImageTapped: (([URL], Int) -> Void)?,
+        onImageLongPressed: ((URL) -> Void)? = nil,
         onLinkTapped: ((URL) -> Void)? = nil,
         onSignatureLinkCandidatesTapped: (([DetailLinkCandidate]) -> Void)? = nil,
         onLayoutInvalidated: (() -> Void)?,
@@ -103,6 +105,7 @@ final class DetailRichTextView: DTAttributedTextContentView, DTAttributedTextCon
     ) {
         pendingRelayoutWorkItem?.cancel()
         imageTapHandler = onImageTapped
+        imageLongPressHandler = onImageLongPressed
         linkTapHandler = onLinkTapped
         signatureLinkCandidatesTapHandler = onSignatureLinkCandidatesTapped
         layoutInvalidatedHandler = onLayoutInvalidated
@@ -222,6 +225,9 @@ final class DetailRichTextView: DTAttributedTextContentView, DTAttributedTextCon
             },
             onImageTapped: { [weak self] tappedURL in
                 self?.handleImageTap(tappedURL)
+            },
+            onImageLongPressed: { [weak self] tappedURL in
+                self?.handleImageLongPress(tappedURL)
             }
         )
         imageView.contentMode = contentMode(
@@ -528,6 +534,14 @@ final class DetailRichTextView: DTAttributedTextContentView, DTAttributedTextCon
 
     private static func layoutSizeNeedsUpdate(from currentSize: CGSize, to newSize: CGSize) -> Bool {
         abs(currentSize.width - newSize.width) >= 0.5 || abs(currentSize.height - newSize.height) >= 0.5
+    }
+
+    private func handleImageLongPress(_ tappedURL: URL) {
+        guard let handler = imageLongPressHandler,
+              let resolvedURL = ImageURLResolver.resolve(tappedURL) else {
+            return
+        }
+        handler(resolvedURL)
     }
 
     private func handleImageTap(_ tappedURL: URL) {

@@ -26,6 +26,7 @@ final class DetailImageBlockNode: ASDisplayNode {
         resolvedKind: DetailImageKind? = nil,
         animateAppearance: Bool = false,
         onImageTapped: @escaping ([URL], Int) -> Void,
+        onImageLongPressed: @escaping (URL) -> Void = { _ in },
         onImageSizeResolved: @escaping (URL, CGSize) -> Void = { _, _ in },
         onImageHeightReduced: @escaping () -> Void = {},
         onLayoutInvalidated: @escaping () -> Void
@@ -52,6 +53,9 @@ final class DetailImageBlockNode: ASDisplayNode {
                 },
                 onImageTapped: {
                     onImageTapped(imageURLs, imageIndex)
+                },
+                onImageLongPressed: {
+                    onImageLongPressed(imageURL)
                 }
             )
         }
@@ -188,6 +192,11 @@ private final class DetailImageBlockView: UIView {
     @objc
     private func handleTap() {
         onImageTapped()
+    }
+
+    @objc
+    private func handleLongPress() {
+        onImageLongPressed()
     }
 }
 

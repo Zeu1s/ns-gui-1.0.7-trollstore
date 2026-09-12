@@ -54,7 +54,7 @@ final class NotificationViewController: UIViewController {
     private var suppressRowSelectionUntil = Date.distantPast
 
     private static let maxConcurrentCommentContentLoads = 2
-    private static let maximumCommentContentEnrichmentRecords = 30
+    private static let maximumCommentContentEnrichmentRecords = 12
     private static let maximumStreamedNewRowCount = 12
 
     init(

@@ -171,6 +171,9 @@ extension PostDetailViewController: ASTableDataSource, ASTableDelegate {
                     onImageTapped: { imageURLs, initialIndex in
                         self?.presentPhotoBrowser(imageURLs: imageURLs, initialIndex: initialIndex)
                     },
+                    onImageLongPressed: { imageURL in
+                        self?.presentImageActions(for: imageURL)
+                    },
                     onLinkTapped: { url in
                         self?.handleContentLinkTap(url)
                     },
@@ -263,6 +266,9 @@ extension PostDetailViewController: ASTableDataSource, ASTableDelegate {
                     },
                     onImageTapped: { imageURLs, initialIndex in
                         self?.presentPhotoBrowser(imageURLs: imageURLs, initialIndex: initialIndex)
+                    },
+                    onImageLongPressed: { imageURL in
+                        self?.presentImageActions(for: imageURL)
                     },
                     onLinkTapped: { url in
                         self?.handleContentLinkTap(url)

@@ -126,6 +126,13 @@ nonisolated enum DetailImageLayout {
             return DetailImagePresentation(size: aspectFitSize, mode: .aspectFit)
         }
 
+        // 长图（如 NetQuality 报告截图，高宽比 ≥1.5）加载完成后自动完整展开，
+        // 不再裁剪半屏等待手动点开。
+        let aspectRatio = originalSize.height / originalSize.width
+        if aspectRatio >= 1.5 {
+            return DetailImagePresentation(size: aspectFitSize, mode: .aspectFit)
+        }
+
         return DetailImagePresentation(
             size: CGSize(width: maxWidth, height: maxPreviewHeight),
             mode: .thumbnailCrop

@@ -11,6 +11,7 @@ import UIKit
 
 final class DetailPhotoBrowserPresenter: NSObject, JXPhotoBrowserDelegate {
     private let imageURLs: [URL]
+    private weak var presentedBrowser: JXPhotoBrowserViewController?
 
     init(imageURLs: [URL]) {
         self.imageURLs = imageURLs
@@ -33,7 +34,19 @@ final class DetailPhotoBrowserPresenter: NSObject, JXPhotoBrowserDelegate {
         }
         browser.addOverlay(actionOverlay)
 
+        // 长按图片同样唤出操作菜单（复制/保存/分享）。
+        let longPress = UILongPressGestureRecognizer(target: self, action: #selector(browserLongPressed(_:)))
+        browser.view.addGestureRecognizer(longPress)
+
+        presentedBrowser = browser
         browser.present(from: viewController)
+    }
+
+    @objc
+    private func browserLongPressed(_ recognizer: UILongPressGestureRecognizer) {
+        guard recognizer.state == .began,
+              let browser = presentedBrowser else { return }
+        presentActionMenu(from: browser, sourceView: browser.view)
     }
 
     func numberOfItems(in browser: JXPhotoBrowserViewController) -> Int {
@@ -82,6 +95,10 @@ final class DetailPhotoBrowserPresenter: NSObject, JXPhotoBrowserDelegate {
         }
 
         let alert = UIAlertController(title: nil, message: nil, preferredStyle: .actionSheet)
+        alert.addAction(UIAlertAction(title: "复制图片", style: .default) { [weak self, weak browser] _ in
+            guard let self, let browser else { return }
+            self.copyCurrentImage(from: browser)
+        })
         alert.addAction(UIAlertAction(title: "分享图片", style: .default) { [weak self, weak browser, weak sourceView] _ in
             guard let self, let browser, let sourceView else { return }
             self.shareCurrentImage(from: browser, sourceView: sourceView)
@@ -119,6 +136,34 @@ final class DetailPhotoBrowserPresenter: NSObject, JXPhotoBrowserDelegate {
                     }
                 case .failure:
                     self.showMessage("图片加载失败，暂时无法操作", in: browser)
+                }
+            }
+        }
+    }
+
+    private func copyCurrentImage(from browser: JXPhotoBrowserViewController) {
+        guard imageURLs.indices.contains(browser.pageIndex) else {
+            showMessage("当前图片无效", in: browser)
+            return
+        }
+
+        let imageURL = imageURLs[browser.pageIndex]
+        ImageLoad.url(imageURL).toOriginalPayload().load { [weak self, weak browser] result in
+            DispatchQueue.main.async {
+                guard let self, let browser else { return }
+                switch result {
+                case .success(let payload):
+                    if let photoData = DetailPhotoLibraryAssetData.data(from: payload) {
+                        UIPasteboard.general.setData(photoData)
+                        self.showMessage("已复制图片", in: browser)
+                    } else if let image = UIImage(data: payload.data) {
+                        UIPasteboard.general.image = image
+                        self.showMessage("已复制图片", in: browser)
+                    } else {
+                        self.showMessage("图片转换失败，暂时无法复制", in: browser)
+                    }
+                case .failure:
+                    self.showMessage("图片加载失败，暂时无法复制", in: browser)
                 }
             }
         }

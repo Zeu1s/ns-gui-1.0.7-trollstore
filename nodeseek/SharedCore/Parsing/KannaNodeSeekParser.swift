@@ -390,10 +390,11 @@ struct KannaNodeSeekParser: NodeSeekParser {
         let categoryText = bodyItem.flatMap { firstText(in: $0, xpaths: [XPathRules.contentCategory]) }
         let metadataText = [createdAtText, categoryText].compactMap(\.self).joined(separator: " · ").trimmedNonEmpty
 
-        // 新版帖子页把 views/categoryWord 放在内联 __config__ 脚本里，
-        // 用于列表页浏览数与板块名的数据回填。
-        let viewCountFromDetail = firstMatchedInteger(in: html, pattern: #""views":(\d+)"#)
-        let categoryWord = firstMatchedString(in: html, pattern: #""categoryWord":"([^"]+)""#)
+        // 新版帖子页把完整 postData（views/categoryWord/rank/title 等）以 Base64
+        // 放在 <script id="temp-script">，前端 JSON.parse(b64DecodeUnicode(...)) 注入 __config__。
+        let detailExtras = decodePostDataExtras(in: html)
+        let viewCountFromDetail = detailExtras?.views
+        let categoryWord = detailExtras?.categoryWord
         let contentHTML = postDetailContentHTML(bodyItem: bodyItem, document: document)
         let signatureHTML = contentSignatureHTML(in: bodyItem)
         let requiredReadingLevel = document
@@ -1104,24 +1105,26 @@ private extension Kanna.XMLElement {
 }
 
 
-/// 从帖子页内联脚本提取整数字段（如 "views":12345）。
-fileprivate func firstMatchedInteger(in html: String, pattern: String) -> Int? {
-    guard let regex = try? NSRegularExpression(pattern: pattern) else { return nil }
-    let ns = html as NSString
-    guard let match = regex.firstMatch(in: html, options: [], range: NSRange(location: 0, length: ns.length)),
-          match.numberOfRanges > 1 else {
-        return nil
-    }
-    return Int(ns.substring(with: match.range(at: 1)))
+/// 帖子页内联 temp-script（Base64 postData）的回填字段。
+struct PostDataExtras {
+    let views: Int?
+    let categoryWord: String?
 }
 
-/// 从帖子页内联脚本提取字符串字段（如 "categoryWord":"技术"）。
-fileprivate func firstMatchedString(in html: String, pattern: String) -> String? {
-    guard let regex = try? NSRegularExpression(pattern: pattern) else { return nil }
-    let ns = html as NSString
-    guard let match = regex.firstMatch(in: html, options: [], range: NSRange(location: 0, length: ns.length)),
+fileprivate func decodePostDataExtras(in html: String) -> PostDataExtras? {
+    guard let regex = try? NSRegularExpression(pattern: "<script id=\"temp-script\"[^>]*>([A-Za-z0-9+/=\s]+)</script>") else { return nil }
+    let nshtml = html as NSString
+    guard let match = regex.firstMatch(in: html, options: [], range: NSRange(location: 0, length: nshtml.length)),
           match.numberOfRanges > 1 else {
         return nil
     }
-    return ns.substring(with: match.range(at: 1))
+    var base64 = nshtml.substring(with: match.range(at: 1))
+    base64 = base64.components(separatedBy: CharacterSet.whitespacesAndNewlines).joined()
+    guard let data = Data(base64Encoded: base64),
+          let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+        return nil
+    }
+    let views = (json["views"] as? NSNumber)?.intValue
+    let categoryWord = json["categoryWord"] as? String
+    return PostDataExtras(views: views, categoryWord: categoryWord)
 }
