@@ -39,14 +39,14 @@ private final class NodeSeekDiscussionEditClient {
 
     func loadEditor(postURL: URL) async throws -> NodeSeekDiscussionEditSnapshot {
         let result = try await withHiddenWebViewPageActionLoader(
-            logMessage: "准备读取主题编辑表单: \(postURL.absoluteString)"
+            logMessage: "准备读取主题编辑原文: \(postURL.absoluteString)"
         ) { loader in
             try await loader.runPageAutomationScript(
                 pageURL: postURL,
                 source: Self.loadEditorScript,
                 arguments: [:],
                 timeoutInterval: self.timeoutInterval,
-                actionName: "读取主题编辑表单"
+                actionName: "读取主题编辑原文"
             )
         }
         guard result["ok"] as? Bool == true else {
@@ -54,20 +54,18 @@ private final class NodeSeekDiscussionEditClient {
                 result["message"] as? String ?? "当前帖子没有可用的编辑入口。"
             )
         }
-        guard let editorURLText = result["editorURL"] as? String,
-              let editorURL = URL(string: editorURLText),
-              let content = result["content"] as? String else {
+        guard let content = result["content"] as? String else {
             throw NodeSeekDiscussionEditError.invalidResponse
         }
         let rank = (result["rank"] as? NSNumber)?.intValue ?? 0
         return NodeSeekDiscussionEditSnapshot(
-            editorURL: editorURL,
+            editorURL: postURL,
             title: result["title"] as? String ?? "",
             content: content,
-            titleFieldName: result["titleFieldName"] as? String,
-            contentFieldName: result["contentFieldName"] as? String,
+            titleFieldName: "title",
+            contentFieldName: "content",
             rank: max(0, rank),
-            rankFieldName: result["rankFieldName"] as? String
+            rankFieldName: result["rankFieldName"] as? String ?? "rank"
         )
     }
     func submit(
@@ -85,10 +83,7 @@ private final class NodeSeekDiscussionEditClient {
                 arguments: [
                     "title": title,
                     "content": content,
-                    "titleFieldName": snapshot.titleFieldName ?? "",
-                    "contentFieldName": snapshot.contentFieldName ?? "",
-                    "rank": rank,
-                    "rankFieldName": snapshot.rankFieldName ?? ""
+                    "rank": rank
                 ],
                 timeoutInterval: self.timeoutInterval,
                 actionName: "提交主题编辑"
@@ -101,175 +96,74 @@ private final class NodeSeekDiscussionEditClient {
         }
     }
 
+    /// 新版站点编辑器同页挂载：原文在运行时 __config__.postData.comments[floorIndex==0].markdown，
+    /// 不存在传统编辑表单（旧表单探测在现网必失败）。
     private static let loadEditorScript = """
     return await new Promise(async (resolve) => {
-      const visible = (element) => {
-        if (!element) return false;
-        const style = window.getComputedStyle(element);
-        return style.display !== 'none' && style.visibility !== 'hidden';
-      };
-      const textOf = (element) => (element.innerText || element.textContent || element.value || '').trim();
-      const isEditLink = (element) => {
-        const href = String(element.getAttribute('href') || '');
-        const text = textOf(element);
-        return /编辑|修改|edit|modify|update/i.test(text + ' ' + href) && !href.startsWith('javascript:');
-      };
-      const findForm = (documentRoot) => {
-        const forms = Array.from(documentRoot.querySelectorAll('form'));
-        return forms.find((form) => form.querySelector('input[name*="title" i]') && form.querySelector('textarea, [contenteditable="true"], input[name*="content" i]'))
-          || forms.find((form) => form.querySelector('textarea, [contenteditable="true"], input[name*="content" i]')) || null;
-      };
-      const findTitle = (form) => form && (
-        form.querySelector('input[name=\"title\" i]') ||
-        form.querySelector('input[name*=\"title\" i]') ||
-        form.querySelector('input[type=\"text\"]')
-      );
-      const findContent = (form) => form && (
-        form.querySelector('textarea[name=\"content\" i]') ||
-        form.querySelector('textarea[name*=\"content\" i]') ||
-        form.querySelector('textarea') ||
-        form.querySelector('[contenteditable=\"true\"]')
-      );
-      const isEditorForm = (form) => {
-        if (!form) return false;
-        const contentField = findContent(form);
-        if (!contentField) return false;
-        if (form.querySelector('input[name*="title" i]')) return true;
-        const name = String(contentField.name || '').toLowerCase();
-        return name.includes('content') && /edit|modify|update/i.test(String(form.getAttribute('action') || ''));
-      };
-      const findRank = (form) => form && (
-        form.querySelector('select[name*="rank" i], select[name*="level" i], input[type="radio"][name*="rank" i], input[type="radio"][name*="level" i]')
-      );
       try {
-        let editorURL = window.location.href;
-        let editorDocument = document;
-        let form = findForm(editorDocument);
-        if (!isEditorForm(form)) {
-          const entry = Array.from(document.querySelectorAll('a, button')).find((element) => visible(element) && isEditLink(element));
-          const href = entry && entry.getAttribute('href');
-          if (!href) {
-            resolve({ ok: false, reason: 'editor_entry_not_found', message: '当前帖子未提供编辑入口。' });
-            return;
-          }
-          editorURL = new URL(href, window.location.href).href;
-          const response = await fetch(editorURL, { credentials: 'same-origin' });
-          const html = await response.text();
-          if (!response.ok) {
-            resolve({ ok: false, reason: 'editor_page_failed', message: '无法打开主题编辑页面。' });
-            return;
-          }
-          editorDocument = new DOMParser().parseFromString(html, 'text/html');
-          form = findForm(editorDocument);
-        }
-        const title = findTitle(form);
-        const content = findContent(form);
-        if (!form || !content || !isEditorForm(form)) {
-          resolve({ ok: false, reason: 'editor_form_not_found', message: '未找到可编辑的主题内容。' });
+        const cfg = window.__config__;
+        const postData = cfg && cfg.postData;
+        if (!postData || !Array.isArray(postData.comments)) {
+          resolve({ ok: false, reason: 'post_data_missing', message: '页面数据未加载完成，请稍后重试。' });
           return;
         }
-        const contentValue = 'value' in content ? content.value : (content.textContent || '');
-        const rankField = findRank(form);
-        let rank = 0;
-        let rankFieldName = '';
-        if (rankField) {
-          rankFieldName = rankField.name || '';
-          if (rankField.type === 'radio') {
-            const checked = editorDocument.querySelector('input[type="radio"][name="' + CSS.escape(rankField.name) + '"]:checked');
-            rank = parseInt((checked || rankField).value, 10) || 0;
-          } else {
-            rank = parseInt(rankField.value, 10) || 0;
-          }
+        const owner = postData.comments.find((c) => c && c.floorIndex === 0);
+        if (!owner) {
+          resolve({ ok: false, reason: 'owner_floor_missing', message: '未找到原帖正文。' });
+          return;
+        }
+        const markdown = typeof owner.markdown === 'string' ? owner.markdown : '';
+        if (!markdown.trim()) {
+          resolve({ ok: false, reason: 'empty_content', message: '原帖内容为空，无法编辑。' });
+          return;
         }
         resolve({
           ok: true,
-          editorURL,
-          title: title ? (title.value || '') : '',
-          content: contentValue,
-          titleFieldName: title ? (title.name || '') : '',
-          contentFieldName: content.name || '',
-          rank: rank,
-          rankFieldName: rankFieldName
+          editorURL: window.location.href,
+          title: postData.title || '',
+          content: markdown,
+          rank: typeof postData.rank === 'number' ? postData.rank : 0,
+          rankFieldName: 'rank'
         });
       } catch (error) {
         resolve({ ok: false, reason: 'javascript_exception', message: String(error && error.message ? error.message : error) });
       }
+    })
     """
 
+    /// 提交：站点编辑器同款接口 POST /api/content/edit-discussion
+    /// body = {content, mode, title, postId, rank}（与网页 markdownEditor 一致）。
     private static let submitEditorScript = """
     return await new Promise(async (resolve) => {
-      const nextTitle = title || '';
-      const nextContent = content || '';
-      const nextRank = String(rank == null ? '' : rank);
-      const nextRankFieldName = rankFieldName || '';
-      const findForm = () => Array.from(document.querySelectorAll('form')).find((form) => form.querySelector('textarea, [contenteditable=\"true\"], input[name*=\"content\" i]')) || null;
-      const valueSetter = (element, value) => {
-        if (!element) return;
-        if ('value' in element) {
-          const descriptor = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(element), 'value');
-          if (descriptor && descriptor.set) descriptor.set.call(element, value); else element.value = value;
-        } else {
-          element.textContent = value;
-        }
-        element.dispatchEvent(new Event('input', { bubbles: true }));
-        element.dispatchEvent(new Event('change', { bubbles: true }));
-      };
       try {
-        const form = findForm();
-        if (!form) {
-          resolve({ ok: false, reason: 'editor_form_not_found', message: '主题编辑表单已失效，请重新打开编辑。' });
+        const cfg = window.__config__;
+        const postData = cfg && cfg.postData;
+        if (!postData || !postData.postId) {
+          resolve({ ok: false, reason: 'post_data_missing', message: '页面数据未加载完成，请稍后重试。' });
           return;
         }
-        const titleField = titleFieldName ? form.querySelector('[name="' + CSS.escape(titleFieldName) + '"]') : (form.querySelector('input[name=\"title\" i]') || form.querySelector('input[name*=\"title\" i]'));
-        const contentField = contentFieldName ? form.querySelector('[name="' + CSS.escape(contentFieldName) + '"]') : (form.querySelector('textarea[name=\"content\" i]') || form.querySelector('textarea[name*=\"content\" i]') || form.querySelector('textarea') || form.querySelector('[contenteditable=\"true\"]'));
-        if (!contentField) {
-          resolve({ ok: false, reason: 'content_field_not_found', message: '主题内容输入框已失效，请重新打开编辑。' });
-          return;
-        }
-        valueSetter(titleField, nextTitle);
-        valueSetter(contentField, nextContent);
-        const body = new FormData(form);
-        if (titleFieldName) body.set(titleFieldName, nextTitle);
-        if (contentFieldName) body.set(contentFieldName, nextContent);
-        if (nextRankFieldName) {
-          const rankInput = form.querySelector('[name="' + CSS.escape(nextRankFieldName) + '"]');
-          if (rankInput) {
-            if (rankInput.type === 'radio') {
-              const target = Array.from(form.querySelectorAll('input[type="radio"][name="' + CSS.escape(nextRankFieldName) + '"]')).find((item) => String(item.value) === nextRank);
-              if (target) {
-                target.checked = true;
-                target.dispatchEvent(new Event('change', { bubbles: true }));
-              }
-            } else {
-              const descriptor = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(rankInput), 'value');
-              if (descriptor && descriptor.set) descriptor.set.call(rankInput, nextRank); else rankInput.value = nextRank;
-              rankInput.dispatchEvent(new Event('input', { bubbles: true }));
-              rankInput.dispatchEvent(new Event('change', { bubbles: true }));
-            }
-            body.set(nextRankFieldName, nextRank);
-          }
-        }
-        const action = new URL(form.getAttribute('action') || window.location.href, window.location.href).href;
-        const method = (form.getAttribute('method') || 'POST').toUpperCase();
-        const response = await fetch(action, { method, body, credentials: 'same-origin' });
-        const responseText = await response.text();
-        let message = '';
-        let explicitlyFailed = false;
-        try {
-          const json = JSON.parse(responseText || '{}');
-          message = json.message || json.error || json.msg || '';
-          explicitlyFailed = json.success === false || json.ok === false;
-        } catch (_) {}
-        resolve({
-          ok: response.ok && !explicitlyFailed,
-          statusCode: response.status,
-          reason: response.ok && !explicitlyFailed ? 'submitted' : 'server_error',
-          message: message || (response.ok ? '' : '主题保存失败。')
+        const response = await fetch('/api/content/edit-discussion', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'Accept': 'application/json', 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            content: String(content == null ? '' : content),
+            mode: 'edit-discussion',
+            title: String(title == null ? '' : title),
+            postId: postData.postId,
+            rank: parseInt(rank, 10) || 0
+          })
         });
+        const body = await response.json().catch(() => ({}));
+        if (response.status >= 200 && response.status < 300 && body.success !== false) {
+          resolve({ ok: true });
+        } else {
+          resolve({ ok: false, message: body.message || body.msg || ('保存失败 (' + response.status + ')') });
+        }
       } catch (error) {
-        resolve({ ok: false, reason: 'javascript_exception', message: String(error && error.message ? error.message : error) });
+        resolve({ ok: false, message: String(error && error.message ? error.message : error) });
       }
-    });
+    })
     """
 }
 
