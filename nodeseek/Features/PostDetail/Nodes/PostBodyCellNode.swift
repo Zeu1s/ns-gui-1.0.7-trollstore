@@ -828,7 +828,7 @@ final class DetailRichTextNode: ASDisplayNode {
         imageSizeProvider: @escaping (URL) -> CGSize? = { _ in nil },
         onImageSizeResolved: @escaping (URL, CGSize) -> Void = { _, _ in },
         onImageTapped: @escaping ([URL], Int) -> Void,
-        onImageLongPressed: (URL) -> Void = { _ in },
+        onImageLongPressed: @escaping (URL) -> Void = { _ in },
         onLinkTapped: @escaping (URL) -> Void = { _ in },
         onSignatureLinkCandidatesTapped: @escaping ([DetailLinkCandidate]) -> Void = { _ in },
         onLayoutInvalidated: @escaping () -> Void
