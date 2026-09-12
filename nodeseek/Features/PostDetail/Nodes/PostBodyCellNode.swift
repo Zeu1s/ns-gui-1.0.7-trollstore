@@ -23,6 +23,7 @@ final class PostBodyCellNode: ASCellNode, ThemeRefreshableNode {
 
     private var content: PostDetailHeaderContent
     private let onImageTapped: ([URL], Int) -> Void
+    private let onImageLongPressed: (URL) -> Void
     private let onLinkTapped: (URL) -> Void
     private let onSignatureLinkCandidatesTapped: ([DetailLinkCandidate]) -> Void
     private let onAuthorTapped: (URL) -> Void
@@ -100,6 +101,7 @@ final class PostBodyCellNode: ASCellNode, ThemeRefreshableNode {
         content: PostDetailHeaderContent,
         renderedContent: [RenderedContentBlock]?,
         onImageTapped: @escaping ([URL], Int) -> Void,
+        onImageLongPressed: @escaping (URL) -> Void = { _ in },
         onLinkTapped: @escaping (URL) -> Void = { _ in },
         onSignatureLinkCandidatesTapped: @escaping ([DetailLinkCandidate]) -> Void = { _ in },
         onAuthorTapped: @escaping (URL) -> Void = { _ in },
@@ -123,6 +125,7 @@ final class PostBodyCellNode: ASCellNode, ThemeRefreshableNode {
     ) {
         self.content = content
         self.onImageTapped = onImageTapped
+        self.onImageLongPressed = onImageLongPressed
         self.onLinkTapped = onLinkTapped
         self.onSignatureLinkCandidatesTapped = onSignatureLinkCandidatesTapped
         self.onAuthorTapped = onAuthorTapped
@@ -141,6 +144,7 @@ final class PostBodyCellNode: ASCellNode, ThemeRefreshableNode {
         self.bodyNodes = DetailContentBlockNodeFactory.makeNodes(
             from: renderedContent ?? [],
             onImageTapped: onImageTapped,
+            onImageLongPressed: onImageLongPressed,
             onLinkTapped: onLinkTapped,
             onSignatureLinkCandidatesTapped: onSignatureLinkCandidatesTapped,
             onTextLayoutInvalidated: onTextLayoutInvalidated,
@@ -809,6 +813,7 @@ final class DetailRichTextNode: ASDisplayNode {
     private let attributedText: NSMutableAttributedString
     private let attributedTextLock = NSLock()
     private let onImageTapped: ([URL], Int) -> Void
+    private let onImageLongPressed: (URL) -> Void
     private let onLinkTapped: (URL) -> Void
     private let onSignatureLinkCandidatesTapped: ([DetailLinkCandidate]) -> Void
     private let onLayoutInvalidated: () -> Void
@@ -823,6 +828,7 @@ final class DetailRichTextNode: ASDisplayNode {
         imageSizeProvider: @escaping (URL) -> CGSize? = { _ in nil },
         onImageSizeResolved: @escaping (URL, CGSize) -> Void = { _, _ in },
         onImageTapped: @escaping ([URL], Int) -> Void,
+        onImageLongPressed: (URL) -> Void = { _ in },
         onLinkTapped: @escaping (URL) -> Void = { _ in },
         onSignatureLinkCandidatesTapped: @escaping ([DetailLinkCandidate]) -> Void = { _ in },
         onLayoutInvalidated: @escaping () -> Void
@@ -832,6 +838,7 @@ final class DetailRichTextNode: ASDisplayNode {
         self.imageSizeProvider = imageSizeProvider
         self.onImageSizeResolved = onImageSizeResolved
         self.onImageTapped = onImageTapped
+        self.onImageLongPressed = onImageLongPressed
         self.onLinkTapped = onLinkTapped
         self.onSignatureLinkCandidatesTapped = onSignatureLinkCandidatesTapped
         self.onLayoutInvalidated = onLayoutInvalidated
@@ -850,6 +857,7 @@ final class DetailRichTextNode: ASDisplayNode {
         richTextView.configure(
             attributedText,
             onImageTapped: onImageTapped,
+            onImageLongPressed: onImageLongPressed,
             onLinkTapped: onLinkTapped,
             onSignatureLinkCandidatesTapped: onSignatureLinkCandidatesTapped,
             onLayoutInvalidated: onLayoutInvalidated,
