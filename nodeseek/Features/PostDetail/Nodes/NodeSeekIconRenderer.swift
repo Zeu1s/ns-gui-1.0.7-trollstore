@@ -44,6 +44,8 @@ extension NodeSeekIconRenderer {
         case NodeSeekIconName.topics: return NodeSeekIconArtwork.topics
         case NodeSeekIconName.edit: return NodeSeekIconArtwork.edit
         case NodeSeekIconName.comments: return NodeSeekIconArtwork.comments
+        case NodeSeekIconName.commentsAlt: return NodeSeekIconArtwork.commentsAlt
+        case NodeSeekIconName.topicsAlt: return NodeSeekIconArtwork.topicsAlt
         case NodeSeekIconName.likeFilled: return NodeSeekIconArtwork.likeFilled
         case NodeSeekIconName.opposeFilled: return NodeSeekIconArtwork.opposeFilled
         case NodeSeekIconName.collection: return NodeSeekIconArtwork.collection

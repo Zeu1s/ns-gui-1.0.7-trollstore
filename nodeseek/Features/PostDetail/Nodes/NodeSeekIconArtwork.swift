@@ -22,6 +22,8 @@ enum NodeSeekIconName {
     static let collection = "personal-collection"
     static let stardust = "stardust3"
     static let follow = "concern"
+    static let commentsAlt = "comments-6ncdh3ka"
+    static let topicsAlt = "edit"
     static let messages = "receiver"
 }
 
@@ -64,6 +66,16 @@ enum NodeSeekIconArtwork {
 
     static let comments = #"""
 <svg xmlns="http://www.w3.org/2000/svg" id="comments" viewBox="0 0 48 48" fill="none"><path stroke-linejoin="round" stroke-linecap="round" stroke-width="4" stroke="#000000" d="M33 38H22v-8h14v-8h8v16h-5l-3 3-3-3Z"></path><path stroke-linejoin="round" stroke-linecap="round" stroke-width="4" stroke="#000000" d="M4 6h32v24H17l-4 4-4-4H4V6Z"></path><path stroke-linecap="round" stroke-width="4" stroke="#000000" d="M12 22h6m-6-8h12"></path></svg>
+"""#
+
+    /// PWA 统计卡"评论数"实际使用的变体。
+    static let commentsAlt = #"""
+<svg xmlns="http://www.w3.org/2000/svg" id="comments-6ncdh3ka" viewBox="0 0 48 48" fill="none"><path stroke-linejoin="round" stroke-linecap="round" stroke-width="4" stroke="#000000" d="M33 38H22v-8h14v-8h8v16h-5l-3 3-3-3Z"></path><path stroke-linejoin="round" stroke-linecap="round" stroke-width="4" stroke="#000000" d="M4 6h32v24H17l-4 4-4-4H4V6Z"></path><path stroke-linecap="round" stroke-width="4" stroke="#000000" d="M12 22h6m-6-8h12"></path></svg>
+"""#
+
+    /// PWA 统计卡"主题帖"实际使用的编辑图标。
+    static let topicsAlt = #"""
+<svg xmlns="http://www.w3.org/2000/svg" id="edit" viewBox="0 0 48 48" fill="none"><path stroke-linejoin="round" stroke-linecap="round" stroke-width="4" stroke="#000000" d="M7 42h36"></path><path stroke-linejoin="round" stroke-width="4" stroke="#000000" d="M11 26.72V34h7.317L39 13.308 31.695 6 11 26.72Z"></path></svg>
 """#
 
     static let likeFilled = #"""

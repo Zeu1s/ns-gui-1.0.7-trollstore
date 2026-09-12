@@ -691,7 +691,7 @@ private final class ProfileHeaderView: UIView {
             ProfileMetric(
                 title: "主题帖",
                 value: "\(userInfo.nPost)",
-                siteIconName: NodeSeekIconName.topics,
+                siteIconName: NodeSeekIconName.topicsAlt,
                 onTap: onDiscussionsTapped
             ),
             ProfileMetric(
@@ -704,7 +704,7 @@ private final class ProfileHeaderView: UIView {
             ProfileMetric(
                 title: "评论数",
                 value: "\(userInfo.nComment)",
-                siteIconName: NodeSeekIconName.comments,
+                siteIconName: NodeSeekIconName.commentsAlt,
                 onTap: onCommentsTapped
             ),
             ProfileMetric(
@@ -882,14 +882,14 @@ private final class ProfileHeaderView: UIView {
 
     private static let placeholderMetrics: [ProfileMetric] = [
         ProfileMetric(title: "等级", value: "-", siteIconName: NodeSeekIconName.level),
-        ProfileMetric(title: "主题帖", value: "-", siteIconName: NodeSeekIconName.topics),
+        ProfileMetric(title: "主题帖", value: "-", siteIconName: NodeSeekIconName.topicsAlt),
         ProfileMetric(
             title: "鸡腿",
             value: "-",
             image: ReactionIconRenderer.chickenLeg(pointSize: 18),
             imageTintColor: .secondaryLabel
         ),
-        ProfileMetric(title: "评论数", value: "-", siteIconName: NodeSeekIconName.comments),
+        ProfileMetric(title: "评论数", value: "-", siteIconName: NodeSeekIconName.commentsAlt),
         ProfileMetric(title: "星辰", value: "-", siteIconName: NodeSeekIconName.stardust),
         ProfileMetric(title: "粉丝", value: "-", image: UIImage(systemName: "dot.radiowaves.left.and.right"))
     ]
