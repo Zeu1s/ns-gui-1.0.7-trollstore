@@ -1112,7 +1112,7 @@ struct PostDataExtras {
 }
 
 fileprivate func decodePostDataExtras(in html: String) -> PostDataExtras? {
-    guard let regex = try? NSRegularExpression(pattern: "<script id=\"temp-script\"[^>]*>([A-Za-z0-9+/=\s]+)</script>") else { return nil }
+    guard let regex = try? NSRegularExpression(pattern: "<script id=\"temp-script\"[^>]*>([A-Za-z0-9+/=\\s]+)</script>") else { return nil }
     let nshtml = html as NSString
     guard let match = regex.firstMatch(in: html, options: [], range: NSRange(location: 0, length: nshtml.length)),
           match.numberOfRanges > 1 else {
