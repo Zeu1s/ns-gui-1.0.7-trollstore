@@ -398,6 +398,7 @@ class PostDetailPresenter: PostDetailPresenterProtocol {
         }
         guard submittingCommentLikeIDs.contains(comment.id) == false else { return }
         submittingCommentLikeIDs.insert(comment.id)
+        applyCommentReactionOptimistic(commentID: comment.id, kind: .like)
         view?.showToast(message: ReactionKind.like.pendingToast)
         interactor.addCommentLike(commentID: comment.id)
     }
@@ -409,6 +410,7 @@ class PostDetailPresenter: PostDetailPresenterProtocol {
         }
         guard submittingCommentChickenLegIDs.contains(comment.id) == false else { return }
         submittingCommentChickenLegIDs.insert(comment.id)
+        applyCommentReactionOptimistic(commentID: comment.id, kind: .chickenLeg)
         view?.showToast(message: ReactionKind.chickenLeg.pendingToast)
         interactor.addCommentChickenLeg(commentID: comment.id)
     }
@@ -420,6 +422,7 @@ class PostDetailPresenter: PostDetailPresenterProtocol {
         }
         guard submittingCommentOpposeIDs.contains(comment.id) == false else { return }
         submittingCommentOpposeIDs.insert(comment.id)
+        applyCommentReactionOptimistic(commentID: comment.id, kind: .oppose)
         view?.showToast(message: ReactionKind.oppose.pendingToast)
         interactor.addCommentOppose(commentID: comment.id)
     }
@@ -431,6 +434,7 @@ class PostDetailPresenter: PostDetailPresenterProtocol {
         }
         guard isSubmittingPostLike == false else { return }
         isSubmittingPostLike = true
+        applyPostReactionOptimistic(kind: .like)
         view?.showToast(message: ReactionKind.like.pendingToast)
         interactor.addPostLike()
     }
@@ -442,6 +446,7 @@ class PostDetailPresenter: PostDetailPresenterProtocol {
         }
         guard isSubmittingPostChickenLeg == false else { return }
         isSubmittingPostChickenLeg = true
+        applyPostReactionOptimistic(kind: .chickenLeg)
         view?.showToast(message: ReactionKind.chickenLeg.pendingToast)
         interactor.addPostChickenLeg()
     }
@@ -453,6 +458,7 @@ class PostDetailPresenter: PostDetailPresenterProtocol {
         }
         guard isSubmittingPostOppose == false else { return }
         isSubmittingPostOppose = true
+        applyPostReactionOptimistic(kind: .oppose)
         view?.showToast(message: ReactionKind.oppose.pendingToast)
         interactor.addPostOppose()
     }
@@ -539,6 +545,110 @@ class PostDetailPresenter: PostDetailPresenterProtocol {
 
     private func reactionNextCount(current: Int?, serverCount: Int?) -> Int {
         serverCount ?? max(1, (current ?? 0) + 1)
+    }
+
+    /// 乐观更新：点击后立即把点击态与本地估算计数上屏（不含 toast），
+    /// 成功时被服务器精确值覆盖，失败时按 kind 回滚。
+    private func applyPostReactionOptimistic(kind: ReactionKind) {
+        guard let currentDetail else { return }
+        let nextDetail: PostDetail
+        switch kind {
+        case .like:
+            nextDetail = currentDetail.updatingPostLikeState(
+                count: reactionNextCount(current: currentDetail.likeCount, serverCount: nil),
+                isClicked: true
+            )
+        case .chickenLeg:
+            nextDetail = currentDetail.updatingPostChickenLegState(
+                count: reactionNextCount(current: currentDetail.chickenLegCount, serverCount: nil),
+                isClicked: true
+            )
+        case .oppose:
+            nextDetail = currentDetail.updatingPostOpposeState(
+                count: reactionNextCount(current: currentDetail.opposeCount, serverCount: nil),
+                isClicked: true
+            )
+        }
+        self.currentDetail = nextDetail
+        view?.updatePostBody(detail: nextDetail)
+    }
+
+    private func rollbackPostReaction(kind: ReactionKind) {
+        guard let currentDetail else { return }
+        let nextDetail: PostDetail
+        switch kind {
+        case .like:
+            nextDetail = currentDetail.updatingPostLikeState(
+                count: max(0, (currentDetail.likeCount ?? 1) - 1),
+                isClicked: false
+            )
+        case .chickenLeg:
+            nextDetail = currentDetail.updatingPostChickenLegState(
+                count: max(0, (currentDetail.chickenLegCount ?? 1) - 1),
+                isClicked: false
+            )
+        case .oppose:
+            nextDetail = currentDetail.updatingPostOpposeState(
+                count: max(0, (currentDetail.opposeCount ?? 1) - 1),
+                isClicked: false
+            )
+        }
+        self.currentDetail = nextDetail
+        view?.updatePostBody(detail: nextDetail)
+    }
+
+    private func applyCommentReactionOptimistic(commentID: String, kind: ReactionKind) {
+        guard let currentDetail,
+              let comment = currentDetail.comments.first(where: { $0.id == commentID }) else {
+            return
+        }
+        switch kind {
+        case .like:
+            let nextCount = reactionNextCount(current: comment.likeCount, serverCount: nil)
+            view?.updateCommentLike(commentID: commentID, count: nextCount, isClicked: true)
+            self.currentDetail = currentDetail.updatingCommentLikeState(
+                commentID: commentID, count: nextCount, isClicked: true
+            )
+        case .chickenLeg:
+            let nextCount = reactionNextCount(current: comment.chickenLegCount, serverCount: nil)
+            view?.updateCommentChickenLeg(commentID: commentID, count: nextCount, isClicked: true)
+            self.currentDetail = currentDetail.updatingCommentChickenLegState(
+                commentID: commentID, count: nextCount, isClicked: true
+            )
+        case .oppose:
+            let nextCount = reactionNextCount(current: comment.opposeCount, serverCount: nil)
+            view?.updateCommentOppose(commentID: commentID, count: nextCount, isClicked: true)
+            self.currentDetail = currentDetail.updatingCommentOpposeState(
+                commentID: commentID, count: nextCount, isClicked: true
+            )
+        }
+    }
+
+    private func rollbackCommentReaction(commentID: String, kind: ReactionKind) {
+        guard let currentDetail,
+              let comment = currentDetail.comments.first(where: { $0.id == commentID }) else {
+            return
+        }
+        switch kind {
+        case .like:
+            let previous = max(0, (comment.likeCount ?? 1) - 1)
+            view?.updateCommentLike(commentID: commentID, count: previous, isClicked: false)
+            self.currentDetail = currentDetail.updatingCommentLikeState(
+                commentID: commentID, count: previous, isClicked: false
+            )
+        case .chickenLeg:
+            let previous = max(0, (comment.chickenLegCount ?? 1) - 1)
+            view?.updateCommentChickenLeg(commentID: commentID, count: previous, isClicked: false)
+            self.currentDetail = currentDetail.updatingCommentChickenLegState(
+                commentID: commentID, count: previous, isClicked: false
+            )
+        case .oppose:
+            let previous = max(0, (comment.opposeCount ?? 1) - 1)
+            view?.updateCommentOppose(commentID: commentID, count: previous, isClicked: false)
+            self.currentDetail = currentDetail.updatingCommentOpposeState(
+                commentID: commentID, count: previous, isClicked: false
+            )
+        }
     }
 
     private func applyPostReactionSuccess(response: CommentUpvoteResponse, kind: ReactionKind) {
@@ -1021,6 +1131,9 @@ extension PostDetailPresenter: PostDetailInteractorOutput {
 
     func didFailAddPostLike(error: String) {
         isSubmittingPostLike = false
+        if error.contains(.like.alreadyActionSuffix) == false {
+            rollbackPostReaction(kind: .like)
+        }
         handleReactionFailure(error: error, kind: .like)
     }
 
@@ -1031,6 +1144,9 @@ extension PostDetailPresenter: PostDetailInteractorOutput {
 
     func didFailAddCommentLike(commentID: String, error: String) {
         submittingCommentLikeIDs.remove(commentID)
+        if error.contains(.like.alreadyActionSuffix) == false {
+            rollbackCommentReaction(commentID: commentID, kind: .like)
+        }
         handleReactionFailure(error: error, kind: .like)
     }
 
@@ -1041,6 +1157,9 @@ extension PostDetailPresenter: PostDetailInteractorOutput {
 
     func didFailAddPostChickenLeg(error: String) {
         isSubmittingPostChickenLeg = false
+        if error.contains(.chickenLeg.alreadyActionSuffix) == false {
+            rollbackPostReaction(kind: .chickenLeg)
+        }
         handleReactionFailure(error: error, kind: .chickenLeg)
     }
 
@@ -1051,6 +1170,9 @@ extension PostDetailPresenter: PostDetailInteractorOutput {
 
     func didFailAddCommentChickenLeg(commentID: String, error: String) {
         submittingCommentChickenLegIDs.remove(commentID)
+        if error.contains(.chickenLeg.alreadyActionSuffix) == false {
+            rollbackCommentReaction(commentID: commentID, kind: .chickenLeg)
+        }
         handleReactionFailure(error: error, kind: .chickenLeg)
     }
 
@@ -1061,6 +1183,9 @@ extension PostDetailPresenter: PostDetailInteractorOutput {
 
     func didFailAddPostOppose(error: String) {
         isSubmittingPostOppose = false
+        if error.contains(.oppose.alreadyActionSuffix) == false {
+            rollbackPostReaction(kind: .oppose)
+        }
         handleReactionFailure(error: error, kind: .oppose)
     }
 
@@ -1071,6 +1196,9 @@ extension PostDetailPresenter: PostDetailInteractorOutput {
 
     func didFailAddCommentOppose(commentID: String, error: String) {
         submittingCommentOpposeIDs.remove(commentID)
+        if error.contains(.oppose.alreadyActionSuffix) == false {
+            rollbackCommentReaction(commentID: commentID, kind: .oppose)
+        }
         handleReactionFailure(error: error, kind: .oppose)
     }
 }
