@@ -989,9 +989,13 @@ extension PostDetailPresenter: PostDetailInteractorOutput {
         if case .replyRefresh = failedRequest {
             replyRefreshTracking = nil
             return
-        } else {
-            view?.showError(message: error)
         }
+        if error.contains("不存在") {
+            // 已删除/私有化/无效页码：重试无意义，直接给返回。
+            view?.showPostUnavailable(message: error)
+            return
+        }
+        view?.showError(message: error)
     }
 
     func didCancelLoadPostDetail() {

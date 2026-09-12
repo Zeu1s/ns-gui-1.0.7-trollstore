@@ -15,6 +15,7 @@ protocol PostDetailViewProtocol: AnyObject {
     func hideLoadingMoreComments()
     func hideLoading()
     func showError(message: String)
+    func showPostUnavailable(message: String)
     func showToast(message: String)
     func setReplySubmitting(_ isSubmitting: Bool)
     func setFavoriteSubmitting(_ isSubmitting: Bool)

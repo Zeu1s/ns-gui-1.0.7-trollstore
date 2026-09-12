@@ -78,6 +78,23 @@ extension PostDetailViewController: PostDetailViewProtocol {
         present(alert, animated: true)
     }
 
+    /// 帖子已删除/私有化/页码无效：重试无意义，返回为主操作。
+    func showPostUnavailable(message: String) {
+        cancelPendingInitialContentReveal()
+        hideLoadingSkeleton()
+        let alert = UIAlertController(title: "帖子无法查看", message: message, preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: "返回", style: .default) { [weak self] _ in
+            guard let self else { return }
+            navigationController?.popViewController(animated: true)
+        })
+        if sourcePostURL != nil {
+            alert.addAction(UIAlertAction(title: "在浏览器打开", style: .default) { [weak self] _ in
+                self?.openInBrowserTapped()
+            })
+        }
+        present(alert, animated: true)
+    }
+
     func showToast(message: String) {
         toastHideWorkItem?.cancel()
         toastLabel.text = message
