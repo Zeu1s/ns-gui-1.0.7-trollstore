@@ -16,7 +16,11 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
         AppLog.installUncaughtExceptionHandler()
         AppCrashReporter.install()
-        AppLog.info(.service, "应用启动")
+        let appVersion = (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String) ?? "?"
+        let buildNumber = (Bundle.main.infoDictionary?["CFBundleVersion"] as? String) ?? "?"
+        let systemVersion = UIDevice.current.systemVersion
+        let deviceModel = UIDevice.current.model
+        AppLog.important(.service, "应用启动: v\(appVersion) (\(buildNumber)) · iOS \(systemVersion) · \(deviceModel)")
         AppRuntimeMonitor.shared.applicationDidLaunch()
         keyWindowObserver = NotificationCenter.default.addObserver(
             forName: UIWindow.didBecomeKeyNotification,
