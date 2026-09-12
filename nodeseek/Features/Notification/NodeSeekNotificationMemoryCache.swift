@@ -9,12 +9,14 @@ private final class NodeSeekNotificationDiskCache {
     struct Snapshot {
         let atMeRecords: [NodeSeekNotificationRecord]?
         let replyRecords: [NodeSeekNotificationRecord]?
+        let messageRecords: [NodeSeekMessageConversationRecord]?
     }
 
     private struct StoredSnapshot: Codable {
         var savedAt: Date
         var atMeRecords: [StoredRecord]?
         var replyRecords: [StoredRecord]?
+        var messageRecords: [StoredMessageRecord]?
     }
 
     private struct StoredRecord: Codable {
@@ -67,6 +69,44 @@ private final class NodeSeekNotificationDiskCache {
         }
     }
 
+    private struct StoredMessageRecord: Codable {
+        let receiverID: Int
+        let senderID: Int
+        let maxID: Int
+        let content: String
+        let createdAt: TimeInterval
+        let viewed: Int
+        let senderName: String
+        let unreadCount: Int?
+        let receiverName: String
+
+        init(record: NodeSeekMessageConversationRecord) {
+            receiverID = record.receiverID
+            senderID = record.senderID
+            maxID = record.maxID
+            content = record.content
+            createdAt = record.createdAt.timeIntervalSince1970
+            viewed = record.viewed
+            senderName = record.senderName
+            unreadCount = record.unreadCount
+            receiverName = record.receiverName
+        }
+
+        var conversationRecord: NodeSeekMessageConversationRecord {
+            NodeSeekMessageConversationRecord(
+                receiverID: receiverID,
+                senderID: senderID,
+                maxID: maxID,
+                content: content,
+                createdAt: Date(timeIntervalSince1970: createdAt),
+                viewed: viewed,
+                senderName: senderName,
+                receiverName: receiverName,
+                unreadCount: unreadCount
+            )
+        }
+    }
+
     private let defaults: UserDefaults
     private let keyPrefix = "com.nodeseek.notification.content-cache.v1"
     private let maximumAge: TimeInterval = 86_400
@@ -84,7 +124,8 @@ private final class NodeSeekNotificationDiskCache {
         }
         return Snapshot(
             atMeRecords: stored.atMeRecords?.map(\.notificationRecord),
-            replyRecords: stored.replyRecords?.map(\.notificationRecord)
+            replyRecords: stored.replyRecords?.map(\.notificationRecord),
+            messageRecords: stored.messageRecords?.map(\.conversationRecord)
         )
     }
 
@@ -105,6 +146,21 @@ private final class NodeSeekNotificationDiskCache {
         case .message:
             return
         }
+        stored.savedAt = Date()
+        guard let data = try? JSONEncoder().encode(stored) else { return }
+        defaults.set(data, forKey: key(for: ownerID))
+    }
+
+    /// 消息会话也持久化：已读状态参与未读数 reconcile，避免启动初期
+    /// 服务器陈旧的 message 计数先上角标、列表落地后又消失的闪现。
+    func store(messageRecords: [NodeSeekMessageConversationRecord], ownerID: Int) {
+        var snapshot = decodedSnapshot(for: ownerID)
+        if let cachedSnapshot = snapshot, Date().timeIntervalSince(cachedSnapshot.savedAt) > maximumAge {
+            defaults.removeObject(forKey: key(for: ownerID))
+            snapshot = nil
+        }
+        var stored = snapshot ?? StoredSnapshot(savedAt: Date(), atMeRecords: nil, replyRecords: nil)
+        stored.messageRecords = Array(messageRecords.prefix(maximumRecordsPerTab)).map(StoredMessageRecord.init(record:))
         stored.savedAt = Date()
         guard let data = try? JSONEncoder().encode(stored) else { return }
         defaults.set(data, forKey: key(for: ownerID))
@@ -183,6 +239,8 @@ final class NodeSeekNotificationMemoryCache {
             to: messageRecords,
             ownerID: ownerID
         )
+        guard let ownerID else { return }
+        persistentCache.store(messageRecords: self.messageRecords ?? [], ownerID: ownerID)
     }
 
     @discardableResult
@@ -240,7 +298,12 @@ final class NodeSeekNotificationMemoryCache {
                     ownerID: ownerID
                 )
             }
-            messageRecords = nil
+            messageRecords = restoredSnapshot?.messageRecords.map {
+                NodeSeekNotificationReadStateStore.shared.applyingLocalReadState(
+                    to: $0,
+                    ownerID: ownerID
+                )
+            }
             unreadCount = nil
         }
         return true
