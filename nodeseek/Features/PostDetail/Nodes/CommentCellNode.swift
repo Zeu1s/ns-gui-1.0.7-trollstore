@@ -339,6 +339,7 @@ final class CommentCellNode: ASCellNode, ThemeRefreshableNode {
 
     private var comment: Comment
     private let onImageTapped: ([URL], Int) -> Void
+    private let onImageLongPressed: (URL) -> Void
     private let onLinkTapped: (URL) -> Void
     private let onSignatureLinkCandidatesTapped: ([DetailLinkCandidate]) -> Void
     private let onAuthorTapped: (URL) -> Void
@@ -418,6 +419,7 @@ final class CommentCellNode: ASCellNode, ThemeRefreshableNode {
         showsEditAction: Bool = false,
         onEditTapped: @escaping (Comment) -> Void = { _ in },
         onImageTapped: @escaping ([URL], Int) -> Void,
+        onImageLongPressed: @escaping (URL) -> Void = { _ in },
         onLinkTapped: @escaping (URL) -> Void = { _ in },
         onSignatureLinkCandidatesTapped: @escaping ([DetailLinkCandidate]) -> Void = { _ in },
         onAuthorTapped: @escaping (URL) -> Void = { _ in },
@@ -439,6 +441,7 @@ final class CommentCellNode: ASCellNode, ThemeRefreshableNode {
         self.showsEditAction = showsEditAction
         self.onEditTapped = onEditTapped
         self.onImageTapped = onImageTapped
+        self.onImageLongPressed = onImageLongPressed
         self.onLinkTapped = onLinkTapped
         self.onSignatureLinkCandidatesTapped = onSignatureLinkCandidatesTapped
         self.onAuthorTapped = onAuthorTapped
@@ -454,6 +457,7 @@ final class CommentCellNode: ASCellNode, ThemeRefreshableNode {
         self.bodyNodes = DetailContentBlockNodeFactory.makeNodes(
             from: renderedBody ?? [],
             onImageTapped: onImageTapped,
+            onImageLongPressed: onImageLongPressed,
             onLinkTapped: onLinkTapped,
             onSignatureLinkCandidatesTapped: onSignatureLinkCandidatesTapped,
             onTextLayoutInvalidated: onTextLayoutInvalidated,
