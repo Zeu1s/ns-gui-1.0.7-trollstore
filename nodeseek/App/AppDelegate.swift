@@ -20,7 +20,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         let buildNumber = (Bundle.main.infoDictionary?["CFBundleVersion"] as? String) ?? "?"
         let systemVersion = UIDevice.current.systemVersion
         let deviceModel = UIDevice.current.model
-        AppLog.important(.service, "应用启动: v\(appVersion) (\(buildNumber)) · iOS \(systemVersion) · \(deviceModel)")
+        AppLog.important(.error, .service, "应用启动: v\(appVersion) (\(buildNumber)) · iOS \(systemVersion) · \(deviceModel)")
         AppRuntimeMonitor.shared.applicationDidLaunch()
         keyWindowObserver = NotificationCenter.default.addObserver(
             forName: UIWindow.didBecomeKeyNotification,

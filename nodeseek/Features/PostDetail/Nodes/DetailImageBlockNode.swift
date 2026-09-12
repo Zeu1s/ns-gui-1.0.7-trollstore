@@ -56,8 +56,9 @@ final class DetailImageBlockNode: ASDisplayNode {
                 onImageTapped: {
                     onImageTapped(imageURLs, imageIndex)
                 },
-                onImageLongPressed: {
-                    onImageLongPressed(imageURL)
+                onImageLongPressed: { [weak self] in
+                    guard let self else { return }
+                    self.onImageLongPressed(self.imageURL)
                 }
             )
         }

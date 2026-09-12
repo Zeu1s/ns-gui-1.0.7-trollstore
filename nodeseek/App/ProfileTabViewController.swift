@@ -1262,7 +1262,7 @@ private final class ProfileReadmeCell: UITableViewCell, WKNavigationDelegate, WK
             guard listBuffer.isEmpty == false else { return }
             let tag = listOrdered ? "ol" : "ul"
             outputLines.append("<\(tag) style=\"margin:4px 0;padding-left:22px\">"
-                + listBuffer.map { "<li>\($0)</li>" }.joined()
+                + listBuffer.map({ "<li>\($0)</li>" }).joined()
                 + "</\(tag)>")
             listBuffer.removeAll()
         }
@@ -1297,7 +1297,7 @@ private final class ProfileReadmeCell: UITableViewCell, WKNavigationDelegate, WK
                 quoteBuffer.append(String(line.dropFirst(line.hasPrefix("> ") ? 2 : 1)))
                 continue
             }
-            let ordered = line.matchOrderedListItem()
+            let ordered = Self.matchOrderedListItem(line)
             if let item = ordered {
                 flushQuote()
                 if listBuffer.isEmpty { listOrdered = true }
