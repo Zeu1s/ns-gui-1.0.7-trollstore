@@ -29,7 +29,7 @@ extension PostDetailViewController {
                     switch result {
                     case .success(let payload):
                         if let photoData = DetailPhotoLibraryAssetData.data(from: payload) {
-                            UIPasteboard.general.setData(photoData)
+                            UIPasteboard.general.setData(photoData, forPasteboardType: "public.image")
                             self.showToast(message: "已复制图片")
                             return
                         }
