@@ -1152,15 +1152,15 @@ private final class ProfileReadmeCell: UITableViewCell, WKNavigationDelegate, WK
         // 围栏代码块先摘出占位，避免内部内容被后续行内转换污染。
         var codeBlocks: [String] = []
         if let fenceRegex = try? NSRegularExpression(pattern: "```[a-zA-Z0-9_+-]*\\n([\\s\\S]*?)```") {
-            html = fenceRegex.stringByReplacingMatches(
-                in: html,
-                options: [],
-                range: NSRange(html.startIndex..., in: html)
-            ) { match in
-                let code = match.range(at: 1)
-                let source = (html as NSString).substring(with: code)
-                codeBlocks.append(source)
-                return "\u{E000}NSCODE\(codeBlocks.count - 1)\u{E001}"
+            let nshtml = html as NSString
+            let fullRange = NSRange(html.startIndex..., in: html)
+            let matches = fenceRegex.matches(in: html, options: [], range: fullRange)
+            for match in matches {
+                codeBlocks.append(nshtml.substring(with: match.range(at: 1)))
+            }
+            for match in matches.reversed() {
+                let index = matches.firstIndex(of: match) ?? 0
+                html = nshtml.replacingCharacters(in: match.range, with: "\u{E000}NSCODE\(index)\u{E001}")
             }
         }
 
