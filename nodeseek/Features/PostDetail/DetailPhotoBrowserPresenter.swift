@@ -154,7 +154,7 @@ final class DetailPhotoBrowserPresenter: NSObject, JXPhotoBrowserDelegate {
                 switch result {
                 case .success(let payload):
                     if let photoData = DetailPhotoLibraryAssetData.data(from: payload) {
-                        UIPasteboard.general.setData(photoData)
+                        UIPasteboard.general.setData(photoData, forPasteboardType: "public.image")
                         self.showMessage("已复制图片", in: browser)
                     } else if let image = UIImage(data: payload.data) {
                         UIPasteboard.general.image = image
