@@ -96,6 +96,45 @@ final class PostSummaryCellNode: ASCellNode, ThemeRefreshableNode {
         NodeSeekUserInfoStore.shared.requestBadge(for: post.authorProfileURL)
     }
 
+    // MARK: 新帖渐隐标记（方案乙）
+
+    private var newArrivalMarkNode: ASDisplayNode?
+    private var newArrivalFadeWorkItem: DispatchWorkItem?
+
+    /// 差分刷新后对新出现的行调用：左侧绿色细条标记，8 秒渐隐后移除。
+    func presentNewArrivalMark() {
+        guard newArrivalMarkNode == nil else { return }
+        let mark = ASDisplayNode()
+        mark.backgroundColor = UIColor.systemGreen
+        mark.cornerRadius = 1.5
+        mark.style.preferredSize = CGSize(width: 3, height: 44)
+        addSubnode(mark)
+        newArrivalMarkNode = mark
+
+        let workItem = DispatchWorkItem { [weak self] in
+            guard let self, let mark = self.newArrivalMarkNode else { return }
+            mark.view?.alpha = 0
+            UIView.animate(
+                withDuration: 1.2,
+                delay: 0,
+                options: [.allowUserInteraction, .beginFromCurrentState],
+                animations: { mark.view?.alpha = 0 }
+            ) { [weak self] _ in
+                mark.removeFromSupernode()
+                self?.newArrivalMarkNode = nil
+            }
+        }
+        newArrivalFadeWorkItem?.cancel()
+        newArrivalFadeWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + 8, execute: workItem)
+    }
+
+    override func layoutDidFinish() {
+        super.layoutDidFinish()
+        guard let mark = newArrivalMarkNode else { return }
+        mark.view?.frame = CGRect(x: 0, y: (bounds.height - 44) / 2, width: 3, height: 44)
+    }
+
     override func didEnterDisplayState() {
         super.didEnterDisplayState()
         requestAvatarIfNeeded()
@@ -109,6 +148,7 @@ final class PostSummaryCellNode: ASCellNode, ThemeRefreshableNode {
     }
 
     deinit {
+        newArrivalFadeWorkItem?.cancel()
         cancelAvatarLoad()
         if let userInfoObserver {
             NotificationCenter.default.removeObserver(userInfoObserver)

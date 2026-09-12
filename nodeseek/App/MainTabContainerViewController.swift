@@ -220,21 +220,10 @@ final class MainTabContainerViewController: UIViewController {
         notifications.refreshFromTabSelection()
     }
 
-    /// 切回板块/tab 时，对已展示的列表重播流式输出（正在加载/刷新时由数据到达后的 setItems 负责）。
+    /// 切回板块/tab：列表保持原地内容不动（方案乙静默刷新），
+    /// 新数据到达时由差分更新插入并打新帖标记，不再整列表重播。
     private func replayStreamAppearanceIfNeeded(for item: PostListBottomNavigationItem) {
-        guard let root = stacks[item]?.viewControllers.first else { return }
-        switch item {
-        case .home:
-            (root as? PostListViewController)?.replayStreamAppearanceIfNeeded()
-        case .history:
-            // 历史列表的刷新会在数据就绪后自行播放一次流式输出；
-            // 此处再重播会与 replaceItemsPreservingViewport 竞争并造成闪屏。
-            break
-        case .search:
-            (root as? SearchViewController)?.replayStreamAppearance()
-        case .messages, .profile:
-            break
-        }
+        _ = item
     }
 
     /// 双击底栏按钮：只刷新当前页面的内容。

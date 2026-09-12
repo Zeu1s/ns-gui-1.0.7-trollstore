@@ -371,7 +371,13 @@ final class UserCollectionsViewController: UIViewController {
                 let applicable = refreshed.filter { relevantIDs.contains($0.key) }
                 guard applicable.isEmpty == false else { return }
                 self.resolvedPostSummaries.merge(applicable) { _, new in new }
-                self.tableNode.reloadData()
+                // 摘要回写只刷新受影响行：整表 reloadData 会重建可见 cell，
+                // 首次加载完成后表现为一次闪屏。
+                let changedIndexPaths = self.records.enumerated().compactMap { index, record in
+                    applicable[record.postID] != nil ? IndexPath(row: index, section: 0) : nil
+                }
+                guard changedIndexPaths.isEmpty == false else { return }
+                self.tableNode.reloadRows(at: changedIndexPaths, with: .none)
             }
         }
     }

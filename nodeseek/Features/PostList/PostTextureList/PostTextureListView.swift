@@ -30,6 +30,8 @@ final class PostTextureListView: UIView {
     private let refreshControl = UIRefreshControl()
     private var displayMode: DisplayMode = .content
     private var items: [PostListItem] = []
+    /// 上一轮数据快照，供差分更新识别“变化的已有行”。
+    private var previousItems: [PostListItem] = []
     private let minimumSkeletonRowCount = 8
     private var estimatedSkeletonRowHeight: CGFloat {
         PostListCellStyle.Avatar.skeletonSize
@@ -125,9 +127,12 @@ final class PostTextureListView: UIView {
         if self.items.count != items.count {
             lastBatchFetchRequestedItemCount = nil
         }
-        if displayMode == .content, self.items == items {
-            // 刷新结果可能与当前数据完全相同，仍需重播流式动画，不能直接跳过。
-            replayStreamAppearance()
+        if displayMode == .content {
+            guard self.items != items else {
+                // 刷新结果与当前完全一致：原地静默，不做任何视觉动作。
+                return
+            }
+            applyDiffedUpdate(items)
             return
         }
         if displayMode != .content {
@@ -150,6 +155,79 @@ final class PostTextureListView: UIView {
         reloadDataForStreamAppearance()
     }
 
+    /// 方案乙：差分刷新。识别新出现的帖子行并带渐隐新帖标记，其余行原位刷新，
+    /// 全程整表不隐藏、不重播流式，滚动位置由 Texture 行级更新保持。
+    private func applyDiffedUpdate(_ newItems: [PostListItem]) {
+        let oldIDs = Set(self.items.map(\.post.id))
+        let insertedIndexes = newItems.enumerated().compactMap { index, item in
+            oldIDs.contains(item.post.id) ? nil : index
+        }
+        // 新帖过多（如板块切换后的整体换血）时退回整表，不逐行打标记。
+        let shouldMarkNewRows = insertedIndexes.count <= Self.newArrivalMarkLimit
+
+        // 头部被顶走的行数：Texture 不做自动 offset 补偿，插入在可视区上方时补偿避免跳动。
+        let insertedAboveVisible = insertedIndexes.filter { $0 < firstVisibleRowIndex() }.count
+
+        self.items = newItems
+        if insertedIndexes.isEmpty {
+            tableNode.performBatch(animated: false) { [weak self] in
+                guard let self else { return }
+                let rows = (0..<newItems.count).map { IndexPath(row: $0, section: 0) }
+                self.tableNode.reloadRows(at: rows, with: .none)
+            }
+            return
+        }
+
+        if insertedAboveVisible > 0 {
+            let targetOffset = CGPoint(
+                x: tableNode.view.contentOffset.x,
+                y: tableNode.view.contentOffset.y + CGFloat(insertedAboveVisible) * Self.estimatedPostRowHeight
+            )
+            tableNode.view.setContentOffset(targetOffset, animated: false)
+        }
+
+        tableNode.performBatch(animated: false, updates: { [weak self] in
+            guard let self else { return }
+            self.tableNode.insertRows(
+                at: insertedIndexes.map { IndexPath(row: $0, section: 0) },
+                with: .none
+            )
+            let changedExistingRows = (0..<newItems.count).filter { index in
+                insertedIndexes.contains(index) == false
+                    && index < self.items.count
+                    && index < self.previousItems.count
+                    && self.previousItems[index] != newItems[index]
+            }
+            if changedExistingRows.isEmpty == false {
+                self.tableNode.reloadRows(
+                    at: changedExistingRows.map { IndexPath(row: $0, section: 0) },
+                    with: .none
+                )
+            }
+        }, completion: { [weak self] _ in
+            guard let self, shouldMarkNewRows else { return }
+            self.presentNewArrivalMarks(at: insertedIndexes)
+        })
+        self.previousItems = newItems
+    }
+
+    private func presentNewArrivalMarks(at indexes: [Int]) {
+        for index in indexes {
+            guard let node = tableNode.nodeForRow(at: IndexPath(row: index, section: 0)) as? PostSummaryCellNode else {
+                continue
+            }
+            node.presentNewArrivalMark()
+        }
+    }
+
+    private func firstVisibleRowIndex() -> Int {
+        let visible = tableNode.view.indexPathsForVisibleRows
+        return visible?.map(\.row).min() ?? 0
+    }
+
+    private static let newArrivalMarkLimit = 8
+    private static let estimatedPostRowHeight: CGFloat = 96
+
     /// 同一批帖子只更新内容，保留已经挂载的 Texture 节点和当前滚动位置。
     /// 历史列表的统计补全会频繁回写，若每次都 reloadData，切回 tab 时容易出现瞬间空白。
     func replaceItemsPreservingViewport(_ items: [PostListItem]) {
@@ -166,12 +244,16 @@ final class PostTextureListView: UIView {
             return
         }
         guard self.items != items else {
-            replayStreamAppearance()
+            // 内容完全一致：原地静默。
             return
         }
 
         self.items = items
-        let rows = (0..<items.count).map { IndexPath(row: $0, section: 0) }
+        let changedRows = (0..<items.count).filter { index in
+            index < self.previousItems.count && self.previousItems[index] != items[index]
+        }
+        self.previousItems = items
+        let rows = (changedRows.isEmpty ? [] : changedRows).map { IndexPath(row: $0, section: 0) }
         guard rows.isEmpty == false else { return }
         tableNode.performBatch(animated: false) { [weak self] in
             self?.tableNode.reloadRows(at: rows, with: .none)
