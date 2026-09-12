@@ -340,17 +340,19 @@ final class ProfileTabViewController: UIViewController {
     }
 
     private func openCredit() {
-        let url = NodeSeekSite.baseURL.appendingPathComponent("credit")
-        navigationController?.pushViewController(NodeSeekWebViewController(url: url), animated: true)
+        guard let uid = activeUserID else { return }
+        navigationController?.pushViewController(
+            CreditLedgerViewController(kind: .coin, uid: uid),
+            animated: true
+        )
     }
 
     private func openStardustList() {
-        guard let userID = activeUserID else { return }
-        var components = URLComponents(url: NodeSeekSite.baseURL, resolvingAgainstBaseURL: false)
-        components?.path = "/stardust/list"
-        components?.queryItems = [URLQueryItem(name: "member_id", value: "\(userID)")]
-        guard let url = components?.url else { return }
-        navigationController?.pushViewController(NodeSeekWebViewController(url: url), animated: true)
+        guard let uid = activeUserID else { return }
+        navigationController?.pushViewController(
+            CreditLedgerViewController(kind: .stardust, uid: uid),
+            animated: true
+        )
     }
 
     private func openPrivateMessage() {
