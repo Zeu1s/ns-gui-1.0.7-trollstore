@@ -50,28 +50,31 @@ final class NodeSeekCreditLedgerClient {
         }
     }
 
-    /// 星辰明细：/api/stardust/list（member_id + page）。
+    /// 星辰明细：站点页面由登录态 Vue 渲染（REST 接口对 page 参数返回
+    /// "page is not allowed"），改走隐藏 WebView 渲染后解析 DOM。
     private func loadStardust(page: Int, uid: Int) async throws -> [CreditLedgerRecord] {
-        let request = makeJSONRequest(
-            path: "/api/stardust/list",
-            queryItems: [
-                URLQueryItem(name: "member_id", value: "\(uid)"),
-                URLQueryItem(name: "page", value: "\(max(1, page))")
-            ],
-            refererUID: uid
-        )
-        let root = try await fetchJSONObject(from: request)
-        guard (root["success"] as? Bool) != false else {
-            throw CreditLedgerClientError.unsuccessfulResponse(root["message"] as? String)
+        var components = URLComponents(url: baseURL.appendingPathComponent("stardust/list"), resolvingAgainstBaseURL: false)
+        components?.queryItems = [URLQueryItem(name: "member_id", value: "\(uid)")]
+        if page > 1 {
+            components?.fragment = "p-\(page)"
         }
-        // data 可能是对象行数组，也可能与鸡腿一致是数组行——两种都处理。
-        if let objectRows = Self.rows(in: root, preferredNames: ["list", "records", "data", "items", "detail"]), objectRows.isEmpty == false {
-            return objectRows.compactMap { Self.stardustRecord(from: $0) }
+        guard let url = components?.url else {
+            throw CreditLedgerClientError.httpStatus(0)
         }
-        if let arrayRows = Self.arrayRows(in: root, preferredNames: ["data", "list", "records"]) {
-            return arrayRows.map { Self.ledgerRecord(fromArrayRow: $0, kind: .stardust) }
+
+        let client = HTMLLoadingStrategyFactory.makeDefaultClient()
+        if let response = try? await client.get(url),
+           (200..<300).contains(response.statusCode) {
+            let records = CreditLedgerHTMLParser.parse(html: response.html, kind: .stardust)
+            if records.isEmpty == false {
+                return records
+            }
         }
-        return []
+        guard let fallbackClient = client as? any WebViewFallbackRetrying else {
+            return []
+        }
+        let rendered = try await fallbackClient.getUsingWebViewFallback(url)
+        return CreditLedgerHTMLParser.parse(html: rendered.html, kind: .stardust)
     }
 
     /// 鸡腿明细：/api/account/credit/page-N，数组行 [变动, 总计, 理由, 时间]。
