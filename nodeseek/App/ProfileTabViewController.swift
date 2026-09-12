@@ -147,6 +147,12 @@ final class ProfileTabViewController: UIViewController {
         headerView.onStardustTapped = { [weak self] in
             self?.openStardustList()
         }
+        headerView.onFansTapped = { [weak self] in
+            self?.openFansList()
+        }
+        headerView.onLevelTapped = { [weak self] in
+            self?.openLevelInfo()
+        }
         headerView.onFollowTapped = { [weak self] in
             self?.followUser()
         }
@@ -351,6 +357,19 @@ final class ProfileTabViewController: UIViewController {
         guard let uid = activeUserID else { return }
         navigationController?.pushViewController(
             CreditLedgerViewController(kind: .stardust, uid: uid),
+            animated: true
+        )
+    }
+
+    private func openLevelInfo() {
+        let url = NodeSeekSite.baseURL.appendingPathComponent("about")
+        navigationController?.pushViewController(NodeSeekWebViewController(url: url), animated: true)
+    }
+
+    private func openFansList() {
+        guard let uid = activeUserID else { return }
+        navigationController?.pushViewController(
+            FansListViewController(fansOf: uid),
             animated: true
         )
     }
@@ -611,6 +630,8 @@ private final class ProfileHeaderView: UIView {
     var onCommentsTapped: (() -> Void)?
     var onCoinTapped: (() -> Void)?
     var onStardustTapped: (() -> Void)?
+    var onFansTapped: (() -> Void)?
+    var onLevelTapped: (() -> Void)?
     var onFollowTapped: (() -> Void)?
     var onTransferTapped: (() -> Void)?
 
@@ -689,7 +710,12 @@ private final class ProfileHeaderView: UIView {
         setActionsVisible(!isCurrentUser)
         setFollowState(followState)
         setMetrics([
-            ProfileMetric(title: "等级", value: "Lv \(userInfo.level)", siteIconName: NodeSeekIconName.level),
+            ProfileMetric(
+                title: "等级",
+                value: "Lv \(userInfo.level)",
+                siteIconName: NodeSeekIconName.level,
+                onTap: isCurrentUser ? onLevelTapped : nil
+            ),
             ProfileMetric(
                 title: "主题帖",
                 value: "\(userInfo.nPost)",
@@ -715,7 +741,12 @@ private final class ProfileHeaderView: UIView {
                 siteIconName: NodeSeekIconName.stardust,
                 onTap: onStardustTapped
             ),
-            ProfileMetric(title: "粉丝", value: "\(userInfo.fans)", image: UIImage(systemName: "dot.radiowaves.left.and.right"))
+            ProfileMetric(
+                title: "粉丝",
+                value: "\(userInfo.fans)",
+                image: UIImage(systemName: "dot.radiowaves.left.and.right"),
+                onTap: onFansTapped
+            )
         ])
     }
 
