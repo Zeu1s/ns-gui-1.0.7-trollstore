@@ -152,6 +152,11 @@ final class NodeSeekNotificationClient: NodeSeekNotificationClientProtocol {
                 .service,
                 "通知接口响应异常 method=\(method), url=\(target), status=\(httpResponse.statusCode), bytes=\(data.count), elapsedMs=\(AppLog.elapsedMilliseconds(since: startedAt))"
             )
+            // URLSession 被 Cloudflare 指纹封锁（403/限流 429 拦截页）时，
+            // 改用 WebView 同源 fetch 直接取同一个 JSON 接口。
+            if httpResponse.statusCode == 403 || httpResponse.statusCode == 429 {
+                return try await decodeViaWebView(type, request: request)
+            }
             throw NodeSeekNotificationClientError.httpStatus(httpResponse.statusCode)
         }
 
@@ -171,6 +176,26 @@ final class NodeSeekNotificationClient: NodeSeekNotificationClientProtocol {
             )
             throw error
         }
+    }
+
+    /// 通知接口 WebView 同源 fetch 回退。
+    private func decodeViaWebView<Response: Decodable>(_ type: Response.Type, request: URLRequest) async throws -> Response {
+        let target = request.notificationLogURL
+        let method = request.notificationLogMethod
+        AppLog.warning(.service, "通知接口 WebView 同源 fetch 回退: method=\(method), url=\(target)")
+        guard let apiPath = request.url?.absoluteString else {
+            throw NodeSeekNotificationClientError.unsuccessfulResponse(nil)
+        }
+
+        let response = try await WebViewJSONAPIClient.fetchDecodable(
+            type,
+            apiPath: apiPath,
+            referer: NodeSeekNotificationTab.atMe.webURL,
+            method: method,
+            body: request.httpBody.flatMap { String(data: $0, encoding: .utf8) },
+            decoder: decoder
+        )
+        return response
     }
 
     private func logBusinessFailure(for request: URLRequest, message: String?) {

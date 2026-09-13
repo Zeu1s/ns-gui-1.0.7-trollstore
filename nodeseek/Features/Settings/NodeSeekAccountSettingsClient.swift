@@ -64,7 +64,23 @@ final class NodeSeekAccountSettingsClient: NodeSeekAccountSettingsManaging {
         request.httpMethod = "GET"
         WebRequestFingerprint.applyJSONHeaders(to: &request, referer: settingsURL)
 
-        let root = try await performJSONRequest(request)
+        let root: [String: Any]
+        do {
+            root = try await performJSONRequest(request)
+        } catch NodeSeekAccountSettingsClientError.httpStatus(let status) where status == 403 || status == 429 {
+            // URLSession 被 Cloudflare 指纹封锁（403/限流 429 拦截页）时，
+            // 改用 WebView 同源 fetch 直接取同一个 getInfo JSON 接口。
+            AppLog.warning(.account, "getInfo URLSession 被拦截(HTTP \(status))，改用 WebView 同源 fetch: uid=\(userID)")
+            let response = try await WebViewJSONAPIClient.fetch(
+                apiPath: "/api/account/getInfo/\(userID)?readme=1&signature=1",
+                referer: settingsURL
+            )
+            guard response.statusCode.map({ (200..<300).contains($0) }) == true,
+                  let json = response.json else {
+                throw NodeSeekAccountSettingsClientError.httpStatus(response.statusCode ?? 0)
+            }
+            root = json
+        }
         guard let detail = root["detail"] as? [String: Any] else {
             AppLog.warning(.account, "getInfo 响应无 detail: \(String(data: (try? JSONSerialization.data(withJSONObject: root)) ?? Data(), encoding: .utf8)?.prefix(400) ?? "")")
             throw NodeSeekAccountSettingsClientError.invalidResponse

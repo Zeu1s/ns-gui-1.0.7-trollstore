@@ -136,22 +136,16 @@ struct WebViewFallbackHTMLClient: HTMLClient, WebViewFallbackRetrying {
             return primaryResponse
         }
         log(response: fallbackResponse, phase: "webview-fallback")
-        await prepareCookiesForHTTPLoad(reason: "after-webview-fallback", url: url)
 
-        AppLog.info(.service, "WebView fallback 后重试 HTTP GET: \(url.absoluteString)")
-        let retryResponse: HTMLResponse
-        do {
-            retryResponse = try await primaryClient.get(url)
-        } catch {
-            if challengeDetector.detect(response: fallbackResponse) == nil {
-                AppLog.error(.service, "WebView fallback 后 HTTP 重试失败，返回 WebView 结果: \(error.localizedDescription)")
-                return fallbackResponse
-            }
-            AppLog.error(.service, "WebView fallback 后 HTTP 重试失败，返回 HTTP 原始结果: \(error.localizedDescription)")
+        // WebView 已经拿到可用的完整页面，直接采用；再重试一次 HTTP 只会得到
+        // 同一份被 Cloudflare 指纹封锁的拦截页（403），用失败覆盖成功反而丢失结果。
+        guard challengeDetector.detect(response: fallbackResponse) == nil else {
+            AppLog.warning(.service, "WebView fallback 仍命中验证，保留 HTTP 原始结果: \(url.absoluteString)")
             return primaryResponse
         }
-        log(response: retryResponse, phase: "retry")
-        return retryResponse
+
+        await prepareCookiesForHTTPLoad(reason: "after-webview-fallback", url: url)
+        return fallbackResponse
     }
 
     private static func isCancelledRequest(_ error: Error) -> Bool {

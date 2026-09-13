@@ -32,13 +32,33 @@ enum NodeSeekStardustHTTPClient {
         if let http = urlResponse as? HTTPURLResponse, (200..<300).contains(http.statusCode) == false {
             let snippet = String(data: data.prefix(400), encoding: .utf8) ?? ""
             AppLog.warning(.service, "星辰接口 HTTP \(http.statusCode): \(snippet)")
-            throw CreditLedgerClientError.httpStatus(http.statusCode)
+            // URLSession 被 Cloudflare 指纹封锁（403 拦截页）时，改用 WebView 同源 fetch。
+            return try await loadViaWebView(uid)
         }
 
         guard let root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
             AppLog.warning(.service, "星辰接口非 JSON: \(String(data: data.prefix(200), encoding: .utf8) ?? "")")
             throw CreditLedgerClientError.unsuccessfulResponse("星辰接口返回格式异常")
         }
+        return try parse(root: root, page: page)
+    }
+
+    /// WebView 同源 fetch 回退：绕过 URLSession 特征封锁。
+    private static func loadViaWebView(_ uid: Int) async throws -> Page {
+        let apiPath = "/api/stardust/list?member_id=\(uid)"
+        let referer = NodeSeekSite.baseURL.appendingPathComponent("space/\(uid)")
+        let response = try await WebViewJSONAPIClient.fetch(
+            apiPath: apiPath,
+            referer: referer
+        )
+        guard let statusCode = response.statusCode, (200..<300).contains(statusCode),
+              let root = response.json else {
+            throw CreditLedgerClientError.httpStatus(response.statusCode ?? 0)
+        }
+        return try parse(root: root, page: 1)
+    }
+
+    private static func parse(root: [String: Any], page: Int) throws -> Page {
         if (root["success"] as? Bool) == false {
             let message = root["message"] as? String ?? "接口失败"
             AppLog.warning(.service, "星辰接口业务失败: \(message)")
@@ -46,7 +66,7 @@ enum NodeSeekStardustHTTPClient {
         }
 
         guard let rows = root["data"] else {
-            AppLog.warning(.service, "星辰接口无 data: \(String(data: data.prefix(300), encoding: .utf8) ?? "")")
+            AppLog.warning(.service, "星辰接口无 data: \(String(data: (try? JSONSerialization.data(withJSONObject: root)) ?? Data(), encoding: .utf8)?.prefix(300) ?? "")")
             throw CreditLedgerClientError.unsuccessfulResponse("星辰接口未返回数据")
         }
 
@@ -109,7 +129,7 @@ enum NodeSeekStardustHTTPClient {
                 return Page(records: records, nextPage: records.count >= 20 ? page + 1 : nil)
             }
             // 对象行但都解析不出金额：记日志暴露真实字段
-            AppLog.warning(.service, "星辰对象行解析失败: \(String(data: data.prefix(400), encoding: .utf8) ?? "")")
+            AppLog.warning(.service, "星辰对象行解析失败: \(String(data: (try? JSONSerialization.data(withJSONObject: root)) ?? Data(), encoding: .utf8)?.prefix(400) ?? "")")
         }
 
         throw CreditLedgerClientError.unsuccessfulResponse("星辰明细数据形态未知")
