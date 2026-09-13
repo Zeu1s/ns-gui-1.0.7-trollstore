@@ -47,7 +47,7 @@ final class NodeSeekCreditLedgerClient {
         await cookiePreparer()
         switch kind {
         case .stardust:
-            let loaded = try await NodeSeekStardustWebClient.load(page: page, uid: uid)
+            let loaded = try await NodeSeekStardustHTTPClient.load(page: page, uid: uid)
             stardustNextPage = loaded.nextPage
             return loaded.records
         case .coin:
@@ -64,9 +64,9 @@ final class NodeSeekCreditLedgerClient {
         }
     }
 
-    /// 星辰明细：隐藏 WebView 登录态页面内 fetch 星辰接口（带完整会话）。
+    /// 星辰明细：URLSession.shared 直连接口（登录 cookie 已在 shared storage）。
     private func loadStardust(page: Int, uid: Int) async throws -> [CreditLedgerRecord] {
-        let loaded = try await NodeSeekStardustWebClient.load(page: page, uid: uid)
+        let loaded = try await NodeSeekStardustHTTPClient.load(page: page, uid: uid)
         stardustNextPage = loaded.nextPage
         return loaded.records
     }

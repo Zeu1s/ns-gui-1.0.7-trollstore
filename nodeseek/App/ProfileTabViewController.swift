@@ -1036,6 +1036,27 @@ private final class ProfileReadmeCell: UITableViewCell, WKNavigationDelegate, WK
         reportContentHeight()
     }
 
+    func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+        // 渲染失败时回退纯文本，避免整段空白。
+        AppLog.warning(.account, "Readme WebView 渲染失败: \(error.localizedDescription)")
+        fallbackToPlainTextIfNeeded()
+    }
+
+    func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+        AppLog.warning(.account, "Readme WebView 导航失败: \(error.localizedDescription)")
+        fallbackToPlainTextIfNeeded()
+    }
+
+    private func fallbackToPlainTextIfNeeded() {
+        guard let markdown = renderedMarkdown, markdown.isEmpty == false else { return }
+        readmeWebView.isHidden = true
+        emptyStateLabel.text = markdown
+        emptyStateLabel.isHidden = false
+        emptyStateLabel.numberOfLines = 0
+        report(height: 0)
+        onContentHeightChanged?(200)
+    }
+
     func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
         guard message.name == Self.messageHandlerName,
               let number = message.body as? NSNumber else {
