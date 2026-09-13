@@ -164,6 +164,10 @@ struct WebViewFallbackHTMLClient: HTMLClient, WebViewFallbackRetrying {
         switch challenge {
         case .cloudflare, .blocked:
             return true
+        case .rateLimited:
+            // 限流时再走 WebView 只会延续限流窗口，直接上抛让调用方退避。
+            AppLog.warning(.service, "HTTP 命中站点限流(429)，跳过 WebView fallback: \(challenge.logDescription)")
+            return false
         case .loginRequired, .unsupported:
             AppLog.info(.service, "HTTP命中非 fallback 验证，保持原结果: \(challenge.logDescription)")
             return false

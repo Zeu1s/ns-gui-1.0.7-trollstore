@@ -129,6 +129,11 @@ struct NodeSeekService: Sendable {
         do {
             detail = try parser.parsePostDetail(html: response.html, url: targetURL)
         } catch NodeSeekParserError.postDetailNotFound {
+            // 限流残缺页重打只会延续限流窗口，直接按限流上抛。
+            if challengeDetector.detect(response: response)?.isRateLimited == true {
+                AppLog.warning(.service, "详情命中站点限流(429)，停止 WebView 恢复: postID=\(postID), page=\(page)")
+                return .challenge(.rateLimited(targetURL))
+            }
             guard let fallbackClient = htmlClient as? any WebViewFallbackRetrying else {
                 throw NodeSeekParserError.postDetailNotFound
             }

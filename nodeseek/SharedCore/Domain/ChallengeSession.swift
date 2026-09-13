@@ -43,6 +43,8 @@ actor NodeSeekSessionStore {
             return "站点当前需要 Cloudflare 验证，请稍后重试。"
         case .blocked:
             return "站点当前返回了拦截页面，请稍后重试。"
+        case .rateLimited:
+            return "请求过于频繁，站点已限流，请稍后再试。"
         case .unsupported:
             return "站点当前返回了无法处理的验证页面，请稍后重试。"
         }

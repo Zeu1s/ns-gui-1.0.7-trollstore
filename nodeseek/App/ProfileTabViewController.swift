@@ -266,9 +266,15 @@ final class ProfileTabViewController: UIViewController {
                 self.readmeLoadFailed = false
             } catch {
                 guard self.readmeLoadGeneration == generation, self.activeUserID == userID else { return }
-                self.readme = nil
-                self.readmeLoadFailed = true
-                AppLog.warning(.account, "Readme 加载失败: " + error.localizedDescription)
+                let message = error.localizedDescription
+                if message.contains("429") || message.contains("限流") || message.contains("请求过于频繁") {
+                    // 限流是暂时的：保持已有 readme 与原状态，不打失败红字。
+                    AppLog.warning(.account, "Readme 加载被限流，保留现有内容: \(message)")
+                } else {
+                    self.readme = nil
+                    self.readmeLoadFailed = true
+                    AppLog.warning(.account, "Readme 加载失败: " + message)
+                }
             }
             self.hasResolvedReadme = true
             self.tableView.reloadData()

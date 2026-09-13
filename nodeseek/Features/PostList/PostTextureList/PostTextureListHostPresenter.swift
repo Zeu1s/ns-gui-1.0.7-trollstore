@@ -301,6 +301,7 @@ private extension PostTextureListHostPresenter {
             || normalizedError.contains("cloudflare")
             || normalizedError.contains("too many requests")
             || normalizedError.contains("请求过于频繁")
+            || normalizedError.contains("限流")
             || normalizedError.contains("network connection was lost")
             || normalizedError.contains("network is offline")
             || normalizedError.contains("timed out")
@@ -316,6 +317,8 @@ private extension PostTextureListHostPresenter {
             || normalizedError.contains("too many requests")
             || normalizedError.contains("403")
             || normalizedError.contains("blocked")
+            || normalizedError.contains("限流")
+            || normalizedError.contains("请求过于频繁")
         if isRateOrChallenge {
             AppLog.warning(.postList, "命中 Cloudflare/限流，暂停自动重试避免加重封禁: category=\(category.rawValue)")
             return true

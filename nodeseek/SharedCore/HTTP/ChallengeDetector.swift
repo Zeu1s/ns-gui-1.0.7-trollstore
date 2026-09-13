@@ -14,6 +14,12 @@ struct ChallengeDetector: Sendable {
             return .loginRequired(response.finalURL)
         }
 
+        // 站点应用层限流优先判定：429 的残缺页不含 Cloudflare 标记，
+        // 若不提前拦截会被当作可用内容（曾造成"列表加载成功，数量: 0"假成功）。
+        if response.statusCode == 429 {
+            return .rateLimited(response.finalURL)
+        }
+
         if Self.containsUsableNodeSeekHTML(response.html) {
             return nil
         }

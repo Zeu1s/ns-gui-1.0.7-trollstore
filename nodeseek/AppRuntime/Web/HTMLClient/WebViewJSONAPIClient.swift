@@ -39,6 +39,25 @@ enum WebViewJSONAPIError: LocalizedError, Equatable {
 /// 通过隐藏 WebView 同源 fetch 调用站点 JSON API。
 /// 用于 URLSession 请求特征被 Cloudflare 指纹封锁时的回退通道。
 enum WebViewJSONAPIClient {
+    /// 站点 429 后的冷却期：期间同源 fetch 直接按限流失败，不再轰炸。
+    private static let rateLimitCooldown: TimeInterval = 30
+    private static let cooldownLock = NSLock()
+    private static var cooldownUntil: Date?
+
+    private static func checkRateLimitCooldown() -> Bool {
+        cooldownLock.lock()
+        defer { cooldownLock.unlock() }
+        guard let until = cooldownUntil else { return true }
+        return Date() >= until
+    }
+
+    private static func triggerRateLimitCooldown() {
+        cooldownLock.lock()
+        defer { cooldownLock.unlock() }
+        cooldownUntil = Date().addingTimeInterval(rateLimitCooldown)
+        AppLog.warning(.webView, "站点 API 限流(429)，WebView 同源 fetch 进入 \(Int(rateLimitCooldown))s 冷却")
+    }
+
     static func fetch(
         apiPath: String,
         referer: URL,
@@ -47,6 +66,9 @@ enum WebViewJSONAPIClient {
         headers: [String: String]? = nil,
         timeoutInterval: TimeInterval = 20
     ) async throws -> WebViewJSONAPIResponse {
+        guard checkRateLimitCooldown() else {
+            throw WebViewJSONAPIError.httpStatus(429)
+        }
         let startedAt = Date()
         let object = try await withHiddenWebViewPageActionLoader(
             logMessage: "准备通过隐藏 WebView 请求站点 API: method=\(method), path=\(apiPath), referer=\(referer.absoluteString)"
@@ -66,6 +88,9 @@ enum WebViewJSONAPIClient {
         }
 
         let response = WebViewJSONAPIResponse(object: object)
+        if response.statusCode == 429 {
+            triggerRateLimitCooldown()
+        }
         AppLog.info(
             .webView,
             "WebView API 请求结束: method=\(method), path=\(apiPath), status=\(response.statusCode.map(String.init) ?? "nil"), bodyLength=\(response.body.count), elapsedMs=\(AppLog.elapsedMilliseconds(since: startedAt))"
