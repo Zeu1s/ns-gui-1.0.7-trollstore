@@ -128,16 +128,20 @@ final class FansListViewController: UIViewController {
 
         do {
             let (data, response) = try await URLSession.shared.data(for: request)
-            guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
-                return []
-            }
-            guard let html = String(data: data, encoding: .utf8) else { return [] }
+            guard let http = response as? HTTPURLResponse else { return [] }
+            let html = String(data: data, encoding: .utf8) ?? ""
+            AppLog.info(.account,
+                "\(kind.title)列表 SSR 响应: status=\(http.statusCode), html=\(html.count), "
+                + "hasSpaceLink=\(html.contains("/space/")), hasMemberCard=\(html.contains("card-item"))")
+            guard (200..<300).contains(http.statusCode) else { return [] }
             let parsed = parseEntries(html: html, kind: kind)
             if parsed.isEmpty == false {
                 return parsed
             }
+            AppLog.warning(.account, "\(kind.title)列表 SSR 未解析到成员卡，HTML 前 500 字: \(String(html.prefix(500)))")
             return []
         } catch {
+            AppLog.warning(.account, "\(kind.title)列表 HTTP 失败: \(error.localizedDescription)")
             return []
         }
     }

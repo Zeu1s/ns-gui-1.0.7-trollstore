@@ -55,10 +55,23 @@ struct ChallengeDetector: Sendable {
     }
 
     static func containsUsableNodeSeekHTML(_ html: String) -> Bool {
-        html.contains("id=\"nsk-body\"")
-            || html.contains("class=\"post-list\"")
+        // 收紧：challenge 页也可能含部分 NodeSeek 标记（如评论容器），
+        // 必须同时具备站点骨架与内容特征才认为可用，避免把挑战页当正常页。
+        if html.contains("id=\"nsk-body\"") {
+            return true
+        }
+        let hasContent = html.contains("class=\"post-list\"")
             || html.contains("class=\"nsk-post\"")
             || html.contains("class=\"post-content\"")
             || html.contains("class=\"comments\"")
+        let hasStructure = html.contains("nodeseek") || html.contains("nsk-")
+        return hasContent && hasStructure && !isCloudflareMarked(html)
+    }
+
+    private static func isCloudflareMarked(_ html: String) -> Bool {
+        html.contains("challenge-platform")
+            || html.contains("cf-chl")
+            || html.contains("Just a moment")
+            || html.contains("cf-please-wait")
     }
 }

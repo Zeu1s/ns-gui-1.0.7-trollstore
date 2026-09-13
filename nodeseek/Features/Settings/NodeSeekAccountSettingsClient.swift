@@ -66,7 +66,11 @@ final class NodeSeekAccountSettingsClient: NodeSeekAccountSettingsManaging {
 
         let root = try await performJSONRequest(request)
         guard let detail = root["detail"] as? [String: Any] else {
+            AppLog.warning(.account, "getInfo 响应无 detail: \(String(data: (try? JSONSerialization.data(withJSONObject: root)) ?? Data(), encoding: .utf8)?.prefix(400) ?? "")")
             throw NodeSeekAccountSettingsClientError.invalidResponse
+        }
+        if detail["readme"] == nil {
+            AppLog.warning(.account, "getInfo 响应的 detail 无 readme 字段，keys: \(detail.keys.sorted().joined(separator: ","))")
         }
         return NodeSeekAccountEditableProfile(
             bio: Self.string(detail["bio"]),
