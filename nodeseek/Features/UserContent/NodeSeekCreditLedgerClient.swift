@@ -40,50 +40,35 @@ final class NodeSeekCreditLedgerClient {
         self.cookiePreparer = cookiePreparer
     }
 
+    private var stardustNextPage: Int?
+    private var coinNextPage: Int?
+
     func loadLedger(kind: CreditLedgerRecord.Kind, page: Int, uid: Int) async throws -> [CreditLedgerRecord] {
         await cookiePreparer()
         switch kind {
         case .stardust:
-            return try await loadStardust(page: page, uid: uid)
+            let loaded = try await NodeSeekStardustWebClient.load(page: page, uid: uid)
+            stardustNextPage = loaded.nextPage
+            return loaded.records
         case .coin:
-            return try await loadCoin(page: page, uid: uid)
+            let records = try await loadCoin(page: page, uid: uid)
+            coinNextPage = records.count >= 20 ? page + 1 : nil
+            return records
         }
     }
 
-    /// 星辰明细：站点星辰面板由登录态 Vue 渲染。请求空间页星辰 hash，
-    /// WebView 渲染后解析 .credit-table 数据行（表头与鸡腿账簿同构）。
-    private func loadStardust(page: Int, uid: Int) async throws -> [CreditLedgerRecord] {
-        var components = URLComponents(url: baseURL.appendingPathComponent("space"), resolvingAgainstBaseURL: false)
-        components?.path = "/space/\(uid)"
-        components?.fragment = page > 1 ? "stardust/p-\(page)" : "stardust"
-        guard let url = components?.url else {
-            throw CreditLedgerClientError.httpStatus(0)
+    func nextPageFor(kind: CreditLedgerRecord.Kind) -> Int? {
+        switch kind {
+        case .stardust: return stardustNextPage
+        case .coin: return coinNextPage
         }
+    }
 
-        let client = HTMLLoadingStrategyFactory.makeDefaultClient()
-        // 后台补全可能占用隐藏 WebView，先让路 2 秒。
-        try? await Task.sleep(nanoseconds: 2_000_000_000)
-        guard let fallbackClient = client as? any WebViewFallbackRetrying else {
-            return []
-        }
-        let rendered = try await fallbackClient.getUsingWebViewFallback(url)
-        let records = CreditLedgerHTMLParser.parse(html: rendered.html, kind: .stardust)
-        if records.isEmpty == false {
-            return records
-        }
-        // 空间页星辰面板无表格时，尝试鸡腿账簿页（站点同组件）。
-        var creditComponents = URLComponents(url: baseURL.appendingPathComponent("credit"), resolvingAgainstBaseURL: false)
-        if page > 1 {
-            creditComponents?.fragment = "p-\(page)"
-        }
-        if let creditURL = creditComponents?.url,
-           let creditResponse = try? await fallbackClient.getUsingWebViewFallback(creditURL) {
-            let creditRecords = CreditLedgerHTMLParser.parse(html: creditResponse.html, kind: .stardust)
-            if creditRecords.isEmpty == false {
-                return creditRecords
-            }
-        }
-        throw CreditLedgerClientError.unsuccessfulResponse("星辰明细需要登录且站点面板未返回数据")
+    /// 星辰明细：隐藏 WebView 登录态页面内 fetch 星辰接口（带完整会话）。
+    private func loadStardust(page: Int, uid: Int) async throws -> [CreditLedgerRecord] {
+        let loaded = try await NodeSeekStardustWebClient.load(page: page, uid: uid)
+        stardustNextPage = loaded.nextPage
+        return loaded.records
     }
 
     /// 鸡腿明细：/api/account/credit/page-N，数组行 [变动, 总计, 理由, 时间]。
@@ -135,22 +120,6 @@ final class NodeSeekCreditLedgerClient {
 }
 
 extension NodeSeekCreditLedgerClient {
-    static func rows(in root: [String: Any], preferredNames: [String]) -> [[String: Any]]? {
-        for name in preferredNames {
-            if let array = root[name] as? [[String: Any]] {
-                return array
-            }
-        }
-        for wrapperName in ["detail", "data"] {
-            guard let wrapper = root[wrapperName] as? [String: Any] else { continue }
-            for name in preferredNames {
-                if let array = wrapper[name] as? [[String: Any]] {
-                    return array
-                }
-            }
-        }
-        return nil
-    }
 
     /// 数组行形态：data 本身是 [[Any]]。
     static func arrayRows(in root: [String: Any], preferredNames: [String]) -> [[Any]]? {
@@ -188,38 +157,6 @@ extension NodeSeekCreditLedgerClient {
         )
     }
 
-    /// 星辰对象行 → 记录（字段多候选容错）。
-    static func stardustRecord(from row: [String: Any]) -> CreditLedgerRecord? {
-        let title = Self.string(in: row, keys: ["title", "name", "reason", "description", "remark", "memo", "content"])
-            ?? "星辰变动"
-        let detail = Self.string(in: row, keys: ["detail", "desc", "note", "from_name", "target_name", "member_name"])
-        let amount = Self.int(in: row, keys: ["num", "amount", "value", "change", "stardust", "count"]) ?? 0
-        let signed = Self.int(in: row, keys: ["change", "delta", "offset"]) != nil
-        let balance = Self.int(in: row, keys: ["balance", "after", "remain", "total"])
-        let date = Self.date(in: row, keys: ["created_at", "createdAt", "time", "date", "created_time"])
-
-        var direction: CreditLedgerRecord.Direction = .neutral
-        if let typeText = Self.string(in: row, keys: ["type", "direction", "action"]) {
-            let lowered = typeText.lowercased()
-            if lowered.contains("in") || lowered.contains("add") || lowered.contains("income") || lowered.contains("recv") {
-                direction = .income
-            } else if lowered.contains("out") || lowered.contains("sub") || lowered.contains("pay") || lowered.contains("send") || lowered.contains("use") {
-                direction = .outcome
-            }
-        }
-        if direction == .neutral, signed {
-            direction = amount >= 0 ? .income : .outcome
-        }
-        return CreditLedgerRecord(
-            kind: .stardust,
-            title: title,
-            detail: detail,
-            amount: abs(amount),
-            direction: direction,
-            balanceAfter: balance,
-            date: date
-        )
-    }
 
     static func stringValue(_ value: Any?) -> String? {
         guard let value else { return nil }

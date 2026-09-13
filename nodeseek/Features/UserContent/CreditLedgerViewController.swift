@@ -98,7 +98,9 @@ final class CreditLedgerViewController: UIViewController {
                 } else {
                     items.append(contentsOf: loaded)
                 }
-                hasMorePages = loaded.count >= 20
+                // 分页终止以接口/站点语义为准（星辰接口返回 total/空页判断），
+                // 而非固定每页条数——避免站点改每页大小后提前停止加载。
+                hasMorePages = loaded.isEmpty == false
                 isLoadingMore = false
                 displayMode = .content
                 refreshControl.endRefreshing()
@@ -108,10 +110,40 @@ final class CreditLedgerViewController: UIViewController {
                 guard isViewLoaded else { return }
                 isLoadingMore = false
                 refreshControl.endRefreshing()
-                if items.isEmpty {
+                if page > 1 {
+                    // 追加页失败不清空已显示内容，仅提示。
+                    showToast(message: "加载更多失败：\(error.localizedDescription)")
+                } else if items.isEmpty {
                     displayMode = .error
                     errorLabel.text = "加载失败：\(error.localizedDescription)"
                     applyDisplayState()
+                }
+            }
+        }
+    }
+
+    private func showToast(message: String) {
+        let label = UILabel()
+        label.text = message
+        label.font = .preferredFont(forTextStyle: .footnote)
+        label.textColor = .white
+        label.backgroundColor = UIColor.black.withAlphaComponent(0.7)
+        label.textAlignment = .center
+        label.numberOfLines = 0
+        label.translatesAutoresizingMaskIntoConstraints = false
+        label.layer.cornerRadius = 8
+        label.clipsToBounds = true
+        view.addSubview(label)
+        NSLayoutConstraint.activate([
+            label.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            label.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -20),
+            label.leadingAnchor.constraint(greaterThanOrEqualTo: view.leadingAnchor, constant: 32),
+            label.trailingAnchor.constraint(lessThanOrEqualTo: view.trailingAnchor, constant: -32)
+        ])
+        UIView.animate(withDuration: 0.25, animations: { label.alpha = 1 }) { _ in
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2.2) {
+                UIView.animate(withDuration: 0.3, animations: { label.alpha = 0 }) { _ in
+                    label.removeFromSuperview()
                 }
             }
         }

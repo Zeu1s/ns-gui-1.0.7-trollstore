@@ -103,7 +103,8 @@ final class PostListBottomNavigationView: UIView {
         buttons[.messages]?.accessibilityValue = unreadCount > 0 ? "\(unreadCount) 条未读消息" : nil
     }
 
-    private static let doubleTapInterval: TimeInterval = 0.55
+    // 双击判定窗口：过长会让连续两次点击的第一次显得“不灵敏”。
+    private static let doubleTapInterval: TimeInterval = 0.28
 
     func setUnreadMessagesVisible(_ isVisible: Bool) {
         setUnreadMessageCount(isVisible ? 1 : 0)

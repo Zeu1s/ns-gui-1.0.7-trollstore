@@ -113,8 +113,9 @@ final class FansListViewController: UIViewController {
         }
     }
 
-    /// 空间页粉丝/关注列表由登录态 SPA 渲染（数据 chunk 登录后才加载），
-    /// 直接走隐藏 WebView 拿渲染完成的 HTML；HTTP 结果不含成员卡，仅作兜底跳过。
+    /// 空间页粉丝/关注列表由登录态 SPA 渲染。SPA 从 hash 启动后异步拉取
+    /// 成员数据，概况页即可满足 usableContent 判定导致提前返回，因此改用
+    /// 页面内脚本轮询：等成员卡（/space/ 链接）出现或超时，再收集结果。
     private static func fetchEntries(kind: ListKind, uid: Int) async -> [FansListEntry] {
         let baseURL = NodeSeekSite.baseURL
         var components = URLComponents(url: baseURL.appendingPathComponent("space"), resolvingAgainstBaseURL: false)
@@ -124,9 +125,65 @@ final class FansListViewController: UIViewController {
         // 后台补全可能占用隐藏 WebView，先让路 2 秒。
         try? await Task.sleep(nanoseconds: 2_000_000_000)
 
+        let pollScript = """
+        return await new Promise(async (resolve) => {
+          const started = Date.now();
+          const collect = () => {
+            const cards = [];
+            const seen = new Set();
+            for (const a of document.querySelectorAll("a[href*='/space/']")) {
+              const href = a.getAttribute('href') || '';
+              const m = href.match(/\\/space\\/(\\d+)/);
+              if (!m) continue;
+              const id = parseInt(m[1], 10);
+              if (!id || seen.has(id)) continue;
+              const card = a.closest('[class*="fans"], [class*="follow"], [class*="member"]') || a.parentElement;
+              const img = card ? card.querySelector('img[alt]') : null;
+              const name = (img ? img.getAttribute('alt') : '') || (a.innerText || '').trim();
+              if (!name) continue;
+              const avatar = card && card.querySelector('img[src]') ? card.querySelector('img[src]').getAttribute('src') : '';
+              seen.add(id);
+              cards.push({ id: id, name: name, avatar: avatar });
+            }
+            return cards;
+          };
+          while (Date.now() - started < 15000) {
+            const cards = collect();
+            if (cards.length > 0) { resolve({ ok: true, cards: cards }); return; }
+            await new Promise(r => setTimeout(r, 800));
+          }
+          resolve({ ok: true, cards: collect(), empty: true });
+        });
+        """
+        if let result = try? await withHiddenWebViewPageActionLoader(
+            logMessage: "准备读取\(kind.title)列表: uid=\(uid)"
+        ) { loader in
+            try await loader.runPageAutomationScript(
+                pageURL: url,
+                source: pollScript,
+                arguments: [:],
+                timeoutInterval: 25,
+                actionName: "读取\(kind.title)列表"
+            )
+        }, let cards = result["cards"] as? [[String: Any]] {
+            let entries: [FansListEntry] = cards.compactMap { card in
+                guard let id = card["id"] as? Int, id > 0,
+                      let name = card["name"] as? String, name.isEmpty == false else { return nil }
+                let avatar = card["avatar"] as? String ?? ""
+                return FansListEntry(
+                    userID: id,
+                    name: name,
+                    avatarURL: URL(string: avatar, relativeTo: baseURL)?.absoluteURL,
+                    metaText: nil
+                )
+            }
+            if entries.isEmpty == false {
+                return entries
+            }
+        }
+
+        // 轮询失败时回退：普通抓取路径 + DOM 解析。
         let client = HTMLLoadingStrategyFactory.makeDefaultClient()
-        // 后台补全在跑时先让路 2 秒，降低抢锁超时概率。
-        try? await Task.sleep(nanoseconds: 2_000_000_000)
         if let fallbackClient = client as? any WebViewFallbackRetrying {
             if let response = try? await fallbackClient.getUsingWebViewFallback(url) {
                 let parsed = parseEntries(html: response.html, kind: kind)

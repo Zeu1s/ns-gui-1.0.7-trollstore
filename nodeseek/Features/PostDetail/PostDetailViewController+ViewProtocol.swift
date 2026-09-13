@@ -241,17 +241,22 @@ extension PostDetailViewController: PostDetailViewProtocol {
         let newRowCount = detailRows.count
         // 行级插入保留滚动位置与已挂载节点。插入动作顺延到下一个 runloop，
         // 避免与当前滚动手势同帧竞争主线程（用户感知为“滑到下一页顿一下”）。
-        tableNode.performBatch(animated: false, updates: { [weak self] in
-            guard let self else { return }
-            if newRowCount > oldRowCount {
-                self.tableNode.insertRows(
-                    at: (oldRowCount..<newRowCount).map { IndexPath(row: $0, section: 0) },
-                    with: .none
-                )
-            } else {
-                self.tableNode.reloadData()
-            }
-        })
+        // 行级插入保留滚动位置与已挂载节点。插入顺延到下一个 runloop：
+        // 预取完成常与用户惯性滚动同帧，Texture 的批量更新需要同步构建
+        // 整页新行节点，同帧执行会让滚动顿挫一下。
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.isViewLoaded else { return }
+            self.tableNode.performBatch(animated: false, updates: {
+                if newRowCount > oldRowCount {
+                    self.tableNode.insertRows(
+                        at: (oldRowCount..<newRowCount).map { IndexPath(row: $0, section: 0) },
+                        with: .none
+                    )
+                } else {
+                    self.tableNode.reloadData()
+                }
+            })
+        }
         AppLog.debug(.postDetail, "详情评论追加持平完成: appended=\(detail.comments.count), totalComments=\(comments.count), rows=\(oldRowCount)->\(newRowCount)")
         updateLoadMoreCommentsFooter()
         updateReplyButtonVisibility()
