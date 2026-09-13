@@ -55,9 +55,9 @@ final class NodeSeekAccountSettingsClient: NodeSeekAccountSettingsManaging {
         var components = URLComponents(url: baseURL, resolvingAgainstBaseURL: false)
         components?.path = "/api/account/getInfo/\(userID)"
         components?.queryItems = [
+            // phone=1 在部分会话触发 HTTP 500，去掉；只要 readme 与签名。
             URLQueryItem(name: "readme", value: "1"),
-            URLQueryItem(name: "signature", value: "1"),
-            URLQueryItem(name: "phone", value: "1")
+            URLQueryItem(name: "signature", value: "1")
         ]
         let url = components?.url ?? baseURL.appendingPathComponent("/api/account/getInfo/\(userID)")
         var request = URLRequest(url: url)

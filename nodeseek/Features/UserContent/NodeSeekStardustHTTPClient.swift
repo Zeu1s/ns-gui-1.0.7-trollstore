@@ -18,10 +18,9 @@ enum NodeSeekStardustHTTPClient {
     static func load(page: Int, uid: Int) async throws -> Page {
         var components = URLComponents(url: NodeSeekSite.baseURL, resolvingAgainstBaseURL: false)
         components?.path = "/api/stardust/list"
-        components?.queryItems = [
-            URLQueryItem(name: "member_id", value: "\(uid)"),
-            URLQueryItem(name: "page", value: "\(max(1, page))")
-        ]
+        // 站点接口明确拒绝 page 参数（422: "page" is not allowed）。
+        // 星辰明细为单页账簿，去掉多余参数。
+        components?.queryItems = [URLQueryItem(name: "member_id", value: "\(uid)")]
         guard let url = components?.url else {
             throw CreditLedgerClientError.httpStatus(0)
         }

@@ -401,7 +401,8 @@ final class NodeSeekNotificationReadStateStore {
 final class NodeSeekNotificationPrefetcher {
     static let shared = NodeSeekNotificationPrefetcher()
 
-    private static let refreshInterval: UInt64 = 45_000_000_000
+    // 预取降频：45s -> 90s，减少持续请求量，降低触发 Cloudflare 封禁的概率
+    private static let refreshInterval: UInt64 = 90_000_000_000
 
     private let client: NodeSeekNotificationClientProtocol
     private let currentAccountStore: CurrentAccountStore

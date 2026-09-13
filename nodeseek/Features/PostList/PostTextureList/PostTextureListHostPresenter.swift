@@ -309,6 +309,18 @@ private extension PostTextureListHostPresenter {
             return false
         }
 
+        // Cloudflare 封禁是 IP 级且持续的：立即自动重试只会加重封禁。
+        // 命中 cloudflare / 429 / too many requests 时不自动重试，等用户手动下拉。
+        let isRateOrChallenge = normalizedError.contains("cloudflare")
+            || normalizedError.contains("429")
+            || normalizedError.contains("too many requests")
+            || normalizedError.contains("403")
+            || normalizedError.contains("blocked")
+        if isRateOrChallenge {
+            AppLog.warning(.postList, "命中 Cloudflare/限流，暂停自动重试避免加重封禁: category=\(category.rawValue)")
+            return true
+        }
+
         temporaryFailureRetryCount += 1
         let workItem = DispatchWorkItem { [weak self] in
             guard let self else { return }
@@ -317,11 +329,7 @@ private extension PostTextureListHostPresenter {
         }
         temporaryFailureRetryWorkItem?.cancel()
         temporaryFailureRetryWorkItem = workItem
-        let retryDelay: TimeInterval = normalizedError.contains("429")
-            || normalizedError.contains("cloudflare")
-            || normalizedError.contains("too many requests")
-            ? 1.5
-            : 0.7
+        let retryDelay: TimeInterval = 3.0
         DispatchQueue.main.asyncAfter(deadline: .now() + retryDelay, execute: workItem)
         AppLog.warning(.postList, "帖子列表遇到临时网络错误，保留当前内容并自动重试一次: category=\(category.rawValue)")
         return true
