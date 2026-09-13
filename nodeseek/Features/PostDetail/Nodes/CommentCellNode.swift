@@ -433,7 +433,8 @@ final class CommentCellNode: ASCellNode, ThemeRefreshableNode {
         onTextLayoutInvalidated: @escaping () -> Void,
         imageSizeProvider: @escaping (URL) -> CGSize? = { _ in nil },
         onImageSizeResolved: @escaping (URL, CGSize) -> Void = { _, _ in },
-        onImageHeightReduced: @escaping () -> Void = {}
+        onImageHeightReduced: @escaping () -> Void = {},
+        onImageHeightIncreased: @escaping () -> Void = {}
     ) {
         self.comment = comment
         self.replyReference = replyReference
@@ -463,7 +464,8 @@ final class CommentCellNode: ASCellNode, ThemeRefreshableNode {
             onTextLayoutInvalidated: onTextLayoutInvalidated,
             imageSizeProvider: imageSizeProvider,
             onImageSizeResolved: onImageSizeResolved,
-            onImageHeightReduced: onImageHeightReduced
+            onImageHeightReduced: onImageHeightReduced,
+            onImageHeightIncreased: onImageHeightIncreased
         )
         super.init()
         automaticallyManagesSubnodes = true

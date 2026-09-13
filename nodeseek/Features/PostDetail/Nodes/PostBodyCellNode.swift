@@ -120,6 +120,7 @@ final class PostBodyCellNode: ASCellNode, ThemeRefreshableNode {
         imageSizeProvider: @escaping (URL) -> CGSize? = { _ in nil },
         onImageSizeResolved: @escaping (URL, CGSize) -> Void = { _, _ in },
         onImageHeightReduced: @escaping () -> Void = {},
+        onImageHeightIncreased: @escaping () -> Void = {},
         selectedMagicTabIndex: @escaping (String) -> Int? = { _ in nil },
         onMagicTabSelected: @escaping (String, Int) -> Void = { _, _ in }
     ) {
@@ -151,6 +152,7 @@ final class PostBodyCellNode: ASCellNode, ThemeRefreshableNode {
             imageSizeProvider: imageSizeProvider,
             onImageSizeResolved: onImageSizeResolved,
             onImageHeightReduced: onImageHeightReduced,
+            onImageHeightIncreased: onImageHeightIncreased,
             magicTabSelectionKeyPrefix: "post-\(content.postID)",
             selectedMagicTabIndex: selectedMagicTabIndex,
             onMagicTabSelected: onMagicTabSelected

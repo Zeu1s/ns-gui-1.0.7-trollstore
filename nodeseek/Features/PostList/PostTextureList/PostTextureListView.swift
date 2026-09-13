@@ -166,11 +166,17 @@ final class PostTextureListView: UIView {
         // 任何删除/重排/换血（插入数 != 总数差）都会造成 datasource 与
         // batch updates 数量不一致（曾以 ASCollectionInvalidUpdateException 崩溃），
         // 一律退回整表 reload。
-        let isPureAppend = newItems.count > self.items.count
-            && insertedIndexes.count == newItems.count - self.items.count
-            && newItems[newItems.count - insertedIndexes.count...].allSatisfy { item in
-                oldIDs.contains(item.post.id) == false
-            }
+        let isPureAppend: Bool
+        if newItems.count > self.items.count {
+            let appendedCount = newItems.count - self.items.count
+            let appendedSlice = Array(newItems.suffix(appendedCount))
+            isPureAppend = insertedIndexes.count == appendedCount
+                && appendedSlice.allSatisfy { appendedItem in
+                    oldIDs.contains(appendedItem.post.id) == false
+                }
+        } else {
+            isPureAppend = false
+        }
         guard isPureAppend else {
             self.items = newItems
             reloadDataForStreamAppearance()
