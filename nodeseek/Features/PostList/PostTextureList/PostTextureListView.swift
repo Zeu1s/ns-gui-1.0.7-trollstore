@@ -162,6 +162,20 @@ final class PostTextureListView: UIView {
         let insertedIndexes = newItems.enumerated().compactMap { index, item in
             oldIDs.contains(item.post.id) ? nil : index
         }
+        // 防御：插入路径只对“纯追加且索引严格递增对齐”的换血安全。
+        // 任何删除/重排/换血（插入数 != 总数差）都会造成 datasource 与
+        // batch updates 数量不一致（曾以 ASCollectionInvalidUpdateException 崩溃），
+        // 一律退回整表 reload。
+        let isPureAppend = newItems.count > self.items.count
+            && insertedIndexes.count == newItems.count - self.items.count
+            && newItems[newItems.count - insertedIndexes.count...].allSatisfy { item in
+                oldIDs.contains(item.post.id) == false
+            }
+        guard isPureAppend else {
+            self.items = newItems
+            reloadDataForStreamAppearance()
+            return
+        }
         // 新帖过多（如板块切换后的整体换血）时退回整表，不逐行打标记。
         let shouldMarkNewRows = insertedIndexes.count <= Self.newArrivalMarkLimit
 

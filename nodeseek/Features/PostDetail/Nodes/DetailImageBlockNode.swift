@@ -11,6 +11,7 @@ import UIKit
 final class DetailImageBlockNode: ASDisplayNode {
     private let onLayoutInvalidated: () -> Void
     private let onImageHeightReduced: () -> Void
+    private let onImageHeightIncreased: () -> Void
     private let onImageSizeResolved: (URL, CGSize) -> Void
     private let onImageLongPressed: (URL) -> Void
     private let imageURL: URL
@@ -30,10 +31,12 @@ final class DetailImageBlockNode: ASDisplayNode {
         onImageLongPressed: @escaping (URL) -> Void = { _ in },
         onImageSizeResolved: @escaping (URL, CGSize) -> Void = { _, _ in },
         onImageHeightReduced: @escaping () -> Void = {},
+        onImageHeightIncreased: @escaping () -> Void = {},
         onLayoutInvalidated: @escaping () -> Void
     ) {
         self.onLayoutInvalidated = onLayoutInvalidated
         self.onImageHeightReduced = onImageHeightReduced
+        self.onImageHeightIncreased = onImageHeightIncreased
         self.onImageSizeResolved = onImageSizeResolved
         self.onImageLongPressed = onImageLongPressed
         self.imageURL = imageBlock.url
@@ -100,6 +103,12 @@ final class DetailImageBlockNode: ASDisplayNode {
             onImageHeightReduced()
         } else {
             onLayoutInvalidated()
+        }
+        // 高度增长（报告图从 16:9 占位展开为完整尺寸）时，宿主需要 reloadRows
+        // 让 ASTableNode 重算行高；仅 relayoutItems 不会更新行高缓存，
+        // 表现为“点进去显示不完整，手动来回切换后才恢复”。
+        if nextLayout.height > previousLayout.height + Self.heightReductionThreshold {
+            onImageHeightIncreased()
         }
     }
 }

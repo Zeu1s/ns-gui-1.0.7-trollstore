@@ -123,6 +123,8 @@ final class FansListViewController: UIViewController {
         guard let url = components?.url else { return [] }
 
         let client = HTMLLoadingStrategyFactory.makeDefaultClient()
+        // 后台补全在跑时先让路 2 秒，降低抢锁超时概率。
+        try? await Task.sleep(nanoseconds: 2_000_000_000)
         if let fallbackClient = client as? any WebViewFallbackRetrying {
             if let response = try? await fallbackClient.getUsingWebViewFallback(url) {
                 let parsed = parseEntries(html: response.html, kind: kind)

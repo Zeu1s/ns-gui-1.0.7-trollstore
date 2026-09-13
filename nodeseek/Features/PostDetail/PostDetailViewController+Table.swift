@@ -222,6 +222,9 @@ extension PostDetailViewController: ASTableDataSource, ASTableDelegate {
                     onImageHeightReduced: {
                         self?.scheduleHeaderReload()
                     },
+                    onImageHeightIncreased: {
+                        self?.scheduleHeaderReload()
+                    },
                     selectedMagicTabIndex: { key in
                         self?.magicTabSelectedIndexes[key]
                     },
@@ -314,6 +317,9 @@ extension PostDetailViewController: ASTableDataSource, ASTableDelegate {
                         self?.cacheDetailImageSize(size, for: url)
                     },
                     onImageHeightReduced: {
+                        self?.scheduleCommentReload(commentID: comment.id)
+                    },
+                    onImageHeightIncreased: {
                         self?.scheduleCommentReload(commentID: comment.id)
                     }
                 )

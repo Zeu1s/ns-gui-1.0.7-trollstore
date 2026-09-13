@@ -1085,7 +1085,11 @@ private final class ProfileReadmeCell: UITableViewCell, WKNavigationDelegate, WK
     private static func htmlDocument(for content: String) -> String {
         let body: String
         if containsStructuralHTML(content) {
+            // 还原转义标签后再渲染
             body = content
+                .replacingOccurrences(of: "&lt;", with: "<")
+                .replacingOccurrences(of: "&gt;", with: ">")
+                .replacingOccurrences(of: "&amp;amp;", with: "&amp;")
         } else {
             body = markdownToHTML(content)
         }
@@ -1106,8 +1110,15 @@ private final class ProfileReadmeCell: UITableViewCell, WKNavigationDelegate, WK
     )
 
     private static func containsStructuralHTML(_ text: String) -> Bool {
-        let range = NSRange(text.startIndex..., in: text)
-        return structuralHTMLPattern.firstMatch(in: text, options: [], range: range) != nil
+        // 站点接口返回的文本里 HTML 标签常以 &lt; 转义形态出现，
+        // 直接原样渲染会整段不可读；出现转义标签时先还原再判定。
+        let unescaped = text
+            .replacingOccurrences(of: "&lt;", with: "<")
+            .replacingOccurrences(of: "&gt;", with: ">")
+            .replacingOccurrences(of: "&amp;", with: "&")
+        let range = NSRange(unescaped.startIndex..., in: unescaped)
+        let hasRealTags = structuralHTMLPattern.firstMatch(in: unescaped, options: [], range: range) != nil
+        return hasRealTags
     }
 
     private static let heightObserverScript = """

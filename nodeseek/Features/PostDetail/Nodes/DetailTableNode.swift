@@ -49,6 +49,7 @@ enum DetailContentBlockNodeFactory {
         imageSizeProvider: @escaping (URL) -> CGSize? = { _ in nil },
         onImageSizeResolved: @escaping (URL, CGSize) -> Void = { _, _ in },
         onImageHeightReduced: @escaping () -> Void = {},
+        onImageHeightIncreased: @escaping () -> Void = {},
         forceReportImages: Bool = false,
         magicTabSelectionKeyPrefix: String? = nil,
         selectedMagicTabIndex: @escaping (String) -> Int? = { _ in nil },
@@ -68,6 +69,7 @@ enum DetailContentBlockNodeFactory {
             imageSizeProvider: imageSizeProvider,
             onImageSizeResolved: onImageSizeResolved,
             onImageHeightReduced: onImageHeightReduced,
+            onImageHeightIncreased: onImageHeightIncreased,
             forceReportImages: forceReportImages,
             magicTabSelectionKeyPrefix: magicTabSelectionKeyPrefix,
             selectedMagicTabIndex: selectedMagicTabIndex,
@@ -87,6 +89,7 @@ enum DetailContentBlockNodeFactory {
         imageSizeProvider: @escaping (URL) -> CGSize?,
         onImageSizeResolved: @escaping (URL, CGSize) -> Void,
         onImageHeightReduced: @escaping () -> Void,
+        onImageHeightIncreased: @escaping () -> Void,
         forceReportImages: Bool = false,
         magicTabSelectionKeyPrefix: String? = nil,
         selectedMagicTabIndex: @escaping (String) -> Int? = { _ in nil },
@@ -132,6 +135,7 @@ enum DetailContentBlockNodeFactory {
                     onImageLongPressed: onImageLongPressed,
                     onImageSizeResolved: onImageSizeResolved,
                     onImageHeightReduced: onImageHeightReduced,
+                    onImageHeightIncreased: onImageHeightIncreased,
                     onLayoutInvalidated: onTextLayoutInvalidated
                 )
             case .magicTabs(let magicTabs):
@@ -149,6 +153,7 @@ enum DetailContentBlockNodeFactory {
                         imageSizeProvider: imageSizeProvider,
                         onImageSizeResolved: onImageSizeResolved,
                         onImageHeightReduced: onImageHeightReduced,
+                        onImageHeightIncreased: onImageHeightIncreased,
                         forceReportImages: true,
                         magicTabSelectionKeyPrefix: magicTabSelectionKeyPrefix,
                         selectedMagicTabIndex: selectedMagicTabIndex,
@@ -194,6 +199,7 @@ enum DetailContentBlockNodeFactory {
                     imageSizeProvider: imageSizeProvider,
                     onImageSizeResolved: onImageSizeResolved,
                     onImageHeightReduced: onImageHeightReduced,
+                    onImageHeightIncreased: onImageHeightIncreased,
                     forceReportImages: forceReportImages,
                     magicTabSelectionKeyPrefix: magicTabSelectionKeyPrefix,
                     selectedMagicTabIndex: selectedMagicTabIndex,

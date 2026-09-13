@@ -70,11 +70,19 @@ final class NodeSeekCreditLedgerClient {
                 return records
             }
         }
+        // 站点星辰页为 Vue 前端渲染，HTTP 版无数据行，必须走 WebView。
+        // 后台补全在跑时先让路 2 秒，降低抢锁超时概率。
+        try? await Task.sleep(nanoseconds: 2_000_000_000)
         guard let fallbackClient = client as? any WebViewFallbackRetrying else {
             return []
         }
         let rendered = try await fallbackClient.getUsingWebViewFallback(url)
-        return CreditLedgerHTMLParser.parse(html: rendered.html, kind: .stardust)
+        let records = CreditLedgerHTMLParser.parse(html: rendered.html, kind: .stardust)
+        if records.isEmpty == false {
+            return records
+        }
+        // WebView 版仍无记录时，让上层显示失败（而非误显示"暂无记录"）。
+        throw CreditLedgerClientError.unsuccessfulResponse("星辰数据渲染失败，请稍后重试")
     }
 
     /// 鸡腿明细：/api/account/credit/page-N，数组行 [变动, 总计, 理由, 时间]。
