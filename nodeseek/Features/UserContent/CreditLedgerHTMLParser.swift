@@ -16,6 +16,30 @@ enum CreditLedgerHTMLParser {
 
         var records: [CreditLedgerRecord] = []
 
+        // 形态〇：站点账簿页 .credit-table 表格（登录态 WebView 渲染后有数据行）。
+        // 列序与站点 credit.js 的 tHeads 一致：变动 / 总计 / 理由 / 时间。
+        let tableRows = document.xpath("//div[contains(@class,'credit-table')]//tr[td] | //table//tr[td]")
+        for row in tableRows {
+            let cells = row.xpath("td").compactMap { $0.text?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            guard cells.count >= 2 else { continue }
+            let change = Int(cells[0].replacingOccurrences(of: "+", with: "")) ?? 0
+            let balance = cells.count > 1 ? Int(cells[1].replacingOccurrences(of: "+", with: "")) : nil
+            let reason = cells.count > 2 ? cells[2] : (cells[0])
+            let dateText = cells.count > 3 ? cells[3] : (cells.count > 2 ? cells[1] : "")
+            records.append(CreditLedgerRecord(
+                kind: kind,
+                title: reason,
+                detail: nil,
+                amount: abs(change),
+                direction: change >= 0 ? .income : .outcome,
+                balanceAfter: balance,
+                date: Self.date(from: dateText)
+            ))
+        }
+        if records.isEmpty == false {
+            return records
+        }
+
         // 形态一：<table> 内 tr 行
         let rows = document.xpath("//table//tr[td]")
         for row in rows {
@@ -112,5 +136,16 @@ enum CreditLedgerHTMLParser {
         let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.date.rawValue)
         let range = NSRange(text.startIndex..., in: text)
         return detector?.firstMatch(in: text, options: [], range: range)?.date
+    }
+
+    private static func date(from text: String) -> Date? {
+        let plain = DateFormatter()
+        plain.timeZone = TimeZone.current
+        plain.locale = Locale(identifier: "en_US_POSIX")
+        for format in ["yyyy-MM-dd HH:mm:ss", "yyyy-MM-dd HH:mm", "yyyy/MM/dd HH:mm", "yyyy-MM-dd"] {
+            plain.dateFormat = format
+            if let d = plain.date(from: text) { return d }
+        }
+        return date(in: text)
     }
 }

@@ -121,6 +121,8 @@ final class FansListViewController: UIViewController {
         components?.path = "/space/\(uid)"
         components?.fragment = String(kind.hashRoute.dropFirst())
         guard let url = components?.url else { return [] }
+        // 后台补全可能占用隐藏 WebView，先让路 2 秒。
+        try? await Task.sleep(nanoseconds: 2_000_000_000)
 
         let client = HTMLLoadingStrategyFactory.makeDefaultClient()
         // 后台补全在跑时先让路 2 秒，降低抢锁超时概率。
@@ -216,9 +218,12 @@ enum FansListHTMLParser {
         var entries: [FansListEntry] = []
         let seenIDs = NSMutableSet()
 
-        // 空间页成员卡：优先在成员列表容器内找（class 含 member/fans/follow/list），
-        // 避免把页面导航/介绍区的 space 链接误判为粉丝。
-        var anchors = document.xpath("//*[contains(@class,'member') or contains(@class,'fans') or contains(@class,'follow')]//a[contains(@href,'/space/')]")
+        // 空间页成员卡：优先在 hash 面板渲染容器内找（class 含 fans/follow），
+        // 再放宽到 member 容器，最后才全页。
+        var anchors = document.xpath("//*[contains(@class,'fans') or contains(@class,'follow')]//a[contains(@href,'/space/')]")
+        if anchors.count == 0 {
+            anchors = document.xpath("//*[contains(@class,'member')]//a[contains(@href,'/space/')]")
+        }
         if anchors.count == 0 {
             anchors = document.xpath("//a[contains(@href,'/space/')]")
         }

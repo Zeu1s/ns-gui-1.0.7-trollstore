@@ -1220,7 +1220,30 @@ class PostDetailViewController: UIViewController {
             }
             self.pendingReloadIndexPaths.removeAll()
             guard reloadIndexPaths.isEmpty == false else { return }
+
+            // 图片加载增高会推挤下方内容产生顿挫。若被 reload 的行在可视区内，
+            // 记录该行顶部与当前 contentOffset 的相对位置，reload 后恢复，
+            // 使增高表现为“下方内容顺势下移”而不是整屏跳动。
+            let scrollView = self.tableNode.view
+            let offsetBefore = scrollView.contentOffset
+            let anchorRow = reloadIndexPaths.first { row in
+                let frame = self.tableNode.rectForRow(at: row)
+                let rowTopY = frame.minY - scrollView.contentOffset.y
+                return rowTopY >= 0 && rowTopY <= scrollView.bounds.height
+            }
+            let anchorTopBefore = anchorRow.map { self.tableNode.rectForRow(at: $0).minY - scrollView.contentOffset.y }
+
             self.tableNode.reloadRows(at: reloadIndexPaths, with: .none)
+
+            if let anchorRow, let anchorTopBefore {
+                DispatchQueue.main.async { [weak self] in
+                    guard let self else { return }
+                    let anchorTopAfter = self.tableNode.rectForRow(at: anchorRow).minY
+                    var offset = self.tableNode.view.contentOffset
+                    offset.y = anchorTopAfter - anchorTopBefore
+                    self.tableNode.view.contentOffset = offset
+                }
+            }
         }
         tableReloadWorkItem = workItem
         DispatchQueue.main.async(execute: workItem)

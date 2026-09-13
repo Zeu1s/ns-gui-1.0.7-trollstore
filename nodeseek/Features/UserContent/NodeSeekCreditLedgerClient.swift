@@ -50,28 +50,18 @@ final class NodeSeekCreditLedgerClient {
         }
     }
 
-    /// 星辰明细：站点页面由登录态 Vue 渲染（REST 接口对 page 参数返回
-    /// "page is not allowed"），改走隐藏 WebView 渲染后解析 DOM。
+    /// 星辰明细：站点星辰面板由登录态 Vue 渲染。请求空间页星辰 hash，
+    /// WebView 渲染后解析 .credit-table 数据行（表头与鸡腿账簿同构）。
     private func loadStardust(page: Int, uid: Int) async throws -> [CreditLedgerRecord] {
-        var components = URLComponents(url: baseURL.appendingPathComponent("stardust/list"), resolvingAgainstBaseURL: false)
-        components?.queryItems = [URLQueryItem(name: "member_id", value: "\(uid)")]
-        if page > 1 {
-            components?.fragment = "p-\(page)"
-        }
+        var components = URLComponents(url: baseURL.appendingPathComponent("space"), resolvingAgainstBaseURL: false)
+        components?.path = "/space/\(uid)"
+        components?.fragment = page > 1 ? "stardust/p-\(page)" : "stardust"
         guard let url = components?.url else {
             throw CreditLedgerClientError.httpStatus(0)
         }
 
         let client = HTMLLoadingStrategyFactory.makeDefaultClient()
-        if let response = try? await client.get(url),
-           (200..<300).contains(response.statusCode) {
-            let records = CreditLedgerHTMLParser.parse(html: response.html, kind: .stardust)
-            if records.isEmpty == false {
-                return records
-            }
-        }
-        // 站点星辰页为 Vue 前端渲染，HTTP 版无数据行，必须走 WebView。
-        // 后台补全在跑时先让路 2 秒，降低抢锁超时概率。
+        // 后台补全可能占用隐藏 WebView，先让路 2 秒。
         try? await Task.sleep(nanoseconds: 2_000_000_000)
         guard let fallbackClient = client as? any WebViewFallbackRetrying else {
             return []
@@ -81,8 +71,19 @@ final class NodeSeekCreditLedgerClient {
         if records.isEmpty == false {
             return records
         }
-        // WebView 版仍无记录时，让上层显示失败（而非误显示"暂无记录"）。
-        throw CreditLedgerClientError.unsuccessfulResponse("星辰数据渲染失败，请稍后重试")
+        // 空间页星辰面板无表格时，尝试鸡腿账簿页（站点同组件）。
+        var creditComponents = URLComponents(url: baseURL.appendingPathComponent("credit"), resolvingAgainstBaseURL: false)
+        if page > 1 {
+            creditComponents?.fragment = "p-\(page)"
+        }
+        if let creditURL = creditComponents?.url,
+           let creditResponse = try? await fallbackClient.getUsingWebViewFallback(creditURL) {
+            let creditRecords = CreditLedgerHTMLParser.parse(html: creditResponse.html, kind: .stardust)
+            if creditRecords.isEmpty == false {
+                return creditRecords
+            }
+        }
+        throw CreditLedgerClientError.unsuccessfulResponse("星辰明细需要登录且站点面板未返回数据")
     }
 
     /// 鸡腿明细：/api/account/credit/page-N，数组行 [变动, 总计, 理由, 时间]。
