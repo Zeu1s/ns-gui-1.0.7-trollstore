@@ -79,11 +79,14 @@ enum NodeSeekStardustWebClient {
                 )
             }
             let total = Self.intValue(result["total"])
-            let nextPage = total.map { total -> Int? in
+            let nextPage: Int?
+            if let total {
                 let maxPage = Int(ceil(Double(max(total, 1)) / 20.0))
-                return page < maxPage ? page + 1 : nil
+                nextPage = page < maxPage ? page + 1 : nil
+            } else {
+                nextPage = records.isEmpty == false ? page + 1 : nil
             }
-            return Page(records: records, nextPage: page < (nextPage.map { $0 } ?? page + 1) ? page + 1 : nil)
+            return Page(records: records, nextPage: nextPage)
         }
 
         // data 形态 2：对象行 [{num, reason, created_at, ...}, ...]

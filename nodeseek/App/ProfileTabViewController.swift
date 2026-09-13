@@ -239,6 +239,10 @@ final class ProfileTabViewController: UIViewController {
                     } else {
                         AppLog.warning(.account, "个人资料刷新失败，保留已展示内容: \(error.localizedDescription)")
                     }
+                    // 已登录用户的 readme 独立重载，不因资料接口失败而卡在失败态。
+                    if let userID = requestedUserID ?? currentUserID {
+                        loadReadme(for: userID)
+                    }
                     break
                 }
             }
@@ -306,6 +310,11 @@ final class ProfileTabViewController: UIViewController {
     }
 
     @objc private func refreshTriggered() {
+        // 下拉重试需同时重置 readme 区，否则失败态文案会停留且无重载入口。
+        readmeLoadGeneration &+= 1
+        hasResolvedReadme = false
+        readmeLoadFailed = false
+        readme = nil
         loadProfile()
     }
 

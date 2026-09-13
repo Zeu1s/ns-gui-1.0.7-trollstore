@@ -1095,15 +1095,11 @@ final class NotificationViewController: UIViewController {
         segmentedControl.selectedTab = tab
         updateMarkAllButton()
         if loadedTabs.contains(tab) {
+            // 已加载 tab 立即本地呈现：无整表重建、无动画重播、无强制布局，
+            // 消除“点击后要等一下才响应”的感知。网络刷新静默后台进行。
             displayMode = .content
             applyDisplayState()
-            UIView.performWithoutAnimation {
-                resetVisibleStreamAppearance()
-                tableView.reloadData()
-                tableView.layoutIfNeeded()
-            }
             restoreContentOffset(for: tab)
-            presentVisibleContentAppearance(forceReplay: true)
             scheduleVisibleRecordsAsRead()
             requestRefresh(for: tab, showLoading: false)
         } else {
