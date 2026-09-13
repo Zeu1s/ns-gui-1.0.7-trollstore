@@ -1249,6 +1249,47 @@ class PostDetailViewController: UIViewController {
         DispatchQueue.main.async(execute: workItem)
     }
 
+    /// 图片加载增高（NetQuality 报告图等）重算行高后的滚动锚定：
+    /// reload 会瞬间改变 contentSize，不补偿会让可视内容跳动。
+    func reloadRowsWithScrollAnchor(_ indexPaths: [IndexPath]) {
+        guard isViewLoaded else { return }
+        let valid = indexPaths.filter { $0.section == 0 && $0.row >= 0 && $0.row < tableNode(self.tableNode, numberOfRowsInSection: 0) }
+        guard valid.isEmpty == false else { return }
+        let scrollView = tableNode.view
+        let anchorRow = valid.first { row in
+            let rowTopY = tableNode.rectForRow(at: row).minY - scrollView.contentOffset.y
+            return rowTopY >= 0 && rowTopY <= scrollView.bounds.height
+        }
+        let anchorTopBefore = anchorRow.map { tableNode.rectForRow(at: $0).minY - scrollView.contentOffset.y }
+        tableNode.reloadRows(at: valid, with: .none)
+        if let anchorRow, let anchorTopBefore {
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                let anchorTopAfter = self.tableNode.rectForRow(at: anchorRow).minY
+                var offset = self.tableNode.view.contentOffset
+                offset.y = anchorTopAfter - anchorTopBefore
+                self.tableNode.view.contentOffset = offset
+            }
+        }
+    }
+
+    /// 头部图片增高：锚定 reload 头部行。
+    func reloadHeaderWithScrollAnchor() {
+        guard currentHeaderContent != nil, displayMode == .content else { return }
+        guard let row = detailRows.firstIndex(where: { if case .header = $0 { return true }; return false }) else { return }
+        reloadRowsWithScrollAnchor([IndexPath(row: row, section: 0)])
+    }
+
+    /// 评论内图片增高：锚定 reload 该评论行。
+    func reloadCommentWithScrollAnchor(commentID: String) {
+        guard let commentIndex = comments.firstIndex(where: { $0.id == commentID }) else { return }
+        guard let row = detailRows.firstIndex(where: {
+            if case .comment(let index, _) = $0 { return index == commentIndex }
+            return false
+        }) else { return }
+        reloadRowsWithScrollAnchor([IndexPath(row: row, section: 0)])
+    }
+
     func showLoadingSkeletonIfNeeded() {
         guard hasRenderedDetailContent == false else { return }
         guard displayMode != .skeleton else { return }

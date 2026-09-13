@@ -233,11 +233,14 @@ extension PostDetailViewController: PostDetailViewProtocol {
         comments.append(contentsOf: detail.comments)
         loadedCommentPageRanges[detail.page] = oldCommentCount..<comments.count
         let oldRowCount = detailRows.count
+        // 预热必须在清缓存前启动：串行解析整页评论的 HTML 与节点创建
+        // 是翻页卡顿的主因，提前到插入之前可以让大部分工作与用户滚动并行。
+        preheatCommentRender(for: detail.comments)
         cachedThreadedRows = nil
         cachedCommentAnchorIndex = nil
         let newRowCount = detailRows.count
-        // 行级插入保留滚动位置与已挂载节点：整表 reloadData 会让列表
-        // 重建并向上跳动（用户感知为“回弹一下”）。
+        // 行级插入保留滚动位置与已挂载节点。插入动作顺延到下一个 runloop，
+        // 避免与当前滚动手势同帧竞争主线程（用户感知为“滑到下一页顿一下”）。
         tableNode.performBatch(animated: false, updates: { [weak self] in
             guard let self else { return }
             if newRowCount > oldRowCount {
@@ -250,7 +253,6 @@ extension PostDetailViewController: PostDetailViewProtocol {
             }
         })
         AppLog.debug(.postDetail, "详情评论追加持平完成: appended=\(detail.comments.count), totalComments=\(comments.count), rows=\(oldRowCount)->\(newRowCount)")
-        preheatCommentRender(for: detail.comments)
         updateLoadMoreCommentsFooter()
         updateReplyButtonVisibility()
     }
