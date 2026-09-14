@@ -808,8 +808,11 @@ final class HiddenWebViewLoader: NSObject, WKNavigationDelegate {
                     let html = try await self.readOuterHTML()
                     // Kanna/正则解析 200KB+ 页面在主线程会卡出秒级停顿，
                     // 挪到后台线程执行，主线程只负责读 HTML 与续行/收尾。
+                    let htmlForParse = html
                     let parseResult = await Task.detached(priority: .userInitiated) { () -> (Bool, Bool) in
-                        (ChallengeDetector.containsUsableNodeSeekHTML(html), HiddenWebViewHTMLClient.isChallengePage(html: html))
+                        let usable = ChallengeDetector.containsUsableNodeSeekHTML(htmlForParse)
+                        let challenge = ChallengeDetector.containsCloudflareChallengeHTML(htmlForParse)
+                        return (usable, challenge)
                     }.value
                     let hasUsableContent = parseResult.0
                     let isChallengePage = parseResult.1
@@ -1212,7 +1215,7 @@ final class HiddenWebViewLoader: NSObject, WKNavigationDelegate {
         }
     }
 
-    private static func isChallengePage(html: String) -> Bool {
+    fileprivate static func isChallengePage(html: String) -> Bool {
         ChallengeDetector.containsCloudflareChallengeHTML(html)
     }
 
