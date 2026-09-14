@@ -597,7 +597,7 @@ final class DetailCodeBlockView: UIView {
         hasAppliedInitialZoom = true
         // 固定按原始大小的 90% 绘制：纵向完整显示全部行，
         // 横向超过可视宽度时由 scrollView 提供滑动。
-        let scale = DetailCodeBlockLayout.Layout.terminalInlineScale
+        let scale = DetailCodeBlockLayout.terminalInlineScale
         canvasView?.displayScale = scale
         let scaledWidth = DetailCodeBlockLayout.terminalNaturalCodeWidth(for: codeBlock.text) * scale
         terminalHeightConstraint?.constant =
@@ -1209,6 +1209,8 @@ enum DetailCodeBlockLayout {
         /// 终端内嵌展示的固定绘制比例（相对原始字号）：90%。
         static let terminalInlineScale: CGFloat = 0.9
     }
+
+    static let terminalInlineScale = Layout.terminalInlineScale
 
     static func measure(codeBlock: RenderedCodeBlock, constrainedSize: CGSize) -> CGSize {
         let width = resolvedWidth(constrainedSize.width)
