@@ -145,7 +145,7 @@ final class NotificationViewController: UIViewController {
             segmentedContainer.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             segmentedContainer.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             segmentedContainer.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
-            segmentedContainer.heightAnchor.constraint(equalToConstant: 52),
+            segmentedContainer.heightAnchor.constraint(equalToConstant: 56),
 
             segmentedControl.leadingAnchor.constraint(equalTo: segmentedContainer.leadingAnchor, constant: 16),
             segmentedControl.trailingAnchor.constraint(equalTo: segmentedContainer.trailingAnchor, constant: -16),
@@ -1665,9 +1665,9 @@ private final class NotificationTabSegmentedControl: UIView {
         NSLayoutConstraint.activate([
             stack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 2),
             stack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -2),
-            stack.topAnchor.constraint(equalTo: topAnchor, constant: 2),
-            stack.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -2),
-            heightAnchor.constraint(greaterThanOrEqualToConstant: 34)
+            stack.topAnchor.constraint(equalTo: topAnchor),
+            stack.bottomAnchor.constraint(equalTo: bottomAnchor),
+            heightAnchor.constraint(greaterThanOrEqualToConstant: 44)
         ])
         updateSelectionAppearance()
     }
@@ -1686,7 +1686,7 @@ private final class NotificationTabSegmentedControl: UIView {
     }
 
     private func makeItem(for tab: NodeSeekNotificationTab) -> UIControl {
-        let control = UIControl()
+        let control = NotificationTabControlItem()
         control.translatesAutoresizingMaskIntoConstraints = false
         control.tag = tab.rawValue
         control.layer.cornerRadius = 6
@@ -1738,5 +1738,19 @@ private final class NotificationTabSegmentedControl: UIView {
         guard let tab = NodeSeekNotificationTab(rawValue: sender.tag), tab != selectedTab else { return }
         selectedTab = tab
         onSelectionChanged?(tab)
+    }
+}
+
+/// 通知分段控制的单个标签：命中区域向四周外扩 10pt，手指略微偏出边缘也能点击。
+private final class NotificationTabControlItem: UIControl {
+    private static let hitInsetExtension: CGFloat = 10
+
+    override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
+        if super.point(inside: point, with: event) { return true }
+        let extended = bounds.insetBy(
+            dx: -Self.hitInsetExtension,
+            dy: -Self.hitInsetExtension
+        )
+        return extended.contains(point)
     }
 }
