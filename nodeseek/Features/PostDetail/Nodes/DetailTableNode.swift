@@ -527,7 +527,7 @@ final class DetailCodeBlockView: UIView {
     private var copyResetWorkItem: DispatchWorkItem?
     private var hasAppliedInitialZoom = false
     private var terminalHeightConstraint: NSLayoutConstraint?
-    private var terminalShareButton: UIButton?
+    private var actionsButton = UIButton(type: .system)
 
     /// 供初始缩放写入绘制比例（全屏查看器里的同名属性属于另一个类）。
     private var canvasView: TerminalReportCanvasView? {
@@ -560,7 +560,7 @@ final class DetailCodeBlockView: UIView {
         super.didMoveToWindow()
         // 约束必须在视图进入层级后激活：init 期间按钮与 self 尚无共同祖先，
         // AsyncDisplayKit 异步挂载时激活约束会 SIGABRT（build91/92 崩溃实锤）。
-        guard window != nil, codeBlock.style == .terminal, terminalShareButton == nil else { return }
+        guard window != nil, codeBlock.style == .terminal, actionsButton.superview == nil else { return }
         configureTerminalActions()
     }
 
@@ -741,65 +741,94 @@ final class DetailCodeBlockView: UIView {
         }
     }
 
-    /// 终端分享面板：与全屏查看器一致的复制/分享。
+    /// 终端操作入口：右下角单图标，点击弹出复制/分享/保存，与报告图操作逻辑一致。
     private func configureTerminalActions() {
         guard codeBlock.style == .terminal else { return }
-        // 终端块 showsChrome 为 false，configureCopyButton 不会执行，
-        // copyButton 此前从未入层级——必须先 addSubview 再激活约束，
-        // 否则"无共同祖先"SIGABRT（build91/92 崩溃报告实锤）。
-        addSubview(copyButton)
-        copyButton.tintColor = .white
-        copyButton.backgroundColor = UIColor.black.withAlphaComponent(0.55)
-        copyButton.layer.cornerRadius = 14
-        copyButton.setImage(UIImage(systemName: "doc.on.doc"), for: .normal)
-        copyButton.removeTarget(self, action: #selector(copyCode), for: .touchUpInside)
-        copyButton.addTarget(self, action: #selector(copyTerminalText), for: .touchUpInside)
-
-        let shareButton = UIButton(type: .system)
-        shareButton.accessibilityLabel = "分享终端报告"
-        shareButton.tintColor = .white
-        shareButton.setImage(UIImage(systemName: "square.and.arrow.up"), for: .normal)
-        shareButton.backgroundColor = UIColor.black.withAlphaComponent(0.55)
-        shareButton.layer.cornerRadius = 14
-        shareButton.addTarget(self, action: #selector(shareTerminalText), for: .touchUpInside)
-        terminalShareButton = shareButton
-        addSubview(shareButton)
+        // 终端块 showsChrome 为 false，configureCopyButton 不会执行；
+        // 全部操作收进一个入口图标，避免按钮群遮挡报告内容。
+        addSubview(actionsButton)
+        actionsButton.tintColor = .white
+        actionsButton.setImage(UIImage(systemName: "ellipsis.circle"), for: .normal)
+        actionsButton.backgroundColor = UIColor.black.withAlphaComponent(0.55)
+        actionsButton.layer.cornerRadius = 14
+        actionsButton.addTarget(self, action: #selector(showTerminalActions), for: .touchUpInside)
 
         NSLayoutConstraint.activate([
-            copyButton.widthAnchor.constraint(equalToConstant: 28),
-            copyButton.heightAnchor.constraint(equalToConstant: 28),
-            copyButton.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -8),
-            copyButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -44),
-            shareButton.widthAnchor.constraint(equalToConstant: 28),
-            shareButton.heightAnchor.constraint(equalToConstant: 28),
-            shareButton.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -8),
-            shareButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8)
+            actionsButton.widthAnchor.constraint(equalToConstant: 28),
+            actionsButton.heightAnchor.constraint(equalToConstant: 28),
+            actionsButton.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -8),
+            actionsButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8)
         ])
     }
 
     @objc
-    private func copyTerminalText() {
-        UIPasteboard.general.string = codeBlock.text
-        copyButton.setImage(UIImage(systemName: "checkmark"), for: .normal)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.1) { [weak self] in
-            self?.copyButton.setImage(UIImage(systemName: "doc.on.doc"), for: .normal)
+    private func showTerminalActions() {
+        let alert = UIAlertController(title: nil, message: nil, preferredStyle: .actionSheet)
+        alert.addAction(UIAlertAction(title: "复制全文", style: .default) { [weak self] _ in
+            guard let self else { return }
+            UIPasteboard.general.string = self.codeBlock.text
+        })
+        alert.addAction(UIAlertAction(title: "分享", style: .default) { [weak self] _ in
+            guard let self else { return }
+            var responder: UIResponder? = self.next
+            while let current = responder {
+                if let viewController = current as? UIViewController {
+                    viewController.present(
+                        UIActivityViewController(activityItems: [self.terminalImage()], applicationActivities: nil),
+                        animated: true
+                    )
+                    return
+                }
+                responder = current.next
+            }
+        })
+        alert.addAction(UIAlertAction(title: "保存到相册", style: .default) { [weak self] _ in
+            guard let self else { return }
+            UIImageWriteToSavedPhotosAlbum(self.terminalImage(), self, #selector(self.image(_:didFinishSavingWithError:contextInfo:)), nil)
+        })
+        alert.addAction(UIAlertAction(title: "取消", style: .cancel))
+        // iPad 上 actionSheet 必须指定锚点。
+        if let popover = alert.popoverPresentationController {
+            popover.sourceView = actionsButton
+            popover.sourceRect = actionsButton.bounds
         }
-    }
-
-    @objc
-    private func shareTerminalText() {
         var responder: UIResponder? = next
         while let current = responder {
             if let viewController = current as? UIViewController {
-                viewController.present(
-                    UIActivityViewController(activityItems: [codeBlock.text], applicationActivities: nil),
-                    animated: true
-                )
+                viewController.present(alert, animated: true)
                 return
             }
             responder = current.next
         }
     }
+
+    /// 终端报告渲染为图片（内嵌/全屏共用，与报告图的保存/分享方式一致）。
+    func terminalImage() -> UIImage {
+        let size = scaledSize
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = UIScreen.main.scale
+        format.opaque = true
+        let renderer = UIGraphicsImageRenderer(size: size, format: format)
+        return renderer.image { _ in
+            drawHierarchy(in: CGRect(origin: .zero, size: size), afterScreenUpdates: true)
+        }
+    }
+
+    @objc
+    private func image(_ image: UIImage, didFinishSavingWithError error: Error?, contextInfo: UnsafeRawPointer) {
+        var responder: UIResponder? = next
+        while let current = responder {
+            if let viewController = current as? UIViewController {
+                let title = error == nil ? "已保存到相册" : "保存失败"
+                let alert = UIAlertController(title: title, message: error?.localizedDescription, preferredStyle: .alert)
+                alert.addAction(UIAlertAction(title: "知道了", style: .default))
+                viewController.present(alert, animated: true)
+                return
+            }
+            responder = current.next
+        }
+    }
+}
 
     @objc
     private func terminalCanvasTapped() {
@@ -1059,6 +1088,18 @@ final class TerminalReportFullscreenViewer: UIViewController, UIScrollViewDelega
         let doubleTap = UITapGestureRecognizer(target: self, action: #selector(doubleTapped))
         doubleTap.numberOfTapsRequired = 2
         scrollView.addGestureRecognizer(doubleTap)
+
+        // 单指长距离下滑直接关闭（与图片查看器交互一致）。
+        let swipeDown = UISwipeGestureRecognizer(target: self, action: #selector(swipeDownDismissed))
+        swipeDown.direction = .down
+        swipeDown.delaysTouchesBegan = false
+        view.addGestureRecognizer(swipeDown)
+    }
+
+    @objc
+    private func swipeDownDismissed() {
+        dismiss(animated: true)
+    }
 
         NSLayoutConstraint.activate([
             scrollView.leadingAnchor.constraint(equalTo: view.leadingAnchor),

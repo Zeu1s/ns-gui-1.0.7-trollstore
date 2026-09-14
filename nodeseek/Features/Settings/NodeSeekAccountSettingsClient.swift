@@ -68,7 +68,8 @@ final class NodeSeekAccountSettingsClient: NodeSeekAccountSettingsManaging {
         let root: [String: Any]
         do {
             root = try await performJSONRequest(request)
-        } catch NodeSeekAccountSettingsClientError.httpStatus(let status) where status == 403 || status == 429 {
+        } catch NodeSeekAccountSettingsClientError.httpStatus(let status)
+                where status == 403 || status == 429 || status == 500 || status == 503 {
             // URLSession 被 Cloudflare 指纹封锁（403/限流 429 拦截页）时，
             // 改用 WebView 同源 fetch 直接取同一个 getInfo JSON 接口。
             AppLog.warning(.account, "getInfo URLSession 被拦截(HTTP \(status))，改用 WebView 同源 fetch: uid=\(userID)")

@@ -1020,17 +1020,16 @@ extension PostDetailPresenter: PostDetailInteractorOutput {
         view?.finishReplySubmission()
 
         let responseMessage = response.message?.trimmingCharacters(in: .whitespacesAndNewlines)
-        if let destinationPage = replyDestinationPage() {
-            let toastMessage: String
-            if let responseMessage, responseMessage.isEmpty == false {
-                toastMessage = responseMessage
-            } else {
-                toastMessage = "评论已发布"
-            }
-            view?.showToast(message: toastMessage)
-            scheduleReplyRefreshAfterSubmission(destinationPage: destinationPage)
+        // 回帖后跳回 0 楼（首页）：与站点网页行为一致，不再跳到末页打断浏览位置。
+        let toastMessage: String
+        if let responseMessage, responseMessage.isEmpty == false {
+            toastMessage = responseMessage
         } else {
-            view?.showToast(message: "评论已发布，可到最后一页查看")
+            toastMessage = "评论已发布"
+        }
+        view?.showToast(message: toastMessage)
+        if currentPage != 1 {
+            scheduleReplyRefreshAfterSubmission(destinationPage: 1)
         }
     }
 
