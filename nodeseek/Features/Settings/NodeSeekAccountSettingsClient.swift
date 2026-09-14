@@ -146,14 +146,14 @@ final class NodeSeekAccountSettingsClient: NodeSeekAccountSettingsManaging {
                 let object = try await withHiddenWebViewPageActionLoader(
                     logMessage: "准备通过隐藏 WebView 读取空间页 readme: uid=\(userID), attempt=\(attempt + 1)"
                 ) { loader in
-                    try await loader.runPageAutomationScript(
-                        pageURL: pageURL,
-                        source: SpaceReadmeAutomationScript.source,
-                        arguments: ["timeoutMs": 12_000],
-                        timeoutInterval: 20,
-                        actionName: "空间页 Readme",
-                        requireCleanPage: false
-                    )
+                try await loader.runPageAutomationScript(
+                    pageURL: pageURL,
+                    source: SpaceReadmeAutomationScript.source,
+                    arguments: ["timeoutMs": 6_000],
+                    timeoutInterval: 12,
+                    actionName: "空间页 Readme",
+                    requireCleanPage: false
+                )
                 }
                 if let diagnose = object["diagnose"] as? [String: Any] {
                     AppLog.warning(.account, "空间页 readme 未命中诊断: \(diagnose)")

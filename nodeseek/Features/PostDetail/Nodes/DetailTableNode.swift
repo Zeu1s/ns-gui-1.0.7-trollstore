@@ -554,6 +554,14 @@ final class DetailCodeBlockView: UIView {
             configureCopyButton()
         }
         configureScrollView()
+    }
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        // 约束必须在视图进入层级后激活：init 期间 addSubview 的按钮与 self
+        // 尚无共同祖先，AsyncDisplayKit 异步挂载时激活约束会 SIGABRT
+        // （build91 崩溃报告实锤：Unable to activate constraint ... no common ancestor）。
+        guard window != nil, terminalShareButton == nil else { return }
         configureTerminalActions()
     }
 

@@ -89,6 +89,12 @@ enum SpaceReadmeAutomationScript {
       };
 
       try {
+        // 立即走 API 直读（通常 1 秒内返回）：DOM 等待 SPA 渲染太慢，
+        // API 是站点页面自己用的同一数据源，优先级应最高。
+        tryFetchAndFill().then((viaAPI) => {
+          if (viaAPI) { finish(viaAPI); }
+        });
+
         timer = window.setTimeout(async () => {
           const viaAPI = await tryFetchAndFill();
           if (viaAPI) { finish(viaAPI); return; }
@@ -105,11 +111,6 @@ enum SpaceReadmeAutomationScript {
               finish({ ok: true, reason: 'dom', html: el.innerHTML, text });
               return;
             }
-          }
-          // DOM 空时每 1.6 秒尝试一次 API 直读，最多触发 3 次后交给超时。
-          if (waited >= 1600 && waited % 1600 === 0) {
-            const viaAPI = await tryFetchAndFill();
-            if (viaAPI) { finish(viaAPI); }
           }
           if (waited >= timeoutMs) {
             finish({ ok: false, reason: 'timeout_empty', diagnose: diagnose() });
