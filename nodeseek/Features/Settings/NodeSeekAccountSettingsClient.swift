@@ -4,6 +4,7 @@
 //
 
 import Foundation
+import Kanna
 
 nonisolated struct NodeSeekAccountEditableProfile: Equatable, Sendable {
     let bio: String
@@ -97,37 +98,86 @@ final class NodeSeekAccountSettingsClient: NodeSeekAccountSettingsManaging {
         )
     }
 
+    /// 首选路径：URLSession 直接拉空间页 SSR（粉丝页 SSR 已证明 HTTP 通道可用），
+    /// Nuxt 服务端渲染会把 readme 输出在 <div class="readme post-content"> 里，
+    /// 用 Kanna 提取即可，完全免去 WebView 渲染与挑战风险。
+    func loadReadmeViaSpaceSSR(userID: Int) async -> String? {
+        var components = URLComponents(url: baseURL, resolvingAgainstBaseURL: false)
+        components?.path = "/space/\(userID)"
+        guard let url = components?.url else { return nil }
+        var request = URLRequest(url: url)
+        WebRequestFingerprint.applyHTMLHeaders(to: &request)
+        do {
+            await cookiePreparer()
+            let (data, response) = try await session.data(for: request)
+            guard let http = response as? HTTPURLResponse,
+                  (200..<300).contains(http.statusCode),
+                  let html = String(data: data, encoding: .utf8) else {
+                AppLog.info(.account, "空间页 SSR 读取失败: uid=\(userID), status=\((response as? HTTPURLResponse)?.statusCode ?? 0)")
+                return nil
+            }
+            guard let document = try? HTML(html: html, encoding: .utf8),
+                  let readmeNode = document.at_css("div.readme") else {
+                AppLog.info(.account, "空间页 SSR 未含 readme 容器: uid=\(userID), htmlLength=\(html.count)")
+                return nil
+            }
+            let innerHTML = readmeNode.innerHTML ?? ""
+            let text = (readmeNode.text ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            guard text.isEmpty == false else {
+                AppLog.info(.account, "空间页 SSR readme 为空: uid=\(userID)")
+                return nil
+            }
+            AppLog.info(.account, "空间页 SSR 提取 readme 成功: uid=\(userID), htmlLength=\(innerHTML.count)")
+            return innerHTML.isEmpty ? text : innerHTML
+        } catch {
+            AppLog.info(.account, "空间页 SSR 读取异常: uid=\(userID), \(error.localizedDescription)")
+            return nil
+        }
+    }
+
     /// 空间页兜底：getInfo 拿不到 readme（字段为空/接口被拦）时，
     /// 用隐藏 WebView 打开 /space/{uid}#/general，读取页面上渲染好的 readme 区块。
     /// 返回 HTML（优先）或纯文本，由 ProfileReadmeCell 的结构化 HTML 通道渲染。
+    /// 挑战页/加载失败自动重试一次（Cloudflare 挑战二次加载常可直接通过）。
     func loadReadmeViaSpacePage(userID: Int) async -> String? {
         let pageURL = baseURL.appendingPathComponent("space/\(userID)")
-        do {
-            let object = try await withHiddenWebViewPageActionLoader(
-                logMessage: "准备通过隐藏 WebView 读取空间页 readme: uid=\(userID)"
-            ) { loader in
-                try await loader.runPageAutomationScript(
-                    pageURL: pageURL,
-                    source: SpaceReadmeAutomationScript.source,
-                    arguments: ["timeoutMs": 12_000],
-                    timeoutInterval: 20,
-                    actionName: "空间页 Readme",
-                    requireCleanPage: false
-                )
+        for attempt in 0...1 {
+            do {
+                let object = try await withHiddenWebViewPageActionLoader(
+                    logMessage: "准备通过隐藏 WebView 读取空间页 readme: uid=\(userID), attempt=\(attempt + 1)"
+                ) { loader in
+                    try await loader.runPageAutomationScript(
+                        pageURL: pageURL,
+                        source: SpaceReadmeAutomationScript.source,
+                        arguments: ["timeoutMs": 12_000],
+                        timeoutInterval: 20,
+                        actionName: "空间页 Readme",
+                        requireCleanPage: false
+                    )
+                }
+                if let diagnose = object["diagnose"] as? [String: Any] {
+                    AppLog.warning(.account, "空间页 readme 未命中诊断: \(diagnose)")
+                }
+                guard (object["ok"] as? Bool) == true else {
+                    let reason = object["reason"] as? String ?? "unknown"
+                    AppLog.warning(.account, "空间页 readme 脚本未命中: reason=\(reason), attempt=\(attempt + 1)")
+                    guard attempt == 0 else { return nil }
+                    try? await Task.sleep(nanoseconds: 3_000_000_000)
+                    continue
+                }
+                let html = object["html"] as? String ?? ""
+                let text = (object["text"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+                guard text.isEmpty == false else { return nil }
+                AppLog.info(.account, "空间页 readme 兜底命中: htmlLength=\(html.count), textLength=\(text.count)")
+                return html.isEmpty ? text : html
+            } catch {
+                AppLog.warning(.account, "空间页 readme 兜底失败: attempt=\(attempt + 1), \(error.localizedDescription)")
+                guard attempt == 0 else { return nil }
+                try? await Task.sleep(nanoseconds: 3_000_000_000)
+                continue
             }
-            guard (object["ok"] as? Bool) == true else {
-                AppLog.warning(.account, "空间页 readme 脚本未命中: reason=\(object["reason"] as? String ?? "unknown")")
-                return nil
-            }
-            let html = object["html"] as? String ?? ""
-            let text = (object["text"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-            guard text.isEmpty == false else { return nil }
-            AppLog.info(.account, "空间页 readme 兜底命中: htmlLength=\(html.count), textLength=\(text.count)")
-            return html.isEmpty ? text : html
-        } catch {
-            AppLog.warning(.account, "空间页 readme 兜底失败: \(error.localizedDescription)")
-            return nil
         }
+        return nil
     }
 
     func updateProfile(_ profile: NodeSeekAccountEditableProfile) async throws {

@@ -263,9 +263,15 @@ final class ProfileTabViewController: UIViewController {
                 guard self.readmeLoadGeneration == generation else { return }
                 var trimmedReadme = profile.readme.trimmingCharacters(in: .whitespacesAndNewlines)
                 if trimmedReadme.isEmpty {
-                    // getInfo 未携带内容（他人资料常见）时，改读空间页渲染好的 readme。
-                    if let scraped = await self.accountSettingsClient.loadReadmeViaSpacePage(userID: userID) {
+                    // getInfo 未携带内容（他人资料接口固定 500）时，先走空间页
+                    // SSR 直提（纯 HTTP，快且无挑战风险），失败再退 WebView 渲染抓取。
+                    if let scraped = await self.accountSettingsClient.loadReadmeViaSpaceSSR(userID: userID) {
                         trimmedReadme = scraped.trimmingCharacters(in: .whitespacesAndNewlines)
+                    }
+                    if trimmedReadme.isEmpty {
+                        if let rendered = await self.accountSettingsClient.loadReadmeViaSpacePage(userID: userID) {
+                            trimmedReadme = rendered.trimmingCharacters(in: .whitespacesAndNewlines)
+                        }
                     }
                 }
                 guard self.readmeLoadGeneration == generation, self.activeUserID == userID else { return }
@@ -277,17 +283,21 @@ final class ProfileTabViewController: UIViewController {
                 if message.contains("429") || message.contains("限流") || message.contains("请求过于频繁") {
                     // 限流是暂时的：保持已有 readme 与原状态，不打失败红字。
                     AppLog.warning(.account, "Readme 加载被限流，保留现有内容: \(message)")
-                } else if let scraped = await self.accountSettingsClient.loadReadmeViaSpacePage(userID: userID),
-                          scraped.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false {
-                    guard self.readmeLoadGeneration == generation, self.activeUserID == userID else { return }
-                    // 接口链路失败时用空间页渲染结果兜底，仍失败才落失败态。
-                    self.readme = scraped.trimmingCharacters(in: .whitespacesAndNewlines)
-                    self.readmeLoadFailed = false
                 } else {
                     guard self.activeUserID == userID else { return }
-                    self.readme = nil
-                    self.readmeLoadFailed = true
-                    AppLog.warning(.account, "Readme 加载失败: " + message)
+                    // 接口链路失败：先空间页 SSR 直提，再 WebView 渲染兜底，仍失败才落失败态。
+                    let scraped = await self.accountSettingsClient.loadReadmeViaSpaceSSR(userID: userID)
+                        ?? await self.accountSettingsClient.loadReadmeViaSpacePage(userID: userID)
+                    if let scraped, scraped.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false {
+                        guard self.readmeLoadGeneration == generation, self.activeUserID == userID else { return }
+                        self.readme = scraped.trimmingCharacters(in: .whitespacesAndNewlines)
+                        self.readmeLoadFailed = false
+                    } else {
+                        guard self.readmeLoadGeneration == generation, self.activeUserID == userID else { return }
+                        self.readme = nil
+                        self.readmeLoadFailed = true
+                        AppLog.warning(.account, "Readme 加载失败: " + message)
+                    }
                 }
             }
             self.hasResolvedReadme = true

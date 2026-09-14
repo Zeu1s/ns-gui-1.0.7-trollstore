@@ -570,7 +570,7 @@ final class DetailCodeBlockView: UIView {
         applyInitialZoomIfNeeded(contentWidth: nextWidth)
     }
 
-    /// 终端报告初始整份缩放至屏宽可见；双指可继续放大阅读。
+    /// 终端报告初始整份缩放至一屏可见；双指可继续放大阅读。
     private func applyInitialZoomIfNeeded(contentWidth: CGFloat) {
         guard codeBlock.style == .terminal,
               bounds.width > 0,
@@ -578,12 +578,12 @@ final class DetailCodeBlockView: UIView {
             return
         }
         hasAppliedInitialZoom = true
-        let fitScale = DetailCodeBlockLayout.terminalFitScale(
-            naturalWidth: contentWidth,
+        let fitScale = DetailCodeBlockLayout.terminalDisplayScale(
+            codeBlock: codeBlock,
             viewportWidth: bounds.width
         )
         scrollView.minimumZoomScale = fitScale
-        scrollView.maximumZoomScale = max(fitScale * 2.5, 1.0)
+        scrollView.maximumZoomScale = max(fitScale * 3, 1.0)
         scrollView.zoomScale = fitScale
     }
 
@@ -996,15 +996,17 @@ enum DetailCodeBlockLayout {
 
     private enum Layout {
         static let minHeight: CGFloat = 64
+        /// 终端报告初始展示的最大高度：整份报告缩放后不超过此高度。
+        static let terminalMaxDisplayHeight: CGFloat = 520
     }
 
     static func measure(codeBlock: RenderedCodeBlock, constrainedSize: CGSize) -> CGSize {
         let width = resolvedWidth(constrainedSize.width)
         if codeBlock.style == .terminal {
-            // 终端报告按比例缩放适应屏宽（不再横向滚动），点击可全屏放大查看。
-            let naturalWidth = terminalNaturalCodeWidth(for: codeBlock.text)
-            let fitScale = terminalFitScale(
-                naturalWidth: naturalWidth,
+            // 终端报告初始整份缩放至一屏可见（宽与高都纳入计算），
+            // 双指可放大阅读，点击打开全屏查看器。
+            let fitScale = terminalDisplayScale(
+                codeBlock: codeBlock,
                 viewportWidth: width
             )
             let height = contentTopInset(for: .terminal)
@@ -1068,6 +1070,16 @@ enum DetailCodeBlockLayout {
     static func terminalFitScale(naturalWidth: CGFloat, viewportWidth: CGFloat) -> CGFloat {
         guard naturalWidth > viewportWidth, viewportWidth > 0 else { return 1 }
         return viewportWidth / naturalWidth
+    }
+
+    /// 宽、高两维都纳入计算的初始缩放比例，保证整份报告一屏可见。
+    static func terminalDisplayScale(codeBlock: RenderedCodeBlock, viewportWidth: CGFloat) -> CGFloat {
+        let naturalWidth = terminalNaturalCodeWidth(for: codeBlock.text)
+        let naturalHeight = terminalTextHeight(for: codeBlock.text)
+        let widthScale = terminalFitScale(naturalWidth: naturalWidth, viewportWidth: viewportWidth)
+        guard naturalHeight > Layout.terminalMaxDisplayHeight else { return widthScale }
+        let heightScale = Layout.terminalMaxDisplayHeight / naturalHeight
+        return min(widthScale, heightScale)
     }
 
     static func terminalColumnCount(for character: Character) -> Int {

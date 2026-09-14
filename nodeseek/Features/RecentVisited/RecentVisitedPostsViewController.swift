@@ -194,6 +194,11 @@ final class RecentVisitedPostsViewController: UIViewController {
                     }
                 }
                 start = end
+                // 批间 1.2 秒间隔：几十条历史连发会把站点打到 429 限流，
+                // 反过来让后续所有请求（粉丝/README/通知）一起遭殃。
+                if start < candidates.count {
+                    try? await Task.sleep(nanoseconds: 1_200_000_000)
+                }
             }
             guard let self, self.metadataRefreshGeneration == generation else { return }
             let refreshedRecords = self.records.map { record in

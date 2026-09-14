@@ -24,11 +24,12 @@ final class FansListViewController: UIViewController {
         var hashRoute: String { self == .fans ? "#/fans" : "#/follows" }
     }
 
-    private let kind: ListKind
+    private var kind: ListKind
     private let uid: Int
     private let isSelfProfile: Bool
 
     private let tableView = UITableView(frame: .zero, style: .insetGrouped)
+    private let kindSegmentedControl = UISegmentedControl(items: ["我的粉丝", "我关注的人"])
     private let refreshControl = UIRefreshControl()
     private let loadingIndicator = UIActivityIndicatorView(style: .medium)
     private let errorLabel = UILabel()
@@ -66,6 +67,14 @@ final class FansListViewController: UIViewController {
     }
 
     private func configureTableView() {
+        view.backgroundColor = .systemGroupedBackground
+
+        // 与 PWA 一致的双分类：我的粉丝 / 我关注的人。
+        kindSegmentedControl.selectedSegmentIndex = kind == .fans ? 0 : 1
+        kindSegmentedControl.addTarget(self, action: #selector(kindChanged), for: .valueChanged)
+        kindSegmentedControl.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(kindSegmentedControl)
+
         tableView.translatesAutoresizingMaskIntoConstraints = false
         tableView.backgroundColor = .systemGroupedBackground
         tableView.rowHeight = 60
@@ -82,11 +91,24 @@ final class FansListViewController: UIViewController {
 
         view.addSubview(tableView)
         NSLayoutConstraint.activate([
+            kindSegmentedControl.leadingAnchor.constraint(equalTo: view.layoutMarginsGuide.leadingAnchor),
+            kindSegmentedControl.trailingAnchor.constraint(equalTo: view.layoutMarginsGuide.trailingAnchor),
+            kindSegmentedControl.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 8),
             tableView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             tableView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            tableView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
+            tableView.topAnchor.constraint(equalTo: kindSegmentedControl.bottomAnchor, constant: 8),
             tableView.bottomAnchor.constraint(equalTo: view.bottomAnchor)
         ])
+    }
+
+    @objc
+    private func kindChanged() {
+        let newKind: ListKind = kindSegmentedControl.selectedSegmentIndex == 0 ? .fans : .follows
+        guard newKind != kind else { return }
+        kind = newKind
+        entries = []
+        title = "\(newKind.title)列表"
+        reload()
     }
 
     @objc private func refreshTriggered() {

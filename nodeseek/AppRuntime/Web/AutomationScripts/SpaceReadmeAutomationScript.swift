@@ -41,7 +41,18 @@ enum SpaceReadmeAutomationScript {
       try {
         timer = window.setTimeout(() => {
           const hit = collect();
-          finish(hit || { ok: false, reason: 'timeout_empty' });
+          if (hit) { finish(hit); return; }
+          // 超时自诊断：区分挑战页、容器缺失、内容为空三种情形。
+          finish({
+            ok: false,
+            reason: 'timeout_empty',
+            diagnose: {
+              title: (document.title || '').slice(0, 60),
+              bodyTextLength: (document.body.innerText || '').length,
+              hasReadmeNode: !!document.querySelector('[class*="readme" i]'),
+              isChallengePage: /just a moment|请稍候/i.test(document.title || '')
+            }
+          });
         }, timeoutMs);
 
         // SPA 异步渲染 readme：轮询直到出现或超时。

@@ -42,7 +42,11 @@ enum SpaceMemberListAutomationScript {
           if (!uid || seen.has(uid) || uid === ownerUid) continue;
           seen.add(uid);
 
-          const card = anchor.closest(".card-item, .member-item, [class*='member'], [class*='follow'], [class*='fans']") || anchor.parentElement || anchor;
+          // 卡片取锚点自身或其直接父行：closest([class*='fans']) 会命中
+          // 整个列表容器，导致每一行都取到容器里第一张头像与名字。
+          const card = anchor.querySelector("img")
+            ? anchor
+            : (anchor.parentElement || anchor);
           let name = "";
           const img = card.querySelector("img");
           if (img) {
@@ -50,6 +54,10 @@ enum SpaceMemberListAutomationScript {
           }
           if (!name) {
             name = (anchor.textContent || "").trim();
+          }
+          if (!name && card !== anchor) {
+            const rowText = (card.textContent || "").trim();
+            name = rowText.slice(0, 40);
           }
           if (!name) continue;
           const avatar = img ? (img.getAttribute("src") || img.getAttribute("data-src") || "") : "";

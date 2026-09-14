@@ -562,6 +562,52 @@ extension DTCoreTextHTMLContentRenderer {
         return result
     }
 
+    private static let numericEntityRegex = try! NSRegularExpression(pattern: "&#([0-9]+|x[0-9A-Fa-f]+);")
+    private static let namedCodeEntityReplacements: [String: String] = [
+        "&lt;": "<",
+        "&gt;": ">",
+        "&quot;": "\"",
+        "&apos;": "'",
+        "&nbsp;": " "
+    ]
+
+    /// 代码文本专用的实体解码：纯字符串替换，不走 WebKit。
+    /// WebKit 的 HTML 解析会把连续空格折叠成一个，而终端报告的列对齐
+    /// 全靠多空格 padding，被折叠后每行错位程度不同（测评帖纵向错位的根源）。
+    func decodedCodeHTMLEntities(in text: String) -> String {
+        guard text.contains("&") else { return text }
+        var result = text
+        for (entity, replacement) in Self.namedCodeEntityReplacements {
+            result = result.replacingOccurrences(of: entity, with: replacement)
+        }
+        // &amp; 放在最后，避免把 &amp;lt; 二次解码成 <。
+        result = result.replacingOccurrences(of: "&amp;", with: "&")
+
+        let nsResult = result as NSString
+        let fullRange = NSRange(location: 0, length: nsResult.length)
+        let matches = Self.numericEntityRegex.matches(in: result, options: [], range: fullRange)
+        guard matches.isEmpty == false else { return result }
+
+        var rebuilt = ""
+        var cursor = 0
+        for match in matches {
+            rebuilt += nsResult.substring(with: NSRange(location: cursor, length: match.range.location - cursor))
+            let digits = nsResult.substring(with: match.range(at: 1))
+            let scalarValue: UInt32?
+            if digits.hasPrefix("x") || digits.hasPrefix("X") {
+                scalarValue = UInt32(digits.dropFirst(), radix: 16)
+            } else {
+                scalarValue = UInt32(digits)
+            }
+            if let scalarValue, let scalar = Unicode.Scalar(scalarValue) {
+                rebuilt += String(Character(scalar))
+            }
+            cursor = match.range.location + match.range.length
+        }
+        rebuilt += nsResult.substring(from: cursor)
+        return rebuilt
+    }
+
     func plainCodeText(fromHTML html: String) -> String {
         let tokenized = Self.ansiControlSpanRegex.stringByReplacingMatches(
             in: html,
@@ -585,11 +631,11 @@ extension DTCoreTextHTMLContentRenderer {
             with: "",
             options: .regularExpression
         )
-        return decodedHTMLEntities(in: stripped)
+        return decodedCodeHTMLEntities(in: stripped)
     }
 
     func normalizedCodeText(_ text: String) -> String {
-        decodedHTMLEntities(in: text)
+        decodedCodeHTMLEntities(in: text)
             .replacingOccurrences(of: "\r\n", with: "\n")
             .replacingOccurrences(of: "\r", with: "\n")
             .trimmingCharacters(in: .newlines)
