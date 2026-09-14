@@ -65,10 +65,10 @@ enum SpaceReadmeAutomationScript {
           .replace(/&/g, '&amp;')
           .replace(/</g, '&lt;')
           .replace(/>/g, '&gt;');
-        html = html.replace(/!\[\]\(([^)]+)\)/g, '<img src="$1" alt="">');
-        html = html.replace(/\\[([^\\]]+)\\]\\(([^)]+)\\)/g, '<a href="$2">$1</a>');
-        html = html.replace(/\\*\\*([^*]+)\\*\\*/g, '<strong>$1</strong>');
-        html = html.split(/\\n/).join('<br>');
+        html = html.replace(new RegExp('!\\\\[\\\\]\\\\(([^)]+)\\\\)', 'g'), '<img src="$1" alt="">');
+        html = html.replace(new RegExp('\\\\[([^\\\\]]+)\\\\]\\\\(([^)]+)\\\\)', 'g'), '<a href="$2">$1</a>');
+        html = html.replace(new RegExp('\\\\*\\\\*([^*]+)\\\\*\\\\*', 'g'), '<strong>$1</strong>');
+        html = html.split('\\n').join('<br>');
         return html;
       };
 
