@@ -527,6 +527,7 @@ final class DetailCodeBlockView: UIView {
     private var copyResetWorkItem: DispatchWorkItem?
     private var hasAppliedInitialZoom = false
     private var terminalHeightConstraint: NSLayoutConstraint?
+    private var terminalShareButton: UIButton?
 
     /// 供初始缩放写入绘制比例（全屏查看器里的同名属性属于另一个类）。
     private var canvasView: TerminalReportCanvasView? {
@@ -553,6 +554,7 @@ final class DetailCodeBlockView: UIView {
             configureCopyButton()
         }
         configureScrollView()
+        configureTerminalActions()
     }
 
     required init?(coder: NSCoder) {
@@ -586,16 +588,13 @@ final class DetailCodeBlockView: UIView {
             return
         }
         hasAppliedInitialZoom = true
+        // 自适应铺满内容宽度（扣除两侧内边距）：整份报告左右完整可见，无右侧裁切。
         let naturalWidth = DetailCodeBlockLayout.terminalNaturalCodeWidth(for: codeBlock.text)
-        let fitScale = DetailCodeBlockLayout.terminalFitScale(
-            naturalWidth: naturalWidth,
-            viewportWidth: bounds.width
-        )
-        if fitScale < 1 {
-            canvasView?.displayScale = fitScale
-            terminalHeightConstraint?.constant =
-                DetailCodeBlockLayout.terminalTextHeight(for: codeBlock.text) * fitScale
-        }
+        let availableWidth = max(contentWidth - DetailCodeBlockLayout.horizontalInset * 2, 1)
+        let fitScale = min(max(availableWidth / max(naturalWidth, 1), 0.05), 1)
+        canvasView?.displayScale = fitScale
+        terminalHeightConstraint?.constant =
+            DetailCodeBlockLayout.terminalTextHeight(for: codeBlock.text) * fitScale
         scrollView.minimumZoomScale = 1
         scrollView.maximumZoomScale = 1
         scrollView.zoomScale = 1
@@ -732,6 +731,61 @@ final class DetailCodeBlockView: UIView {
             scrollView.addGestureRecognizer(
                 UITapGestureRecognizer(target: self, action: #selector(terminalCanvasTapped))
             )
+        }
+    }
+
+    /// 终端分享面板：与全屏查看器一致的复制/分享（保存即分享存储）。
+    private func configureTerminalActions() {
+        guard codeBlock.style == .terminal else { return }
+        copyButton.tintColor = .white
+        copyButton.backgroundColor = UIColor.black.withAlphaComponent(0.55)
+        copyButton.layer.cornerRadius = 14
+        copyButton.removeTarget(self, action: #selector(copyCode), for: .touchUpInside)
+        copyButton.addTarget(self, action: #selector(copyTerminalText), for: .touchUpInside)
+
+        let shareButton = UIButton(type: .system)
+        shareButton.accessibilityLabel = "分享终端报告"
+        shareButton.tintColor = .white
+        shareButton.setImage(UIImage(systemName: "square.and.arrow.up"), for: .normal)
+        shareButton.backgroundColor = UIColor.black.withAlphaComponent(0.55)
+        shareButton.layer.cornerRadius = 14
+        shareButton.addTarget(self, action: #selector(shareTerminalText), for: .touchUpInside)
+        terminalShareButton = shareButton
+        addSubview(shareButton)
+
+        NSLayoutConstraint.activate([
+            copyButton.widthAnchor.constraint(equalToConstant: 28),
+            copyButton.heightAnchor.constraint(equalToConstant: 28),
+            copyButton.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -8),
+            copyButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -44),
+            shareButton.widthAnchor.constraint(equalToConstant: 28),
+            shareButton.heightAnchor.constraint(equalToConstant: 28),
+            shareButton.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -8),
+            shareButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8)
+        ])
+    }
+
+    @objc
+    private func copyTerminalText() {
+        UIPasteboard.general.string = codeBlock.text
+        copyButton.setImage(UIImage(systemName: "checkmark"), for: .normal)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.1) { [weak self] in
+            self?.copyButton.setImage(UIImage(systemName: "doc.on.doc"), for: .normal)
+        }
+    }
+
+    @objc
+    private func shareTerminalText() {
+        var responder: UIResponder? = next
+        while let current = responder {
+            if let viewController = current as? UIViewController {
+                viewController.present(
+                    UIActivityViewController(activityItems: [codeBlock.text], applicationActivities: nil),
+                    animated: true
+                )
+                return
+            }
+            responder = current.next
         }
     }
 
