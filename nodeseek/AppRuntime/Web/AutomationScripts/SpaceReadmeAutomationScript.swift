@@ -5,9 +5,11 @@
 
 import Foundation
 
-/// 空间页 #/general 的 readme 由登录态 SPA 渲染，SSR 只有骨架。
-/// 在 WebView 加载的空间页里轮询 readme 区块（class/id 含 readme），
-/// 返回其 innerHTML 与纯文本；原生端按结构化 HTML 通道渲染。
+/// 空间页 readme 提取脚本。
+/// 诊断发现：隐藏 WebView 里 SPA 渲染时容器 div.readme 存在但内容为空
+/// （SPA 内部 API 请求未完成/失败）。因此脚本在页面上下文内直接
+/// window.fetch 站点 API（同源、带 cf_clearance 与登录态）读取 readme，
+/// 成功后回填到页面容器再提取 HTML，保证渲染管线拿到与网页一致的内容。
 enum SpaceReadmeAutomationScript {
     static let source = """
     return await new Promise(async (resolve) => {
@@ -24,48 +26,92 @@ enum SpaceReadmeAutomationScript {
       };
 
       const find = () => {
-        // 站点 readme 容器类名未公开：优先认 readme 命名，再放宽到
-        // 概况面板里的 markdown 渲染容器，避免选择器失配拿不到内容。
-        return document.querySelector('[class*="readme" i], [id*="readme" i]')
-          || document.querySelector('.space-general [class*="markdown" i], [class*="introduction" i], [class*="intro" i]');
+        return document.querySelector('div.readme, [class*="readme" i]')
+          || document.querySelector('[class*="introduction" i], [class*="intro" i]');
       };
 
-      const collect = () => {
+      const diagnose = () => ({
+        title: (document.title || '').slice(0, 60),
+        bodyTextLength: (document.body.innerText || '').length,
+        hasReadmeNode: !!find(),
+        isChallengePage: /just a moment|请稍候/i.test(document.title || '')
+      });
+
+      // uid 从当前路径 /space/{uid} 读取。
+      const uidMatch = location.pathname.match(/\\/space\\/(\\d+)/);
+      const uid = uidMatch ? uidMatch[1] : null;
+
+      const fetchAPIReadme = async () => {
+        if (!uid) return null;
+        try {
+          const resp = await window.fetch('/api/account/getInfo/' + uid + '?readme=1&signature=1', {
+            method: 'GET',
+            credentials: 'include',
+            headers: { 'Accept': 'application/json' }
+          });
+          if (!resp.ok) return null;
+          const json = await resp.json();
+          const detail = json && json.detail;
+          const readme = detail && typeof detail.readme === 'string' ? detail.readme : '';
+          return readme.trim() ? readme : null;
+        } catch (_) {
+          return null;
+        }
+      };
+
+      // markdown 转简易 HTML：链接/图片/换行，交给原生结构化 HTML 通道渲染。
+      const markdownToHTML = (md) => {
+        let html = md
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;');
+        html = html.replace(/!\[\]\(([^)]+)\)/g, '<img src="$1" alt="">');
+        html = html.replace(/\\[([^\\]]+)\\]\\(([^)]+)\\)/g, '<a href="$2">$1</a>');
+        html = html.replace(/\\*\\*([^*]+)\\*\\*/g, '<strong>$1</strong>');
+        html = html.split(/\\n/).join('<br>');
+        return html;
+      };
+
+      const tryFetchAndFill = async () => {
+        const apiReadme = await fetchAPIReadme();
+        if (!apiReadme) return null;
         const el = find();
-        if (!el) return null;
-        const text = (el.innerText || '').trim();
-        if (!text) return null;
-        return { ok: true, reason: 'ok', html: el.innerHTML, text };
+        if (el) {
+          el.innerHTML = markdownToHTML(apiReadme);
+        }
+        return {
+          ok: true,
+          reason: 'api_fetch',
+          html: markdownToHTML(apiReadme),
+          text: apiReadme
+        };
       };
 
       try {
-        timer = window.setTimeout(() => {
-          const hit = collect();
-          if (hit) { finish(hit); return; }
-          // 超时自诊断：区分挑战页、容器缺失、内容为空三种情形。
-          finish({
-            ok: false,
-            reason: 'timeout_empty',
-            diagnose: {
-              title: (document.title || '').slice(0, 60),
-              bodyTextLength: (document.body.innerText || '').length,
-              hasReadmeNode: !!document.querySelector('[class*="readme" i]'),
-              isChallengePage: /just a moment|请稍候/i.test(document.title || '')
-            }
-          });
+        timer = window.setTimeout(async () => {
+          const viaAPI = await tryFetchAndFill();
+          if (viaAPI) { finish(viaAPI); return; }
+          finish({ ok: false, reason: 'timeout_empty', diagnose: diagnose() });
         }, timeoutMs);
 
-        // SPA 异步渲染 readme：轮询直到出现或超时。
         let waited = 0;
-        poll = window.setInterval(() => {
+        poll = window.setInterval(async () => {
           waited += 400;
-          const hit = collect();
-          if (hit) {
-            finish(hit);
-            return;
+          const el = find();
+          if (el) {
+            const text = (el.innerText || '').trim();
+            if (text) {
+              finish({ ok: true, reason: 'dom', html: el.innerHTML, text });
+              return;
+            }
+          }
+          // DOM 空时每 1.6 秒尝试一次 API 直读，最多触发 3 次后交给超时。
+          if (waited >= 1600 && waited % 1600 === 0) {
+            const viaAPI = await tryFetchAndFill();
+            if (viaAPI) { finish(viaAPI); }
           }
           if (waited >= timeoutMs) {
-            finish({ ok: false, reason: 'timeout_empty' });
+            finish({ ok: false, reason: 'timeout_empty', diagnose: diagnose() });
           }
         }, 400);
       } catch (error) {

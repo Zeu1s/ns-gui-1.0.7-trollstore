@@ -132,7 +132,7 @@ final class FansListViewController: UIViewController {
                 self.displayMode = .content
             } else if loaded.isEmpty {
                 self.displayMode = .error
-                self.errorLabel.text = "暂无\(self.kind.title)或加载失败（网页结构可能已变化）"
+                self.errorLabel.text = "暂无\(self.kind.title)（或页面渲染失败，下拉重试）"
             } else {
                 self.displayMode = .content
             }
@@ -162,6 +162,12 @@ final class FansListViewController: UIViewController {
     /// SSR 内嵌成员卡则直接解析；否则走 WebView 打开真实路由 + 脚本轮询收集。
     private static func fetchEntries(kind: ListKind, uid: Int, isSelfProfile: Bool) async -> [FansListEntry] {
         guard let url = pageURL(kind: kind, uid: uid, isSelfProfile: isSelfProfile) else { return [] }
+
+        // /fans 独立页与空间页 hash 路由都是纯 SPA 渲染，SSR 里没有成员卡
+        // （日志已证），登录态下直接走 WebView 抓取，省一轮必然失败的 SSR。
+        if isSelfProfile || kind == .follows {
+            return await fetchEntriesViaWebView(kind: kind, uid: uid, isSelfProfile: isSelfProfile)
+        }
 
         var request = URLRequest(url: url)
         WebRequestFingerprint.applyHTMLHeaders(to: &request)
@@ -201,8 +207,8 @@ final class FansListViewController: UIViewController {
                 try await loader.runPageAutomationScript(
                     pageURL: referer,
                     source: SpaceMemberListAutomationScript.source,
-                    arguments: ["timeoutMs": 12_000, "ownerUid": uid],
-                    timeoutInterval: 20,
+                    arguments: ["timeoutMs": 8_000, "ownerUid": uid],
+                    timeoutInterval: 14,
                     actionName: "空间成员列表",
                     requireCleanPage: false
                 )

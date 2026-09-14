@@ -526,6 +526,12 @@ final class DetailCodeBlockView: UIView {
     private var contentWidthConstraint: NSLayoutConstraint?
     private var copyResetWorkItem: DispatchWorkItem?
     private var hasAppliedInitialZoom = false
+    private var terminalHeightConstraint: NSLayoutConstraint?
+
+    /// 供初始缩放写入绘制比例（全屏查看器里的同名属性属于另一个类）。
+    private var canvasView: TerminalReportCanvasView? {
+        terminalCanvasView
+    }
 
     private var showsChrome: Bool {
         codeBlock.style == .standard
@@ -570,7 +576,9 @@ final class DetailCodeBlockView: UIView {
         applyInitialZoomIfNeeded(contentWidth: nextWidth)
     }
 
-    /// 终端报告初始整份缩放至一屏可见；双指可继续放大阅读。
+    /// 终端初始展示：宽度铺满屏宽（整份报告左右完整可见），高度随内容自然延展
+    /// （帖子页正常滚动），不做高度截断。zoomScale == displayScale == 1 时禁用缩放，
+    /// 避免双指手势与帖子页滚动手势冲突。
     private func applyInitialZoomIfNeeded(contentWidth: CGFloat) {
         guard codeBlock.style == .terminal,
               bounds.width > 0,
@@ -578,13 +586,19 @@ final class DetailCodeBlockView: UIView {
             return
         }
         hasAppliedInitialZoom = true
-        let fitScale = DetailCodeBlockLayout.terminalDisplayScale(
-            codeBlock: codeBlock,
+        let naturalWidth = DetailCodeBlockLayout.terminalNaturalCodeWidth(for: codeBlock.text)
+        let fitScale = DetailCodeBlockLayout.terminalFitScale(
+            naturalWidth: naturalWidth,
             viewportWidth: bounds.width
         )
-        scrollView.minimumZoomScale = fitScale
-        scrollView.maximumZoomScale = max(fitScale * 3, 1.0)
-        scrollView.zoomScale = fitScale
+        if fitScale < 1 {
+            canvasView?.displayScale = fitScale
+            terminalHeightConstraint?.constant =
+                DetailCodeBlockLayout.terminalTextHeight(for: codeBlock.text) * fitScale
+        }
+        scrollView.minimumZoomScale = 1
+        scrollView.maximumZoomScale = 1
+        scrollView.zoomScale = 1
     }
 
     private func configureView() {
@@ -705,17 +719,16 @@ final class DetailCodeBlockView: UIView {
         ])
 
         if let terminalCanvasView {
+            let heightConstraint = terminalCanvasView.heightAnchor.constraint(
+                equalToConstant: DetailCodeBlockLayout.terminalTextHeight(for: codeBlock.text)
+            )
+            terminalHeightConstraint = heightConstraint
             NSLayoutConstraint.activate([
-                terminalCanvasView.heightAnchor.constraint(
-                    equalToConstant: DetailCodeBlockLayout.terminalTextHeight(for: codeBlock.text)
-                ),
+                heightConstraint,
                 terminalCanvasView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor)
             ])
-            // 终端报告支持双指缩放，点击打开全屏放大查看器。
-            scrollView.delegate = self
+            // 点击打开全屏放大查看器（内嵌缩放与帖子页滚动手势冲突，已移除）。
             scrollView.showsHorizontalScrollIndicator = false
-            scrollView.minimumZoomScale = 0.05
-            scrollView.maximumZoomScale = 2.0
             scrollView.addGestureRecognizer(
                 UITapGestureRecognizer(target: self, action: #selector(terminalCanvasTapped))
             )
@@ -807,9 +820,19 @@ final class DetailCodeBlockView: UIView {
 
 /// 按终端字符网格绘制 ANSI 报告。不能把 ANSI 背景交给 UILabel：中文回退字形的
 /// 宽度并不等于终端列宽，会让 NodeQuality 的色块与文字错列。
+/// displayScale 直接按目标比例绘制（字号/格宽同步缩放），而不是整体 transform
+/// 缩放——后者会产生栅格模糊与笔画错位感。
 final class TerminalReportCanvasView: UIView {
     private let codeBlock: RenderedCodeBlock
     private let lines: [Substring]
+    /// 绘制比例：1 = 原始终端字号。改变后按新比例重绘，文字始终清晰。
+    var displayScale: CGFloat = 1 {
+        didSet {
+            guard abs(displayScale - oldValue) > 0.001 else { return }
+            setNeedsDisplay()
+            invalidateIntrinsicContentSize()
+        }
+    }
 
     init(codeBlock: RenderedCodeBlock) {
         self.codeBlock = codeBlock
@@ -824,13 +847,32 @@ final class TerminalReportCanvasView: UIView {
         fatalError("init(coder:) has not been implemented")
     }
 
+    var naturalSize: CGSize {
+        CGSize(
+            width: DetailCodeBlockLayout.terminalNaturalCodeWidth(for: codeBlock.text),
+            height: DetailCodeBlockLayout.terminalTextHeight(for: codeBlock.text)
+        )
+    }
+
+    var scaledSize: CGSize {
+        CGSize(width: naturalSize.width * displayScale, height: naturalSize.height * displayScale)
+    }
+
+    override var intrinsicContentSize: CGSize {
+        scaledSize
+    }
+
     override func draw(_ rect: CGRect) {
         UIColor(red: 29 / 255, green: 29 / 255, blue: 29 / 255, alpha: 1).setFill()
         UIRectFill(bounds)
 
+        let scale = max(displayScale, 0.05)
+        let cellWidth = DetailCodeBlockLayout.terminalCellWidth * scale
+        let lineHeight = DetailCodeBlockLayout.terminalLineHeight * scale
+
         var utf16Location = 0
         for (lineIndex, line) in lines.enumerated() {
-            let lineOrigin = CGFloat(lineIndex) * DetailCodeBlockLayout.terminalLineHeight
+            let lineOrigin = CGFloat(lineIndex) * lineHeight
             var column = 0
 
             for character in line {
@@ -838,12 +880,12 @@ final class TerminalReportCanvasView: UIView {
                 let characterLength = (characterText as NSString).length
                 let style = terminalStyle(at: utf16Location)
                 let columnCount = DetailCodeBlockLayout.terminalColumnCount(for: character)
-                let width = CGFloat(columnCount) * DetailCodeBlockLayout.terminalCellWidth
+                let width = CGFloat(columnCount) * cellWidth
                 let frame = CGRect(
-                    x: CGFloat(column) * DetailCodeBlockLayout.terminalCellWidth,
+                    x: CGFloat(column) * cellWidth,
                     y: lineOrigin,
                     width: width,
-                    height: DetailCodeBlockLayout.terminalLineHeight
+                    height: lineHeight
                 )
 
                 if let background = style?.backgroundColorIndex {
@@ -858,7 +900,7 @@ final class TerminalReportCanvasView: UIView {
                 (characterText as NSString).draw(
                     at: CGPoint(x: frame.minX, y: frame.minY),
                     withAttributes: [
-                        .font: TerminalPalette.font(isBold: isBold, isItalic: isItalic),
+                        .font: TerminalPalette.font(isBold: isBold, isItalic: isItalic, size: 13 * scale),
                         .foregroundColor: foreground
                     ]
                 )
@@ -880,18 +922,14 @@ final class TerminalReportCanvasView: UIView {
     }
 }
 
-extension DetailCodeBlockView: UIScrollViewDelegate {
-    func viewForZooming(in scrollView: UIScrollView) -> UIView? {
-        codeBlock.style == .terminal ? contentView : nil
-    }
-}
-
-/// 终端报告全屏查看器：初始整份缩放至一屏可见，双指/双击放大到接近原始字号。
+/// 终端报告全屏查看器：初始整份铺屏宽，双指/双击放大到原始字号。
 final class TerminalReportFullscreenViewer: UIViewController, UIScrollViewDelegate {
     private let codeBlock: RenderedCodeBlock
     private let scrollView = UIScrollView()
     private let canvasView: TerminalReportCanvasView
     private var naturalSize: CGSize = .zero
+    private var initialFitScale: CGFloat = 0.05
+    private var hasAppliedInitialLayout = false
 
     init(codeBlock: RenderedCodeBlock) {
         self.codeBlock = codeBlock
@@ -918,7 +956,16 @@ final class TerminalReportFullscreenViewer: UIViewController, UIScrollViewDelega
         let naturalWidth = DetailCodeBlockLayout.terminalNaturalCodeWidth(for: codeBlock.text)
         let naturalHeight = DetailCodeBlockLayout.terminalTextHeight(for: codeBlock.text)
         naturalSize = CGSize(width: naturalWidth, height: naturalHeight)
-        canvasView.frame = CGRect(origin: .zero, size: naturalSize)
+        // 初始整份铺屏宽显示（同内嵌视图），双击在整份缩览与原始字号间切换。
+        let fitScale = min(
+            max(UIScreen.main.bounds.width - 24, 100) / naturalWidth,
+            1
+        )
+        canvasView.displayScale = fitScale
+        canvasView.frame = CGRect(
+            origin: .zero,
+            size: CGSize(width: naturalWidth * fitScale, height: naturalHeight * fitScale)
+        )
         scrollView.addSubview(canvasView)
 
         let closeButton = UIButton(type: .system)
@@ -949,23 +996,32 @@ final class TerminalReportFullscreenViewer: UIViewController, UIScrollViewDelega
 
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
-        guard naturalSize.width > 0, naturalSize.height > 0 else { return }
-        scrollView.contentSize = naturalSize
-        let fitScale = max(min(
-            view.bounds.width / naturalSize.width,
-            view.bounds.height / naturalSize.height,
-            1
-        ), 0.05)
-        scrollView.minimumZoomScale = fitScale
-        scrollView.maximumZoomScale = max(fitScale * 3, 1.0)
-        if scrollView.zoomScale < scrollView.minimumZoomScale {
-            scrollView.zoomScale = fitScale
-            scrollView.contentOffset = .zero
-        }
+        guard naturalSize.width > 0, naturalSize.height > 0, hasAppliedInitialLayout == false else { return }
+        hasAppliedInitialLayout = true
+        // 初始整份铺屏宽；zoomScale=1 对应该状态，最小缩放回到初始比例。
+        initialFitScale = min(max(view.bounds.width - 24, 100) / naturalSize.width, 1)
+        applyDisplayScale(initialFitScale * scrollView.zoomScale)
+        scrollView.minimumZoomScale = initialFitScale
+        scrollView.maximumZoomScale = 1.0
+        scrollView.zoomScale = 1
+        scrollView.contentOffset = .zero
+    }
+
+    private func applyDisplayScale(_ scale: CGFloat) {
+        let clamped = max(min(scale, 1), initialFitScale)
+        canvasView.displayScale = clamped
+        let scaledSize = CGSize(width: naturalSize.width * clamped, height: naturalSize.height * clamped)
+        canvasView.frame = CGRect(origin: .zero, size: scaledSize)
+        scrollView.contentSize = scaledSize
     }
 
     func viewForZooming(in scrollView: UIScrollView) -> UIView? {
         canvasView
+    }
+
+    func scrollViewDidZoom(_ scrollView: UIScrollView) {
+        // 缩放直接驱动绘制比例：文字按目标字号重绘，不产生栅格模糊。
+        applyDisplayScale(initialFitScale * scrollView.zoomScale)
     }
 
     @objc
@@ -975,12 +1031,10 @@ final class TerminalReportFullscreenViewer: UIViewController, UIScrollViewDelega
 
     @objc
     private func doubleTapped() {
-        let target: CGFloat
-        if scrollView.zoomScale > scrollView.minimumZoomScale + 0.01 {
-            target = scrollView.minimumZoomScale
-        } else {
-            target = min(max(scrollView.minimumZoomScale * 3, 1.0), scrollView.maximumZoomScale)
-        }
+        // 整份缩览 ↔ 原始字号。
+        let target: CGFloat = scrollView.zoomScale > scrollView.minimumZoomScale + 0.01
+            ? scrollView.minimumZoomScale
+            : scrollView.maximumZoomScale
         scrollView.setZoomScale(target, animated: true)
     }
 }
@@ -996,17 +1050,14 @@ enum DetailCodeBlockLayout {
 
     private enum Layout {
         static let minHeight: CGFloat = 64
-        /// 终端报告初始展示的最大高度：整份报告缩放后不超过此高度。
-        static let terminalMaxDisplayHeight: CGFloat = 520
     }
 
     static func measure(codeBlock: RenderedCodeBlock, constrainedSize: CGSize) -> CGSize {
         let width = resolvedWidth(constrainedSize.width)
         if codeBlock.style == .terminal {
-            // 终端报告初始整份缩放至一屏可见（宽与高都纳入计算），
-            // 双指可放大阅读，点击打开全屏查看器。
-            let fitScale = terminalDisplayScale(
-                codeBlock: codeBlock,
+            // 终端初始宽度铺满屏宽（整份报告左右完整可见），高度随内容自然延展。
+            let fitScale = terminalFitScale(
+                naturalWidth: terminalNaturalCodeWidth(for: codeBlock.text),
                 viewportWidth: width
             )
             let height = contentTopInset(for: .terminal)
@@ -1072,16 +1123,6 @@ enum DetailCodeBlockLayout {
         return viewportWidth / naturalWidth
     }
 
-    /// 宽、高两维都纳入计算的初始缩放比例，保证整份报告一屏可见。
-    static func terminalDisplayScale(codeBlock: RenderedCodeBlock, viewportWidth: CGFloat) -> CGFloat {
-        let naturalWidth = terminalNaturalCodeWidth(for: codeBlock.text)
-        let naturalHeight = terminalTextHeight(for: codeBlock.text)
-        let widthScale = terminalFitScale(naturalWidth: naturalWidth, viewportWidth: viewportWidth)
-        guard naturalHeight > Layout.terminalMaxDisplayHeight else { return widthScale }
-        let heightScale = Layout.terminalMaxDisplayHeight / naturalHeight
-        return min(widthScale, heightScale)
-    }
-
     static func terminalColumnCount(for character: Character) -> Int {
         guard character != "\t" else { return 4 }
         return character.unicodeScalars.contains(where: { scalar in
@@ -1136,9 +1177,9 @@ private enum TerminalPalette {
         return UIColor(red: red / 255, green: green / 255, blue: blue / 255, alpha: 1)
     }
 
-    static func font(isBold: Bool, isItalic: Bool) -> UIFont {
+    static func font(isBold: Bool, isItalic: Bool, size: CGFloat? = nil) -> UIFont {
         let base = UIFont.monospacedSystemFont(
-            ofSize: DetailCodeBlockLayout.codeFont.pointSize,
+            ofSize: size ?? DetailCodeBlockLayout.codeFont.pointSize,
             weight: isBold ? .bold : .regular
         )
         guard isItalic,

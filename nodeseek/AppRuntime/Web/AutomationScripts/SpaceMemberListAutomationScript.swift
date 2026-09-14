@@ -32,11 +32,11 @@ enum SpaceMemberListAutomationScript {
       const collect = () => {
         const entries = [];
         const seen = new Set();
-        const anchors = Array.from(document.querySelectorAll('a[href*="/space/"]'));
+        const anchors = Array.from(document.querySelectorAll('a[href*="/space/"], a[href*="/user/"]'));
         for (const anchor of anchors) {
           if (isChrome(anchor)) continue;
           const href = anchor.getAttribute("href") || "";
-          const match = href.match(/\\/space\\/(\\d+)/);
+          const match = href.match(/\\/(?:space|user)\\/(\\d+)/);
           if (!match) continue;
           const uid = parseInt(match[1], 10);
           if (!uid || seen.has(uid) || uid === ownerUid) continue;
@@ -69,7 +69,26 @@ enum SpaceMemberListAutomationScript {
       try {
         timer = window.setTimeout(() => {
           const entries = collect();
-          finish({ ok: entries.length > 0, reason: entries.length > 0 ? "ok" : "timeout_empty", entries });
+          if (entries.length > 0) {
+            finish({ ok: true, reason: "ok", entries });
+            return;
+          }
+          // 空结果自诊断：区分"确实没有数据"与"页面没渲染出来"。
+          const spaceLinks = document.querySelectorAll('a[href*="/space/"]').length;
+          const userLinks = document.querySelectorAll('a[href*="/user/"]').length;
+          const emptyHint = /暂无|没有|empty/i.test(document.body.innerText || '');
+          finish({
+            ok: false,
+            reason: emptyHint ? "genuinely_empty" : "timeout_empty",
+            entries,
+            diagnose: {
+              title: (document.title || '').slice(0, 60),
+              bodyTextLength: (document.body.innerText || '').length,
+              spaceAnchorCount: spaceLinks,
+              userAnchorCount: userLinks,
+              isChallengePage: /just a moment|请稍候/i.test(document.title || '')
+            }
+          });
         }, timeoutMs);
 
         // SPA 异步渲染成员卡：轮询直到出现或超时。
