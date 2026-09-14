@@ -276,7 +276,12 @@ actor PostSummaryResolver {
 
         let request = Task { () -> PostSummary? in
             do {
-                let result = try await NodeSeekService().loadPostDetail(postID: postID)
+                // 历史页会一次刷新几十条；默认构造的 NodeSeekService 直连隐藏
+                // WebView，会串行占锁几十秒拖死其它 WebView 动作（表现为卡死）。
+                // 这里必须走 HTTP 优先的标准客户端。
+                let result = try await NodeSeekService(
+                    htmlClient: HTMLLoadingStrategyFactory.makeDefaultClient()
+                ).loadPostDetail(postID: postID)
                 guard case let .value(detail) = result else { return nil }
                 return PostSummary(
                     id: detail.id,

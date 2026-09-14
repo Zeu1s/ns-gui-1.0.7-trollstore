@@ -23,7 +23,12 @@ enum SpaceReadmeAutomationScript {
         resolve(payload);
       };
 
-      const find = () => document.querySelector('[class*="readme" i], [id*="readme" i]');
+      const find = () => {
+        // 站点 readme 容器类名未公开：优先认 readme 命名，再放宽到
+        // 概况面板里的 markdown 渲染容器，避免选择器失配拿不到内容。
+        return document.querySelector('[class*="readme" i], [id*="readme" i]')
+          || document.querySelector('.space-general [class*="markdown" i], [class*="introduction" i], [class*="intro" i]');
+      };
 
       const collect = () => {
         const el = find();

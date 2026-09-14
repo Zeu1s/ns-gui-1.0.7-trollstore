@@ -120,22 +120,10 @@ nonisolated enum DetailImageLayout {
             return DetailImagePresentation(size: fixedNormalImageSize(maxWidth: maxWidth), mode: .thumbnailCrop)
         }
 
-        let maxPreviewHeight = normalPreviewMaxHeight(maxWidth: maxWidth)
-        let aspectFitSize = scaledSize(for: originalSize, maxWidth: maxWidth, maxHeight: nil)
-        guard maxPreviewHeight > 0, aspectFitSize.height > maxPreviewHeight else {
-            return DetailImagePresentation(size: aspectFitSize, mode: .aspectFit)
-        }
-
-        // 长图（如 NetQuality 报告截图，高宽比 ≥1.5）加载完成后自动完整展开，
-        // 不再裁剪半屏等待手动点开。
-        let aspectRatio = originalSize.height / originalSize.width
-        if aspectRatio >= 1.5 {
-            return DetailImagePresentation(size: aspectFitSize, mode: .aspectFit)
-        }
-
+        // 帖子图片一律按比例完整显示，不再裁剪半屏等待手动点开。
         return DetailImagePresentation(
-            size: CGSize(width: maxWidth, height: maxPreviewHeight),
-            mode: .thumbnailCrop
+            size: scaledSize(for: originalSize, maxWidth: maxWidth, maxHeight: nil),
+            mode: .aspectFit
         )
     }
 
@@ -147,10 +135,6 @@ nonisolated enum DetailImageLayout {
             size: scaledSize(for: originalSize, maxWidth: maxWidth, maxHeight: nil),
             mode: .aspectFit
         )
-    }
-
-    private static func normalPreviewMaxHeight(maxWidth: CGFloat) -> CGFloat {
-        floor(maxWidth / 2)
     }
 
     static func allowsInlineAnimation(

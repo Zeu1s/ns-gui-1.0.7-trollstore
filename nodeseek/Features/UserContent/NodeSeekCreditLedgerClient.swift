@@ -47,6 +47,12 @@ final class NodeSeekCreditLedgerClient {
         await cookiePreparer()
         switch kind {
         case .stardust:
+            // 星辰接口忽略 page 参数（422: "page" is not allowed），单次返回全量；
+            // 第 2 页起返回空，避免把同一份数据反复追加成重复行。
+            guard page == 1 else {
+                stardustNextPage = nil
+                return []
+            }
             let loaded = try await NodeSeekStardustHTTPClient.load(page: page, uid: uid)
             stardustNextPage = loaded.nextPage
             return loaded.records

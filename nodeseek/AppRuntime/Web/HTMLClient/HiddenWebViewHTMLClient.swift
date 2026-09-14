@@ -393,8 +393,17 @@ final class HiddenWebViewLoader: NSObject, WKNavigationDelegate {
         htmlPollingTask?.cancel()
     }
 
-    func load(request: URLRequest, timeoutInterval: TimeInterval) async throws -> HTMLResponse {
+    /// SPA 页（/fans、/space）缺少可用内容标记，常规挑战轮询会空转
+    /// 13 秒才放行；自动化脚本自带校验时由调用方跳过轮询。
+    private var skipsChallengePollingForCurrentLoad = false
+
+    func load(
+        request: URLRequest,
+        timeoutInterval: TimeInterval,
+        skipsChallengePolling: Bool = false
+    ) async throws -> HTMLResponse {
         self.timeoutInterval = timeoutInterval
+        skipsChallengePollingForCurrentLoad = skipsChallengePolling
         resetForNextRequest()
         initialURL = request.url
         updateDebugOverlayIfNeeded()
@@ -665,14 +674,19 @@ final class HiddenWebViewLoader: NSObject, WKNavigationDelegate {
         source: String,
         arguments: [String: Any],
         timeoutInterval: TimeInterval,
-        actionName: String
+        actionName: String,
+        requireCleanPage: Bool = true
     ) async throws -> [String: Any] {
         let response = try await loadAutomationPageIfNeeded(
             pageURL: pageURL,
             timeoutInterval: timeoutInterval,
-            actionName: actionName
+            actionName: actionName,
+            skipsChallengePolling: requireCleanPage == false
         )
-        if let challenge = ChallengeDetector().detect(response: response) {
+        // requireCleanPage=false 用于 SPA 页面（/fans、/space 等）：这类页面
+        // 缺少帖子列表标记，会被 ChallengeDetector 误判成 Cloudflare 挑战页，
+        // 导致脚本从未执行。脚本自身带轮询与超时，可以自证页面可用性。
+        if requireCleanPage, let challenge = ChallengeDetector().detect(response: response) {
             return [
                 "ok": false,
                 "statusCode": response.statusCode,
@@ -709,22 +723,35 @@ final class HiddenWebViewLoader: NSObject, WKNavigationDelegate {
         ]
     }
 
-    private func loadAutomationPage(pageURL: URL, timeoutInterval: TimeInterval) async throws -> HTMLResponse {
+    private func loadAutomationPage(
+        pageURL: URL,
+        timeoutInterval: TimeInterval,
+        skipsChallengePolling: Bool = false
+    ) async throws -> HTMLResponse {
         let request = makeAutomationPageRequest(pageURL: pageURL, timeoutInterval: timeoutInterval)
         AppLog.info(.webView, "自动化页面请求已创建: method=\(request.httpMethod ?? "nil"), url=\(pageURL.absoluteString), cachePolicy=\(request.cachePolicy.rawValue), timeout=\(Int(timeoutInterval))s")
-        return try await load(request: request, timeoutInterval: timeoutInterval)
+        return try await load(
+            request: request,
+            timeoutInterval: timeoutInterval,
+            skipsChallengePolling: skipsChallengePolling
+        )
     }
 
     private func loadAutomationPageIfNeeded(
         pageURL: URL,
         timeoutInterval: TimeInterval,
-        actionName: String
+        actionName: String,
+        skipsChallengePolling: Bool = false
     ) async throws -> HTMLResponse {
         if let cachedResponse = reusableAutomationPageResponse(for: pageURL, actionName: actionName) {
             return cachedResponse
         }
         AppLog.info(.webView, "动作页缓存未命中，重新加载: action=\(actionName), url=\(pageURL.absoluteString)")
-        return try await loadAutomationPage(pageURL: pageURL, timeoutInterval: timeoutInterval)
+        return try await loadAutomationPage(
+            pageURL: pageURL,
+            timeoutInterval: timeoutInterval,
+            skipsChallengePolling: skipsChallengePolling
+        )
     }
 
     private func reusableAutomationPageResponse(for pageURL: URL, actionName: String) -> HTMLResponse? {
@@ -781,7 +808,9 @@ final class HiddenWebViewLoader: NSObject, WKNavigationDelegate {
                     let html = try await self.readOuterHTML()
                     let hasUsableContent = ChallengeDetector.containsUsableNodeSeekHTML(html)
                     let isChallengePage = Self.isChallengePage(html: html)
-                    let shouldResolve = !isChallengePage || self.challengePollCount >= self.maxChallengePollCount
+                    let shouldResolve = !isChallengePage
+                        || self.challengePollCount >= self.maxChallengePollCount
+                        || self.skipsChallengePollingForCurrentLoad
 
                     if hasUsableContent || shouldResolve {
                         AppLog.info(.webView, "结束轮询，challenge 状态: \(isChallengePage), usableContent: \(hasUsableContent), pollCount: \(self.challengePollCount)")

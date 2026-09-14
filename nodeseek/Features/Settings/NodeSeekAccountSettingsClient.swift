@@ -111,7 +111,8 @@ final class NodeSeekAccountSettingsClient: NodeSeekAccountSettingsManaging {
                     source: SpaceReadmeAutomationScript.source,
                     arguments: ["timeoutMs": 12_000],
                     timeoutInterval: 20,
-                    actionName: "空间页 Readme"
+                    actionName: "空间页 Readme",
+                    requireCleanPage: false
                 )
             }
             guard (object["ok"] as? Bool) == true else {

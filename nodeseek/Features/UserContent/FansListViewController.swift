@@ -181,7 +181,8 @@ final class FansListViewController: UIViewController {
                     source: SpaceMemberListAutomationScript.source,
                     arguments: ["timeoutMs": 12_000, "ownerUid": uid],
                     timeoutInterval: 20,
-                    actionName: "空间成员列表"
+                    actionName: "空间成员列表",
+                    requireCleanPage: false
                 )
             }
             let entries = (object["entries"] as? [[String: Any]] ?? []).compactMap { raw -> FansListEntry? in

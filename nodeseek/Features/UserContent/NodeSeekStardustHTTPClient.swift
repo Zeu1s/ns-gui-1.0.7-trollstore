@@ -114,42 +114,58 @@ enum NodeSeekStardustHTTPClient {
             return Page(records: records, nextPage: nextPage)
         }
 
-        // 形态 2：对象行 [{num, reason, ...}, ...]
+        // 形态 2：对象行 [{diff, type, created_at, ...}, ...]
+        // build85 日志实锤站点真实返回：{"success":true,"cursor":3884,"exist_more":false,
+        // "records":[{"result":6,"diff":1,"type":"upvote","created_at":"...","member_id":...}]}
         if let objectRows = rows as? [[String: Any]] {
             let records = objectRows.compactMap { row -> CreditLedgerRecord? in
-                guard let amount = int(row["num"] ?? row["amount"] ?? row["change"]) else { return nil }
-                let signed = row["change"] != nil
-                var direction: CreditLedgerRecord.Direction = .neutral
-                if let type = string(row["type"] ?? row["direction"]) {
-                    let lowered = type.lowercased()
-                    if lowered.contains("out") || lowered.contains("sub") || lowered.contains("pay") || lowered.contains("send") || lowered.contains("use") {
-                        direction = .outcome
-                    } else if lowered.contains("in") || lowered.contains("add") || lowered.contains("recv") {
-                        direction = .income
-                    }
+                guard let diff = int(row["diff"] ?? row["num"] ?? row["amount"] ?? row["change"]) else {
+                    return nil
                 }
-                if direction == .neutral {
-                    direction = CreditLedgerRecord.Direction(amount: amount, hasSign: signed)
-                }
+                let type = string(row["type"]) ?? ""
                 return CreditLedgerRecord(
                     kind: .stardust,
-                    title: string(row["reason"] ?? row["title"] ?? row["remark"]) ?? "星辰变动",
-                    detail: string(row["detail"] ?? row["from_name"] ?? row["member_name"] ?? row["desc"]),
-                    amount: abs(amount),
-                    direction: direction,
-                    balanceAfter: int(row["balance"] ?? row["total"] ?? row["remain"]),
+                    title: stardustTitle(for: type),
+                    detail: string(row["reason"] ?? row["remark"] ?? row["desc"]),
+                    amount: abs(diff),
+                    direction: diff >= 0 ? .income : .outcome,
+                    balanceAfter: int(row["result"] ?? row["balance"] ?? row["total"]),
                     date: dateValue(row["created_at"] ?? row["time"] ?? row["date"])
                 )
             }
             if records.isEmpty == false {
-                AppLog.info(.service, "星辰接口解析成功: rows=object, count=\(records.count)")
-                return Page(records: records, nextPage: records.count >= 20 ? page + 1 : nil)
+                let existMore = (root["exist_more"] as? Bool) ?? ((root["exist_more"] as? NSNumber)?.boolValue)
+                AppLog.info(.service, "星辰接口解析成功: rows=object, count=\(records.count), existMore=\(existMore.map(String.init) ?? "nil")")
+                // 接口忽略 page 参数（422），当前仅支持一次性全量返回；
+                // 第 2 页起返回空，交由客户端停止分页避免重复数据。
+                return Page(records: records, nextPage: nil)
             }
             // 对象行但都解析不出金额：记日志暴露真实字段
             AppLog.warning(.service, "星辰对象行解析失败: \(String(data: (try? JSONSerialization.data(withJSONObject: root)) ?? Data(), encoding: .utf8)?.prefix(400) ?? "")")
         }
 
         throw CreditLedgerClientError.unsuccessfulResponse("星辰明细数据形态未知")
+    }
+
+    private static func stardustTitle(for type: String) -> String {
+        switch type.lowercased() {
+        case "upvote":
+            return "内容获赞"
+        case "downvote":
+            return "内容被反对"
+        case "post_daily":
+            return "发帖奖励"
+        case "check_in", "checkin":
+            return "签到奖励"
+        case "transfer_out", "send":
+            return "转出星辰"
+        case "transfer_in", "receive", "recv":
+            return "转入星辰"
+        case "exchange":
+            return "兑换"
+        default:
+            return type.isEmpty ? "星辰变动" : type
+        }
     }
 
     private static func int(_ value: Any?) -> Int? {
