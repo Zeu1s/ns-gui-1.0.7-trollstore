@@ -158,11 +158,11 @@ extension DTCoreTextHTMLContentRenderer {
                 .map(RenderedContentBlock.image)
             var blocks = terminalBlocks.map { RenderedContentBlock.codeBlock($0) }
             var seenReportURLs = Set<String>()
-            for image in reportImageBlocks {
+            for case let .image(image) in reportImageBlocks {
                 guard seenReportURLs.insert(image.url.absoluteString.lowercased()).inserted else {
                     continue
                 }
-                blocks.append(image)
+                blocks.append(.image(image))
             }
             return blocks + authoredImages
         }

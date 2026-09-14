@@ -544,19 +544,22 @@ extension DTCoreTextHTMLContentRenderer {
     /// 把 plainCodeText 保留的 ANSI 控制符占位 token 还原成真实控制字符。
     func restoredANSIControlText(_ text: String) -> String {
         guard text.contains(Self.ansiControlTokenMarker) else { return text }
-        let fullRange = NSRange(location: 0, length: (text as NSString).length)
-        return Self.ansiControlTokenRegex.stringByReplacingMatches(
-            in: text,
-            options: [],
-            range: fullRange
-        ) { match in
-            guard let range = Range(match.range(at: 1), in: text),
-                  let code = UInt32(text[range]),
-                  let scalar = Unicode.Scalar(code) else {
-                return ""
+        let nsText = text as NSString
+        let fullRange = NSRange(location: 0, length: nsText.length)
+        var result = ""
+        var cursor = 0
+        for match in Self.ansiControlTokenRegex.matches(in: text, options: [], range: fullRange) {
+            let gap = NSRange(location: cursor, length: match.range.location - cursor)
+            result += nsText.substring(with: gap)
+            if let range = Range(match.range(at: 1), in: text),
+               let code = UInt32(text[range]),
+               let scalar = Unicode.Scalar(code) {
+                result += String(Character(scalar))
             }
-            return String(Character(scalar))
+            cursor = match.range.location + match.range.length
         }
+        result += nsText.substring(from: cursor)
+        return result
     }
 
     func plainCodeText(fromHTML html: String) -> String {
