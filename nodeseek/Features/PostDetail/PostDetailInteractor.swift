@@ -448,6 +448,9 @@ class PostDetailInteractor: PostDetailInteractorInput {
         voteLoadTask?.cancel()
         let submitter = postVoteSubmitter
         voteLoadTask = Task { [weak self] in
+            // 错开详情首屏的渲染高峰，避免投票状态的 WebView 加载挤占资源。
+            try? await Task.sleep(nanoseconds: 1_000_000_000)
+            guard Task.isCancelled == false else { return }
             do {
                 let vote = try await submitter.loadVote(referer: pageURL)
                 guard Task.isCancelled == false, let self else { return }

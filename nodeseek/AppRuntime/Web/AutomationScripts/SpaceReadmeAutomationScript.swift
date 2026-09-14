@@ -44,7 +44,8 @@ enum SpaceReadmeAutomationScript {
       const fetchAPIReadme = async () => {
         if (!uid) return null;
         try {
-          const resp = await window.fetch('/api/account/getInfo/' + uid + '?readme=1&signature=1', {
+          // 与站点 SPA 一致只带 readme=1；带 signature=1 服务端固定 500。
+          const resp = await window.fetch('/api/account/getInfo/' + uid + '?readme=1', {
             method: 'GET',
             credentials: 'include',
             headers: { 'Accept': 'application/json' }

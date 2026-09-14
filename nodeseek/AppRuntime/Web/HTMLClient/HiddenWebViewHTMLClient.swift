@@ -806,8 +806,14 @@ final class HiddenWebViewLoader: NSObject, WKNavigationDelegate {
             while !Task.isCancelled {
                 do {
                     let html = try await self.readOuterHTML()
-                    let hasUsableContent = ChallengeDetector.containsUsableNodeSeekHTML(html)
-                    let isChallengePage = Self.isChallengePage(html: html)
+                    // Kanna/正则解析 200KB+ 页面在主线程会卡出秒级停顿，
+                    // 挪到后台线程执行，主线程只负责读 HTML 与续行/收尾。
+                    let (hasUsableContent, isChallengePage) = await Task.detached(priority: .userInitiated) {
+                        (
+                            ChallengeDetector.containsUsableNodeSeekHTML(html),
+                            Self.isChallengePage(html: html)
+                        )
+                    }.value
                     let shouldResolve = !isChallengePage
                         || self.challengePollCount >= self.maxChallengePollCount
                         || self.skipsChallengePollingForCurrentLoad

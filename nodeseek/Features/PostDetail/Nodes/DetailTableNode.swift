@@ -870,6 +870,9 @@ final class TerminalReportCanvasView: UIView {
         let cellWidth = DetailCodeBlockLayout.terminalCellWidth * scale
         let lineHeight = DetailCodeBlockLayout.terminalLineHeight * scale
 
+        // runs 按位置有序：游标只前进不回扫，把每字符 O(runs) 的线性查找
+        // 降为均摊 O(1)——NQ 报告数万字符时全量 draw 否则会卡出秒级停顿。
+        var runIndex = 0
         var utf16Location = 0
         for (lineIndex, line) in lines.enumerated() {
             let lineOrigin = CGFloat(lineIndex) * lineHeight
@@ -878,7 +881,14 @@ final class TerminalReportCanvasView: UIView {
             for character in line {
                 let characterText = String(character)
                 let characterLength = (characterText as NSString).length
-                let style = terminalStyle(at: utf16Location)
+                while runIndex < codeBlock.runs.count,
+                      utf16Location >= codeBlock.runs[runIndex].location + codeBlock.runs[runIndex].length {
+                    runIndex += 1
+                }
+                let style: RenderedCodeBlockRun? = runIndex < codeBlock.runs.count
+                    && utf16Location >= codeBlock.runs[runIndex].location
+                    ? codeBlock.runs[runIndex]
+                    : nil
                 let columnCount = DetailCodeBlockLayout.terminalColumnCount(for: character)
                 let width = CGFloat(columnCount) * cellWidth
                 let frame = CGRect(
@@ -912,12 +922,6 @@ final class TerminalReportCanvasView: UIView {
             if lineIndex < lines.count - 1 {
                 utf16Location += 1
             }
-        }
-    }
-
-    private func terminalStyle(at location: Int) -> RenderedCodeBlockRun? {
-        codeBlock.runs.first { run in
-            location >= run.location && location < run.location + run.length
         }
     }
 }
