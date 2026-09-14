@@ -286,8 +286,10 @@ final class ProfileTabViewController: UIViewController {
                 } else {
                     guard self.activeUserID == userID else { return }
                     // 接口链路失败：先空间页 SSR 直提，再 WebView 渲染兜底，仍失败才落失败态。
-                    let scraped = await self.accountSettingsClient.loadReadmeViaSpaceSSR(userID: userID)
-                        ?? await self.accountSettingsClient.loadReadmeViaSpacePage(userID: userID)
+                    var scraped = await self.accountSettingsClient.loadReadmeViaSpaceSSR(userID: userID)
+                    if scraped == nil {
+                        scraped = await self.accountSettingsClient.loadReadmeViaSpacePage(userID: userID)
+                    }
                     if let scraped, scraped.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false {
                         guard self.readmeLoadGeneration == generation, self.activeUserID == userID else { return }
                         self.readme = scraped.trimmingCharacters(in: .whitespacesAndNewlines)
