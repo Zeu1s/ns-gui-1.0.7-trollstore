@@ -558,10 +558,9 @@ final class DetailCodeBlockView: UIView {
 
     override func didMoveToWindow() {
         super.didMoveToWindow()
-        // 约束必须在视图进入层级后激活：init 期间 addSubview 的按钮与 self
-        // 尚无共同祖先，AsyncDisplayKit 异步挂载时激活约束会 SIGABRT
-        // （build91 崩溃报告实锤：Unable to activate constraint ... no common ancestor）。
-        guard window != nil, terminalShareButton == nil else { return }
+        // 约束必须在视图进入层级后激活：init 期间按钮与 self 尚无共同祖先，
+        // AsyncDisplayKit 异步挂载时激活约束会 SIGABRT（build91/92 崩溃实锤）。
+        guard window != nil, codeBlock.style == .terminal, terminalShareButton == nil else { return }
         configureTerminalActions()
     }
 
@@ -742,12 +741,17 @@ final class DetailCodeBlockView: UIView {
         }
     }
 
-    /// 终端分享面板：与全屏查看器一致的复制/分享（保存即分享存储）。
+    /// 终端分享面板：与全屏查看器一致的复制/分享。
     private func configureTerminalActions() {
         guard codeBlock.style == .terminal else { return }
+        // 终端块 showsChrome 为 false，configureCopyButton 不会执行，
+        // copyButton 此前从未入层级——必须先 addSubview 再激活约束，
+        // 否则"无共同祖先"SIGABRT（build91/92 崩溃报告实锤）。
+        addSubview(copyButton)
         copyButton.tintColor = .white
         copyButton.backgroundColor = UIColor.black.withAlphaComponent(0.55)
         copyButton.layer.cornerRadius = 14
+        copyButton.setImage(UIImage(systemName: "doc.on.doc"), for: .normal)
         copyButton.removeTarget(self, action: #selector(copyCode), for: .touchUpInside)
         copyButton.addTarget(self, action: #selector(copyTerminalText), for: .touchUpInside)
 
