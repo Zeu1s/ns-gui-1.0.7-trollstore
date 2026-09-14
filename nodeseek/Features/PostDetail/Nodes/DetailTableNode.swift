@@ -828,7 +828,6 @@ final class DetailCodeBlockView: UIView {
             responder = current.next
         }
     }
-}
 
     @objc
     private func terminalCanvasTapped() {
