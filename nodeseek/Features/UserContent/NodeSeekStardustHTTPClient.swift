@@ -65,8 +65,22 @@ enum NodeSeekStardustHTTPClient {
             throw CreditLedgerClientError.unsuccessfulResponse(message)
         }
 
-        guard let rows = root["data"] else {
-            AppLog.warning(.service, "星辰接口无 data: \(String(data: (try? JSONSerialization.data(withJSONObject: root)) ?? Data(), encoding: .utf8)?.prefix(300) ?? "")")
+        // data 兼容三种形态：顶层数组、对象行数组、包一层字典（list/records/rows/detail）。
+        func rowsValue(_ value: Any?) -> Any? {
+            guard let value else { return nil }
+            if value is [[Any]] || value is [[String: Any]] { return value }
+            if let dict = value as? [String: Any] {
+                for key in ["list", "records", "rows", "detail", "data"] {
+                    if let inner = dict[key], inner is [[Any]] || inner is [[String: Any]] {
+                        return inner
+                    }
+                }
+            }
+            return nil
+        }
+
+        guard let rows = rowsValue(root["data"]) ?? rowsValue(root["list"]) ?? rowsValue(root["records"]) else {
+            AppLog.warning(.service, "星辰接口无可识别行: \(String(data: (try? JSONSerialization.data(withJSONObject: root)) ?? Data(), encoding: .utf8)?.prefix(300) ?? "")")
             throw CreditLedgerClientError.unsuccessfulResponse("星辰接口未返回数据")
         }
 
@@ -87,7 +101,8 @@ enum NodeSeekStardustHTTPClient {
                     date: date
                 )
             }
-            let total = int(root["total"])
+            let wrapper = root["data"] as? [String: Any]
+            let total = int(root["total"]) ?? wrapper.flatMap { int($0["total"]) }
             let nextPage: Int?
             if let total {
                 let maxPage = Int(ceil(Double(max(total, 1)) / 20.0))
@@ -95,6 +110,7 @@ enum NodeSeekStardustHTTPClient {
             } else {
                 nextPage = records.count >= 20 ? page + 1 : nil
             }
+            AppLog.info(.service, "星辰接口解析成功: rows=array, count=\(records.count), total=\(total.map(String.init) ?? "nil")")
             return Page(records: records, nextPage: nextPage)
         }
 
@@ -126,6 +142,7 @@ enum NodeSeekStardustHTTPClient {
                 )
             }
             if records.isEmpty == false {
+                AppLog.info(.service, "星辰接口解析成功: rows=object, count=\(records.count)")
                 return Page(records: records, nextPage: records.count >= 20 ? page + 1 : nil)
             }
             // 对象行但都解析不出金额：记日志暴露真实字段

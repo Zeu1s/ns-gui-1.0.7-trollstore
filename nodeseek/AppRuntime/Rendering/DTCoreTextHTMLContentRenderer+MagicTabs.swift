@@ -137,8 +137,8 @@ extension DTCoreTextHTMLContentRenderer {
     }
 
     /// 保留标签页的原始顺序，避免“全部”页把多个测评输出混在同一屏。
-    /// NodeQuality 的终端输出已有同一份 Check.Place 报告图时，以报告图作为唯一
-    /// 展示内容。这样不会在移动端生成横向过宽的终端面板，报告也始终可点按查看。
+    /// NodeQuality 的终端输出以彩色终端为主（还原 ANSI 背景色），
+    /// 同一份 Check.Place 报告图保留在终端下方，可点开查看大图。
     private func magicTabContentBlocks(
         from bodyHTML: String,
         baseURL: URL,
@@ -150,15 +150,21 @@ extension DTCoreTextHTMLContentRenderer {
         let reportURLs = Set(checkPlaceReportURLs(in: bodyHTML).map {
             $0.absoluteString.lowercased()
         })
-        if let terminalCodeBlock = xtermMagicTabCodeBlock(from: bodyHTML)
-            ?? ansiMagicTabCodeBlock(from: bodyHTML) {
+        let terminalBlocks = xtermMagicTabCodeBlock(from: bodyHTML).map { [$0] }
+            ?? ansiMagicTabCodeBlocks(from: bodyHTML)
+        if terminalBlocks.isEmpty == false {
             let authoredImages = promotableImageBlocks(in: bodyHTML)
                 .filter { reportURLs.contains($0.url.absoluteString.lowercased()) == false }
                 .map(RenderedContentBlock.image)
-            if reportImageBlocks.isEmpty == false {
-                return reportImageBlocks + authoredImages
+            var blocks = terminalBlocks.map { RenderedContentBlock.codeBlock($0) }
+            var seenReportURLs = Set<String>()
+            for image in reportImageBlocks {
+                guard seenReportURLs.insert(image.url.absoluteString.lowercased()).inserted else {
+                    continue
+                }
+                blocks.append(image)
             }
-            return [.codeBlock(terminalCodeBlock)] + authoredImages
+            return blocks + authoredImages
         }
 
         let renderedBlocks = renderContentBlocks(
@@ -341,21 +347,30 @@ extension DTCoreTextHTMLContentRenderer {
         return RenderedCodeBlock(text: text, style: .terminal, runs: runs)
     }
 
-    private func ansiMagicTabCodeBlock(from bodyHTML: String) -> RenderedCodeBlock? {
+    private func ansiMagicTabCodeBlocks(from bodyHTML: String) -> [RenderedCodeBlock] {
         let normalizedHTML = bodyHTML.lowercased()
         guard normalizedHTML.contains("language-ansi") || normalizedHTML.contains("data-ansicode") else {
-            return nil
+            return []
         }
         guard let document = try? HTML(
             html: "<div id=\"__nodeseek_magic_tab_body__\">\(bodyHTML)</div>",
             encoding: .utf8
-        ), let codeNode = document.at_css("pre > code")
-        else {
-            return nil
+        ) else {
+            return []
         }
-        let rawText = codeText(from: codeNode).trimmingCharacters(in: .whitespacesAndNewlines)
-        guard rawText.isEmpty == false else { return nil }
-        return terminalCodeBlock(fromANSIText: normalizedCodeText(rawText))
+        // 同一标签页可能包含多份 ANSI 报告（如 IPv4 + IPv6 各一份 pre），逐个收集。
+        return document.css("pre > code").compactMap { codeNode in
+            let isANSICode = hasClass("language-ansi", in: codeNode)
+                || (codeNode.toHTML?.contains("data-ansicode") == true)
+            guard isANSICode else { return nil }
+            let rawText = codeText(from: codeNode).trimmingCharacters(in: .whitespacesAndNewlines)
+            guard rawText.isEmpty == false else { return nil }
+            // 先还原 data-ansicode 控制符占位 token 再解析 ANSI 颜色段。
+            let terminal = terminalCodeBlock(
+                fromANSIText: restoredANSIControlText(normalizedCodeText(rawText))
+            )
+            return terminal.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : terminal
+        }
     }
 
     private struct TerminalStyle: Equatable {
@@ -416,7 +431,8 @@ extension DTCoreTextHTMLContentRenderer {
         )
     }
 
-    private func terminalCodeBlock(fromANSIText text: String) -> RenderedCodeBlock {
+    /// 解析 ANSI 转义文本为带颜色段的终端块。正文裸终端块与 magic tab 共用。
+    func terminalCodeBlock(fromANSIText text: String) -> RenderedCodeBlock {
         let source = text as NSString
         let pattern = "\u{001B}?\\[([0-9;]*)m"
         let regex = try! NSRegularExpression(pattern: pattern, options: [])
@@ -499,7 +515,9 @@ extension DTCoreTextHTMLContentRenderer {
     }
 
     func stripANSICodes(from text: String) -> String {
-        let escapedText = text.replacingOccurrences(of: "\u{001B}", with: "")
+        // 占位 token 先还原成控制符再统一剥离，避免降级文本里残留私有区字符。
+        let restoredText = restoredANSIControlText(text)
+        let escapedText = restoredText.replacingOccurrences(of: "\u{001B}", with: "")
         let fullRange = NSRange(location: 0, length: (escapedText as NSString).length)
         return Self.ansiCodeRegex.stringByReplacingMatches(
             in: escapedText,

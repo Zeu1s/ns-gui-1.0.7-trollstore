@@ -495,7 +495,8 @@ extension DTCoreTextHTMLContentRenderer {
 
     func codeBlock(from preNode: XMLElement) -> RenderedCodeBlock? {
         let rawText: String?
-        if let codeNode = preNode.at_css("code") {
+        let codeNode = preNode.at_css("code")
+        if let codeNode {
             rawText = codeText(from: codeNode)
         } else {
             rawText = fallbackPreText(from: preNode)
@@ -505,6 +506,13 @@ extension DTCoreTextHTMLContentRenderer {
               text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
         else {
             return nil
+        }
+        // ANSI 终端块（language-ansi 或站点控制符编码）：保留颜色段交给终端画布，
+        // 与网页端的黑底彩色输出保持一致。
+        let isANSICode = codeNode?["class"]?.split(separator: " ").contains("language-ansi") == true
+            || text.contains(Self.ansiControlTokenMarker)
+        if isANSICode {
+            return terminalCodeBlock(fromANSIText: restoredANSIControlText(text))
         }
         return RenderedCodeBlock(text: text)
     }
@@ -521,8 +529,44 @@ extension DTCoreTextHTMLContentRenderer {
         return plainCodeText(fromHTML: html)
     }
 
+    /// 站点 SSR 把 ANSI 控制字符编码成空 span（如 data-ansicode="27" 表示 ESC）。
+    /// 先替换成占位 token 走完实体解码，再用 restoredANSIControlText 换回控制符，
+    /// 否则下方通用去标签逻辑会把它一并剥掉，终端颜色段全部丢失。
+    static let ansiControlTokenMarker = "\u{E000}NSANSI"
+    private static let ansiControlTokenTerminator = "\u{E001}"
+    private static let ansiControlSpanRegex = try! NSRegularExpression(
+        pattern: #"<span[^>]*\bdata-ansicode="([0-9]+)"[^>]*>\s*</span>"#
+    )
+    private static let ansiControlTokenRegex = try! NSRegularExpression(
+        pattern: "\u{E000}NSANSI([0-9]+)\u{E001}"
+    )
+
+    /// 把 plainCodeText 保留的 ANSI 控制符占位 token 还原成真实控制字符。
+    func restoredANSIControlText(_ text: String) -> String {
+        guard text.contains(Self.ansiControlTokenMarker) else { return text }
+        let fullRange = NSRange(location: 0, length: (text as NSString).length)
+        return Self.ansiControlTokenRegex.stringByReplacingMatches(
+            in: text,
+            options: [],
+            range: fullRange
+        ) { match in
+            guard let range = Range(match.range(at: 1), in: text),
+                  let code = UInt32(text[range]),
+                  let scalar = Unicode.Scalar(code) else {
+                return ""
+            }
+            return String(Character(scalar))
+        }
+    }
+
     func plainCodeText(fromHTML html: String) -> String {
-        let withoutChrome = html
+        let tokenized = Self.ansiControlSpanRegex.stringByReplacingMatches(
+            in: html,
+            options: [],
+            range: NSRange(html.startIndex..., in: html),
+            withTemplate: "\(Self.ansiControlTokenMarker)$1\(Self.ansiControlTokenTerminator)"
+        )
+        let withoutChrome = tokenized
             .replacingOccurrences(
                 of: "(?is)<(script|style|button|svg)\\b[^>]*>.*?</\\1>",
                 with: "",

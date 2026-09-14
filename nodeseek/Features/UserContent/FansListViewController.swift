@@ -26,6 +26,7 @@ final class FansListViewController: UIViewController {
 
     private let kind: ListKind
     private let uid: Int
+    private let isSelfProfile: Bool
 
     private let tableView = UITableView(frame: .zero, style: .insetGrouped)
     private let refreshControl = UIRefreshControl()
@@ -41,15 +42,16 @@ final class FansListViewController: UIViewController {
         case error
     }
 
-    private init(kind: ListKind, uid: Int) {
+    private init(kind: ListKind, uid: Int, isSelfProfile: Bool) {
         self.kind = kind
         self.uid = uid
+        self.isSelfProfile = isSelfProfile
         super.init(nibName: nil, bundle: nil)
         title = "\(kind.title)列表"
     }
 
-    convenience init(fansOf uid: Int) {
-        self.init(kind: .fans, uid: uid)
+    convenience init(fansOf uid: Int, isSelfProfile: Bool = false) {
+        self.init(kind: .fans, uid: uid, isSelfProfile: isSelfProfile)
     }
 
     required init?(coder: NSCoder) {
@@ -96,7 +98,11 @@ final class FansListViewController: UIViewController {
         applyDisplayState()
         Task { [weak self] in
             guard let self else { return }
-            let loaded = await Self.fetchEntries(kind: self.kind, uid: self.uid)
+            let loaded = await Self.fetchEntries(
+                kind: self.kind,
+                uid: self.uid,
+                isSelfProfile: self.isSelfProfile
+            )
             guard self.isViewLoaded else { return }
             self.entries = loaded
             self.refreshControl.endRefreshing()
@@ -113,53 +119,67 @@ final class FansListViewController: UIViewController {
         }
     }
 
-    /// 空间页粉丝/关注列表由登录态 SPA 渲染。SPA 从 hash 启动后异步拉取
-    /// 成员数据，概况页即可满足 usableContent 判定导致提前返回，因此改用
-    /// 页面内脚本轮询：等成员卡（/space/ 链接）出现或超时，再收集结果。
-    /// 粉丝/关注：先 URLSession.shared 拉空间页 SSR（登录 cookie 已带），
-    /// SSR 内嵌成员卡则直接解析；否则（SPA 渲染形态）走 WebView + 脚本轮询。
-    private static func fetchEntries(kind: ListKind, uid: Int) async -> [FansListEntry] {
+    /// 站点真实路由：自己的粉丝列表是独立页面 /fans?type=fans；
+    /// 其余（他人粉丝、关注列表）在空间页 hash 路由 #/fans、#/follows。
+    /// 此前 WebView 统一加载 /space/{uid} 概况页，SPA 只渲染概况，
+    /// 脚本把页头资料卡也当成员收集，导致列表为空/首项是自己。
+    private static func pageURL(kind: ListKind, uid: Int, isSelfProfile: Bool) -> URL? {
         var components = URLComponents(url: NodeSeekSite.baseURL, resolvingAgainstBaseURL: false)
-        components?.path = "/space/\(uid)"
-        guard let url = components?.url else { return [] }
+        if kind == .fans && isSelfProfile {
+            components?.path = "/fans"
+            components?.queryItems = [URLQueryItem(name: "type", value: "fans")]
+        } else {
+            components?.path = "/space/\(uid)"
+            // URLComponents.fragment 会自动补 "#"，这里只给路由部分。
+            components?.fragment = kind == .fans ? "/fans" : "/follows"
+        }
+        return components?.url
+    }
+
+    /// 粉丝/关注列表由登录态 SPA 渲染。先 URLSession 拉 SSR（登录 cookie 已带），
+    /// SSR 内嵌成员卡则直接解析；否则走 WebView 打开真实路由 + 脚本轮询收集。
+    private static func fetchEntries(kind: ListKind, uid: Int, isSelfProfile: Bool) async -> [FansListEntry] {
+        guard let url = pageURL(kind: kind, uid: uid, isSelfProfile: isSelfProfile) else { return [] }
 
         var request = URLRequest(url: url)
         WebRequestFingerprint.applyHTMLHeaders(to: &request)
 
         do {
             let (data, response) = try await URLSession.shared.data(for: request)
-            guard let http = response as? HTTPURLResponse else { return await fetchEntriesViaWebView(kind: kind, uid: uid) }
+            guard let http = response as? HTTPURLResponse else {
+                return await fetchEntriesViaWebView(kind: kind, uid: uid, isSelfProfile: isSelfProfile)
+            }
             let html = String(data: data, encoding: .utf8) ?? ""
             AppLog.info(.account,
                 "\(kind.title)列表 SSR 响应: status=\(http.statusCode), html=\(html.count), "
                 + "hasSpaceLink=\(html.contains("/space/")), hasMemberCard=\(html.contains("card-item"))")
             guard (200..<300).contains(http.statusCode) else {
                 // URLSession 被 Cloudflare 指纹封锁（403 拦截页）时走 WebView。
-                return await fetchEntriesViaWebView(kind: kind, uid: uid)
+                return await fetchEntriesViaWebView(kind: kind, uid: uid, isSelfProfile: isSelfProfile)
             }
             let parsed = parseEntries(html: html, kind: kind)
             if parsed.isEmpty == false {
                 return parsed
             }
             AppLog.warning(.account, "\(kind.title)列表 SSR 未解析到成员卡，HTML 前 500 字: \(String(html.prefix(500)))")
-            return await fetchEntriesViaWebView(kind: kind, uid: uid)
+            return await fetchEntriesViaWebView(kind: kind, uid: uid, isSelfProfile: isSelfProfile)
         } catch {
             AppLog.warning(.account, "\(kind.title)列表 HTTP 失败: \(error.localizedDescription)")
-            return await fetchEntriesViaWebView(kind: kind, uid: uid)
+            return await fetchEntriesViaWebView(kind: kind, uid: uid, isSelfProfile: isSelfProfile)
         }
     }
 
-    /// WebView 加载空间页（登录态 + Cloudflare 已放行），脚本轮询 SPA 渲染的成员卡。
-    private static func fetchEntriesViaWebView(kind: ListKind, uid: Int) async -> [FansListEntry] {
-        let referer = NodeSeekSite.baseURL.appendingPathComponent("space/\(uid)")
+    /// WebView 加载真实列表路由（登录态 + Cloudflare 已放行），脚本轮询 SPA 渲染的成员卡。
+    private static func fetchEntriesViaWebView(kind: ListKind, uid: Int, isSelfProfile: Bool) async -> [FansListEntry] {
+        guard let referer = pageURL(kind: kind, uid: uid, isSelfProfile: isSelfProfile) else { return [] }
         do {
             let object = try await withHiddenWebViewPageActionLoader(
-                logMessage: "准备通过隐藏 WebView 抓取\(kind.title)列表: uid=\(uid)"
+                logMessage: "准备通过隐藏 WebView 抓取\(kind.title)列表: uid=\(uid), url=\(referer.absoluteString)"
             ) { loader in
                 try await loader.runPageAutomationScript(
                     pageURL: referer,
                     source: SpaceMemberListAutomationScript.source,
-                    arguments: ["timeoutMs": 12_000],
+                    arguments: ["timeoutMs": 12_000, "ownerUid": uid],
                     timeoutInterval: 20,
                     actionName: "空间成员列表"
                 )

@@ -87,12 +87,46 @@ final class NodeSeekAccountSettingsClient: NodeSeekAccountSettingsManaging {
         }
         if detail["readme"] == nil {
             AppLog.warning(.account, "getInfo 响应的 detail 无 readme 字段，keys: \(detail.keys.sorted().joined(separator: ","))")
+        } else {
+            AppLog.info(.account, "getInfo 解析成功: uid=\(userID), readmeLength=\((detail["readme"] as? String)?.count ?? -1), keys=\(detail.keys.sorted().joined(separator: ","))")
         }
         return NodeSeekAccountEditableProfile(
             bio: Self.string(detail["bio"]),
             signature: Self.string(detail["signature_markdown"]),
             readme: Self.string(detail["readme"])
         )
+    }
+
+    /// 空间页兜底：getInfo 拿不到 readme（字段为空/接口被拦）时，
+    /// 用隐藏 WebView 打开 /space/{uid}#/general，读取页面上渲染好的 readme 区块。
+    /// 返回 HTML（优先）或纯文本，由 ProfileReadmeCell 的结构化 HTML 通道渲染。
+    func loadReadmeViaSpacePage(userID: Int) async -> String? {
+        let pageURL = baseURL.appendingPathComponent("space/\(userID)")
+        do {
+            let object = try await withHiddenWebViewPageActionLoader(
+                logMessage: "准备通过隐藏 WebView 读取空间页 readme: uid=\(userID)"
+            ) { loader in
+                try await loader.runPageAutomationScript(
+                    pageURL: pageURL,
+                    source: SpaceReadmeAutomationScript.source,
+                    arguments: ["timeoutMs": 12_000],
+                    timeoutInterval: 20,
+                    actionName: "空间页 Readme"
+                )
+            }
+            guard (object["ok"] as? Bool) == true else {
+                AppLog.warning(.account, "空间页 readme 脚本未命中: reason=\(object["reason"] as? String ?? "unknown")")
+                return nil
+            }
+            let html = object["html"] as? String ?? ""
+            let text = (object["text"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            guard text.isEmpty == false else { return nil }
+            AppLog.info(.account, "空间页 readme 兜底命中: htmlLength=\(html.count), textLength=\(text.count)")
+            return html.isEmpty ? text : html
+        } catch {
+            AppLog.warning(.account, "空间页 readme 兜底失败: \(error.localizedDescription)")
+            return nil
+        }
     }
 
     func updateProfile(_ profile: NodeSeekAccountEditableProfile) async throws {

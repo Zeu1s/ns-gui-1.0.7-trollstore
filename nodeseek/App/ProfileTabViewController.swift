@@ -260,17 +260,31 @@ final class ProfileTabViewController: UIViewController {
             guard let self else { return }
             do {
                 let profile = try await self.accountSettingsClient.loadProfile(userID: userID)
+                guard self.readmeLoadGeneration == generation else { return }
+                var trimmedReadme = profile.readme.trimmingCharacters(in: .whitespacesAndNewlines)
+                if trimmedReadme.isEmpty {
+                    // getInfo 未携带内容（他人资料常见）时，改读空间页渲染好的 readme。
+                    if let scraped = await self.accountSettingsClient.loadReadmeViaSpacePage(userID: userID) {
+                        trimmedReadme = scraped.trimmingCharacters(in: .whitespacesAndNewlines)
+                    }
+                }
                 guard self.readmeLoadGeneration == generation, self.activeUserID == userID else { return }
-                let trimmedReadme = profile.readme.trimmingCharacters(in: .whitespacesAndNewlines)
                 self.readme = trimmedReadme.isEmpty ? nil : trimmedReadme
                 self.readmeLoadFailed = false
             } catch {
-                guard self.readmeLoadGeneration == generation, self.activeUserID == userID else { return }
+                guard self.readmeLoadGeneration == generation else { return }
                 let message = error.localizedDescription
                 if message.contains("429") || message.contains("限流") || message.contains("请求过于频繁") {
                     // 限流是暂时的：保持已有 readme 与原状态，不打失败红字。
                     AppLog.warning(.account, "Readme 加载被限流，保留现有内容: \(message)")
+                } else if let scraped = await self.accountSettingsClient.loadReadmeViaSpacePage(userID: userID),
+                          scraped.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false {
+                    guard self.readmeLoadGeneration == generation, self.activeUserID == userID else { return }
+                    // 接口链路失败时用空间页渲染结果兜底，仍失败才落失败态。
+                    self.readme = scraped.trimmingCharacters(in: .whitespacesAndNewlines)
+                    self.readmeLoadFailed = false
                 } else {
+                    guard self.activeUserID == userID else { return }
                     self.readme = nil
                     self.readmeLoadFailed = true
                     AppLog.warning(.account, "Readme 加载失败: " + message)
@@ -402,7 +416,7 @@ final class ProfileTabViewController: UIViewController {
     private func openFansList() {
         guard let uid = activeUserID else { return }
         navigationController?.pushViewController(
-            FansListViewController(fansOf: uid),
+            FansListViewController(fansOf: uid, isSelfProfile: uid == currentUserID),
             animated: true
         )
     }
@@ -438,7 +452,57 @@ final class ProfileTabViewController: UIViewController {
             openTelegramLink(url)
             return
         }
-        navigationController?.pushViewController(NodeSeekWebViewController(url: url), animated: true)
+        // 复用帖子详情的链接分类器：站内帖子/用户/私信走原生页，
+        // 真正的站外链接才进内置浏览器，与网页端跳转体验一致。
+        guard let destination = PostDetailLinkResolver.destination(
+            for: url,
+            baseURL: NodeSeekSite.baseURL
+        ) else {
+            navigationController?.pushViewController(NodeSeekWebViewController(url: url), animated: true)
+            return
+        }
+        switch destination {
+        case .nativePost(let postID, let page, let resolvedURL):
+            let anchorID = NodeSeekPostRouteResolver.route(
+                for: resolvedURL,
+                baseURL: NodeSeekSite.baseURL
+            )?.anchorID
+            let post = PostSummary(
+                id: postID,
+                title: "帖子 #\(postID)",
+                url: resolvedURL,
+                authorName: "",
+                nodeName: nil,
+                replyCount: 0,
+                lastActivityText: nil
+            )
+            navigationController?.pushViewController(
+                PostDetailRouter.createModule(post: post, page: page, initialAnchorID: anchorID),
+                animated: true
+            )
+        case .nativePrivateMessage(let participantID):
+            navigationController?.pushViewController(
+                PrivateMessageViewController(
+                    participantID: participantID,
+                    participantName: userInfo?.username ?? "私信"
+                ),
+                animated: true
+            )
+        case .userProfile(let profileURL):
+            if let userID = NodeSeekUserIDResolver.uid(from: profileURL) {
+                navigationController?.pushViewController(ProfileTabViewController(userID: userID), animated: true)
+            } else {
+                navigationController?.pushViewController(NodeSeekWebViewController(url: profileURL), animated: true)
+            }
+        case .web(let webURL):
+            navigationController?.pushViewController(NodeSeekWebViewController(url: webURL), animated: true)
+        case .safari(let safariURL):
+            UIApplication.shared.open(safariURL)
+        case .externalApp(let appURL):
+            UIApplication.shared.open(appURL)
+        case .currentPageAnchor:
+            break
+        }
     }
 
     private func isTelegramLink(_ url: URL) -> Bool {
