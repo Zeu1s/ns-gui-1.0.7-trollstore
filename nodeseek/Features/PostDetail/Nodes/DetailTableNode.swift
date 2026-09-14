@@ -922,7 +922,8 @@ final class TerminalReportCanvasView: UIView {
     }
 }
 
-/// 终端报告全屏查看器：初始整份铺屏宽，双指/双击放大到原始字号。
+/// 终端报告全屏查看器：初始整份缩放并居中，双指/双击放大到原始字号（松手保持），
+/// 底部提供复制/分享操作。
 final class TerminalReportFullscreenViewer: UIViewController, UIScrollViewDelegate {
     private let codeBlock: RenderedCodeBlock
     private let scrollView = UIScrollView()
@@ -930,6 +931,8 @@ final class TerminalReportFullscreenViewer: UIViewController, UIScrollViewDelega
     private var naturalSize: CGSize = .zero
     private var initialFitScale: CGFloat = 0.05
     private var hasAppliedInitialLayout = false
+    private let copyButton = UIButton(type: .system)
+    private let shareButton = UIButton(type: .system)
 
     init(codeBlock: RenderedCodeBlock) {
         self.codeBlock = codeBlock
@@ -948,24 +951,14 @@ final class TerminalReportFullscreenViewer: UIViewController, UIScrollViewDelega
         view.backgroundColor = UIColor(red: 29 / 255, green: 29 / 255, blue: 29 / 255, alpha: 1)
 
         scrollView.delegate = self
-        scrollView.alwaysBounceVertical = true
-        scrollView.alwaysBounceHorizontal = true
+        scrollView.alwaysBounceVertical = false
+        scrollView.alwaysBounceHorizontal = false
         scrollView.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(scrollView)
 
         let naturalWidth = DetailCodeBlockLayout.terminalNaturalCodeWidth(for: codeBlock.text)
         let naturalHeight = DetailCodeBlockLayout.terminalTextHeight(for: codeBlock.text)
         naturalSize = CGSize(width: naturalWidth, height: naturalHeight)
-        // 初始整份铺屏宽显示（同内嵌视图），双击在整份缩览与原始字号间切换。
-        let fitScale = min(
-            max(UIScreen.main.bounds.width - 24, 100) / naturalWidth,
-            1
-        )
-        canvasView.displayScale = fitScale
-        canvasView.frame = CGRect(
-            origin: .zero,
-            size: CGSize(width: naturalWidth * fitScale, height: naturalHeight * fitScale)
-        )
         scrollView.addSubview(canvasView)
 
         let closeButton = UIButton(type: .system)
@@ -977,6 +970,19 @@ final class TerminalReportFullscreenViewer: UIViewController, UIScrollViewDelega
         closeButton.translatesAutoresizingMaskIntoConstraints = false
         closeButton.addTarget(self, action: #selector(closeTapped), for: .touchUpInside)
         view.addSubview(closeButton)
+
+        func configureAction(_ button: UIButton, _ title: String, _ action: Selector) {
+            button.setTitle(title, for: .normal)
+            button.setTitleColor(.white, for: .normal)
+            button.titleLabel?.font = .systemFont(ofSize: 15, weight: .medium)
+            button.backgroundColor = UIColor.black.withAlphaComponent(0.55)
+            button.layer.cornerRadius = 14
+            button.translatesAutoresizingMaskIntoConstraints = false
+            button.addTarget(self, action: action, for: .touchUpInside)
+            view.addSubview(button)
+        }
+        configureAction(copyButton, "复制", #selector(copyTapped))
+        configureAction(shareButton, "分享", #selector(shareTapped))
 
         let doubleTap = UITapGestureRecognizer(target: self, action: #selector(doubleTapped))
         doubleTap.numberOfTapsRequired = 2
@@ -990,7 +996,15 @@ final class TerminalReportFullscreenViewer: UIViewController, UIScrollViewDelega
             closeButton.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 12),
             closeButton.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
             closeButton.widthAnchor.constraint(equalToConstant: 64),
-            closeButton.heightAnchor.constraint(equalToConstant: 32)
+            closeButton.heightAnchor.constraint(equalToConstant: 32),
+            copyButton.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16),
+            copyButton.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -16),
+            copyButton.heightAnchor.constraint(equalToConstant: 32),
+            copyButton.widthAnchor.constraint(equalToConstant: 72),
+            shareButton.leadingAnchor.constraint(equalTo: copyButton.trailingAnchor, constant: 12),
+            shareButton.bottomAnchor.constraint(equalTo: copyButton.bottomAnchor),
+            shareButton.heightAnchor.constraint(equalToConstant: 32),
+            shareButton.widthAnchor.constraint(equalToConstant: 72)
         ])
     }
 
@@ -998,13 +1012,18 @@ final class TerminalReportFullscreenViewer: UIViewController, UIScrollViewDelega
         super.viewDidLayoutSubviews()
         guard naturalSize.width > 0, naturalSize.height > 0, hasAppliedInitialLayout == false else { return }
         hasAppliedInitialLayout = true
-        // 初始整份铺屏宽；zoomScale=1 对应该状态，最小缩放回到初始比例。
-        initialFitScale = min(max(view.bounds.width - 24, 100) / naturalSize.width, 1)
-        applyDisplayScale(initialFitScale * scrollView.zoomScale)
-        scrollView.minimumZoomScale = initialFitScale
-        scrollView.maximumZoomScale = 1.0
+        // 初始整份缩放（宽与高都装进一屏）并居中。
+        let fitScale = min(
+            view.bounds.width / max(naturalSize.width, 1),
+            (view.bounds.height - 120) / max(naturalSize.height, 1),
+            1
+        )
+        initialFitScale = max(fitScale, 0.05)
+        scrollView.minimumZoomScale = 1
+        scrollView.maximumZoomScale = 1 / initialFitScale
         scrollView.zoomScale = 1
-        scrollView.contentOffset = .zero
+        applyDisplayScale(initialFitScale)
+        centerCanvas()
     }
 
     private func applyDisplayScale(_ scale: CGFloat) {
@@ -1015,18 +1034,48 @@ final class TerminalReportFullscreenViewer: UIViewController, UIScrollViewDelega
         scrollView.contentSize = scaledSize
     }
 
+    /// 内容小于视口时水平垂直居中。
+    private func centerCanvas() {
+        let contentSize = scrollView.contentSize
+        let boundsSize = scrollView.bounds.size
+        let horizontalInset = max((boundsSize.width - contentSize.width) / 2, 0)
+        let verticalInset = max((boundsSize.height - contentSize.height) / 2, 0)
+        scrollView.contentInset = UIEdgeInsets(
+            top: verticalInset,
+            left: horizontalInset,
+            bottom: verticalInset,
+            right: horizontalInset
+        )
+    }
+
     func viewForZooming(in scrollView: UIScrollView) -> UIView? {
         canvasView
     }
 
     func scrollViewDidZoom(_ scrollView: UIScrollView) {
-        // 缩放直接驱动绘制比例：文字按目标字号重绘，不产生栅格模糊。
+        // 缩放直接驱动绘制比例：文字按目标字号重绘，不产生栅格模糊；松手保持当前比例。
         applyDisplayScale(initialFitScale * scrollView.zoomScale)
+        centerCanvas()
     }
 
     @objc
     private func closeTapped() {
         dismiss(animated: true)
+    }
+
+    @objc
+    private func copyTapped() {
+        UIPasteboard.general.string = codeBlock.text
+        copyButton.setTitle("已复制", for: .normal)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { [weak copyButton] in
+            copyButton?.setTitle("复制", for: .normal)
+        }
+    }
+
+    @objc
+    private func shareTapped() {
+        let activityVC = UIActivityViewController(activityItems: [codeBlock.text], applicationActivities: nil)
+        present(activityVC, animated: true)
     }
 
     @objc
@@ -1095,10 +1144,9 @@ enum DetailCodeBlockLayout {
         guard codeBlock.style == .terminal else {
             return contentWidth(for: codeBlock.text, viewportWidth: viewportWidth)
         }
-        return min(
-            max(terminalNaturalCodeWidth(for: codeBlock.text), resolvedWidth(viewportWidth)),
-            maximumContentWidth
-        )
+        // 终端画布按字符网格自绘，内容宽度即字符总宽；不再叠加视口宽度，
+        // 否则 canvas 与 contentView 宽度不一致会造成右缘字符错位/位移。
+        return min(max(terminalNaturalCodeWidth(for: codeBlock.text), 1), maximumContentWidth)
     }
 
     static let terminalCellWidth = ceil(("0" as NSString).size(withAttributes: [.font: codeFont]).width)

@@ -16,8 +16,8 @@ enum PostDetailContentLayout {
     static var avatarSize: CGFloat { AppDisplayScaleSettings.scaled(40) }
     static var avatarCornerRadius: CGFloat { AppDisplayScaleSettings.scaled(8) }
     static var avatarSpacing: CGFloat { AppDisplayScaleSettings.scaled(10) }
-    static var reactionActionHeight: CGFloat { AppDisplayScaleSettings.scaled(30) }
-    static var reactionActionMinWidth: CGFloat { AppDisplayScaleSettings.scaled(48) }
+    static var reactionActionHeight: CGFloat { AppDisplayScaleSettings.scaled(36) }
+    static var reactionActionMinWidth: CGFloat { AppDisplayScaleSettings.scaled(60) }
     static var reactionIconReservedWidth: CGFloat { AppDisplayScaleSettings.scaled(16) }
     static var reactionTitleSpacing: CGFloat { AppDisplayScaleSettings.scaled(3) }
     static var reactionHorizontalWidthPadding: CGFloat { AppDisplayScaleSettings.scaled(16) }

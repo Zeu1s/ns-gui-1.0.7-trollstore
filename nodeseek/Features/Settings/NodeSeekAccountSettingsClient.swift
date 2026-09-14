@@ -55,12 +55,12 @@ final class NodeSeekAccountSettingsClient: NodeSeekAccountSettingsManaging {
     func loadProfile(userID: Int) async throws -> NodeSeekAccountEditableProfile {
         var components = URLComponents(url: baseURL, resolvingAgainstBaseURL: false)
         components?.path = "/api/account/getInfo/\(userID)"
+        // 站点空间页 SPA 实测只调 getInfo?readme=1（不带 signature）；带 signature=1
+        // 会被服务端 500 拒绝（他人资料场景），这正是 README 一直失败的根因。
         components?.queryItems = [
-            // phone=1 在部分会话触发 HTTP 500，去掉；只要 readme 与签名。
-            URLQueryItem(name: "readme", value: "1"),
-            URLQueryItem(name: "signature", value: "1")
+            URLQueryItem(name: "readme", value: "1")
         ]
-        let url = components?.url ?? baseURL.appendingPathComponent("/api/account/getInfo/\(userID)")
+        let url = components?.url ?? baseURL.appendingPathComponent("/api/account/getInfo/\(userID)?readme=1")
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
         WebRequestFingerprint.applyJSONHeaders(to: &request, referer: settingsURL)
@@ -73,8 +73,8 @@ final class NodeSeekAccountSettingsClient: NodeSeekAccountSettingsManaging {
             // 改用 WebView 同源 fetch 直接取同一个 getInfo JSON 接口。
             AppLog.warning(.account, "getInfo URLSession 被拦截(HTTP \(status))，改用 WebView 同源 fetch: uid=\(userID)")
             let response = try await WebViewJSONAPIClient.fetch(
-                apiPath: "/api/account/getInfo/\(userID)?readme=1&signature=1",
-                referer: settingsURL
+                apiPath: "/api/account/getInfo/\(userID)?readme=1",
+                referer: baseURL.appendingPathComponent("space/\(userID)")
             )
             guard response.statusCode.map({ (200..<300).contains($0) }) == true,
                   let json = response.json else {

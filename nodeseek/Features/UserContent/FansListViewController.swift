@@ -147,54 +147,20 @@ final class FansListViewController: UIViewController {
     /// 脚本把页头资料卡也当成员收集，导致列表为空/首项是自己。
     private static func pageURL(kind: ListKind, uid: Int, isSelfProfile: Bool) -> URL? {
         var components = URLComponents(url: NodeSeekSite.baseURL, resolvingAgainstBaseURL: false)
-        if kind == .fans && isSelfProfile {
-            components?.path = "/fans"
-            components?.queryItems = [URLQueryItem(name: "type", value: "fans")]
-        } else {
-            components?.path = "/space/\(uid)"
-            // URLComponents.fragment 会自动补 "#"，这里只给路由部分。
-            components?.fragment = kind == .fans ? "/fans" : "/follows"
-        }
+        // 关注列表的真实路由是 /fans?type=follow（站点实测 200）；
+        // /space/{uid}#/follows 是不存在的路由，SPA 不识别、永远停在概况页。
+        components?.path = "/fans"
+        components?.queryItems = [
+            URLQueryItem(name: "type", value: kind == .fans ? "fans" : "follow")
+        ]
         return components?.url
     }
 
     /// 粉丝/关注列表由登录态 SPA 渲染。先 URLSession 拉 SSR（登录 cookie 已带），
-    /// SSR 内嵌成员卡则直接解析；否则走 WebView 打开真实路由 + 脚本轮询收集。
+    /// 粉丝/关注列表均为 /fans 独立页纯 SPA 渲染（SSR 无成员卡，日志已证），
+    /// 登录态下直接走 WebView 打开真实路由 + 脚本轮询收集。
     private static func fetchEntries(kind: ListKind, uid: Int, isSelfProfile: Bool) async -> [FansListEntry] {
-        guard let url = pageURL(kind: kind, uid: uid, isSelfProfile: isSelfProfile) else { return [] }
-
-        // /fans 独立页与空间页 hash 路由都是纯 SPA 渲染，SSR 里没有成员卡
-        // （日志已证），登录态下直接走 WebView 抓取，省一轮必然失败的 SSR。
-        if isSelfProfile || kind == .follows {
-            return await fetchEntriesViaWebView(kind: kind, uid: uid, isSelfProfile: isSelfProfile)
-        }
-
-        var request = URLRequest(url: url)
-        WebRequestFingerprint.applyHTMLHeaders(to: &request)
-
-        do {
-            let (data, response) = try await URLSession.shared.data(for: request)
-            guard let http = response as? HTTPURLResponse else {
-                return await fetchEntriesViaWebView(kind: kind, uid: uid, isSelfProfile: isSelfProfile)
-            }
-            let html = String(data: data, encoding: .utf8) ?? ""
-            AppLog.info(.account,
-                "\(kind.title)列表 SSR 响应: status=\(http.statusCode), html=\(html.count), "
-                + "hasSpaceLink=\(html.contains("/space/")), hasMemberCard=\(html.contains("card-item"))")
-            guard (200..<300).contains(http.statusCode) else {
-                // URLSession 被 Cloudflare 指纹封锁（403 拦截页）时走 WebView。
-                return await fetchEntriesViaWebView(kind: kind, uid: uid, isSelfProfile: isSelfProfile)
-            }
-            let parsed = parseEntries(html: html, kind: kind)
-            if parsed.isEmpty == false {
-                return parsed
-            }
-            AppLog.warning(.account, "\(kind.title)列表 SSR 未解析到成员卡，HTML 前 500 字: \(String(html.prefix(500)))")
-            return await fetchEntriesViaWebView(kind: kind, uid: uid, isSelfProfile: isSelfProfile)
-        } catch {
-            AppLog.warning(.account, "\(kind.title)列表 HTTP 失败: \(error.localizedDescription)")
-            return await fetchEntriesViaWebView(kind: kind, uid: uid, isSelfProfile: isSelfProfile)
-        }
+        await fetchEntriesViaWebView(kind: kind, uid: uid, isSelfProfile: isSelfProfile)
     }
 
     /// WebView 加载真实列表路由（登录态 + Cloudflare 已放行），脚本轮询 SPA 渲染的成员卡。
