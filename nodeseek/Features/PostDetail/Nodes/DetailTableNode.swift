@@ -595,16 +595,16 @@ final class DetailCodeBlockView: UIView {
             return
         }
         hasAppliedInitialZoom = true
-        // 自适应铺满内容宽度（扣除两侧内边距）：整份报告左右完整可见，无右侧裁切。
-        let naturalWidth = DetailCodeBlockLayout.terminalNaturalCodeWidth(for: codeBlock.text)
-        let availableWidth = max(contentWidth - DetailCodeBlockLayout.horizontalInset * 2, 1)
-        let fitScale = min(max(availableWidth / max(naturalWidth, 1), 0.05), 1)
-        canvasView?.displayScale = fitScale
+        // 固定按原始大小的 90% 绘制：纵向完整显示全部行，
+        // 横向超过可视宽度时由 scrollView 提供滑动。
+        let scale = DetailCodeBlockLayout.Layout.terminalInlineScale
+        canvasView?.displayScale = scale
+        let scaledWidth = DetailCodeBlockLayout.terminalNaturalCodeWidth(for: codeBlock.text) * scale
         terminalHeightConstraint?.constant =
-            DetailCodeBlockLayout.terminalTextHeight(for: codeBlock.text) * fitScale
-        scrollView.minimumZoomScale = 1
-        scrollView.maximumZoomScale = 1
-        scrollView.zoomScale = 1
+            DetailCodeBlockLayout.terminalTextHeight(for: codeBlock.text) * scale
+        contentWidthConstraint?.constant = scaledWidth
+        scrollView.alwaysBounceHorizontal = true
+        scrollView.showsHorizontalScrollIndicator = true
     }
 
     private func configureView() {
@@ -1003,6 +1003,7 @@ final class TerminalReportFullscreenViewer: UIViewController, UIScrollViewDelega
     private var hasAppliedInitialLayout = false
     private let copyButton = UIButton(type: .system)
     private let shareButton = UIButton(type: .system)
+    private let saveButton = UIButton(type: .system)
 
     init(codeBlock: RenderedCodeBlock) {
         self.codeBlock = codeBlock
@@ -1053,6 +1054,7 @@ final class TerminalReportFullscreenViewer: UIViewController, UIScrollViewDelega
         }
         configureAction(copyButton, "复制", #selector(copyTapped))
         configureAction(shareButton, "分享", #selector(shareTapped))
+        configureAction(saveButton, "保存", #selector(saveTapped))
 
         let doubleTap = UITapGestureRecognizer(target: self, action: #selector(doubleTapped))
         doubleTap.numberOfTapsRequired = 2
@@ -1074,7 +1076,11 @@ final class TerminalReportFullscreenViewer: UIViewController, UIScrollViewDelega
             shareButton.leadingAnchor.constraint(equalTo: copyButton.trailingAnchor, constant: 12),
             shareButton.bottomAnchor.constraint(equalTo: copyButton.bottomAnchor),
             shareButton.heightAnchor.constraint(equalToConstant: 32),
-            shareButton.widthAnchor.constraint(equalToConstant: 72)
+            shareButton.widthAnchor.constraint(equalToConstant: 72),
+            saveButton.leadingAnchor.constraint(equalTo: shareButton.trailingAnchor, constant: 12),
+            saveButton.bottomAnchor.constraint(equalTo: copyButton.bottomAnchor),
+            saveButton.heightAnchor.constraint(equalToConstant: 32),
+            saveButton.widthAnchor.constraint(equalToConstant: 72)
         ])
     }
 
@@ -1144,8 +1150,39 @@ final class TerminalReportFullscreenViewer: UIViewController, UIScrollViewDelega
 
     @objc
     private func shareTapped() {
-        let activityVC = UIActivityViewController(activityItems: [codeBlock.text], applicationActivities: nil)
+        let activityVC = UIActivityViewController(activityItems: [terminalImage()], applicationActivities: nil)
         present(activityVC, animated: true)
+    }
+
+    /// 把整份终端报告渲染成图片（与报告图的保存/分享方式一致）。
+    private func terminalImage() -> UIImage {
+        let renderScale = UIScreen.main.scale
+        let size = CGSize(
+            width: naturalSize.width * canvasView.displayScale,
+            height: naturalSize.height * canvasView.displayScale
+        )
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = renderScale
+        format.opaque = true
+        let renderer = UIGraphicsImageRenderer(size: size, format: format)
+        return renderer.image { _ in
+            canvasView.drawHierarchy(in: CGRect(origin: .zero, size: size), afterScreenUpdates: true)
+        }
+    }
+
+    @objc
+    private func saveTapped() {
+        let image = terminalImage()
+        UIImageWriteToSavedPhotosAlbum(image, self, #selector(image(_:didFinishSavingWithError:contextInfo:)), nil)
+    }
+
+    @objc
+    private func image(_ image: UIImage, didFinishSavingWithError error: Error?, contextInfo: UnsafeRawPointer) {
+        let title = error == nil ? "已保存到相册" : "保存失败"
+        let message = error?.localizedDescription ?? ""
+        let alert = UIAlertController(title: title, message: error == nil ? nil : message, preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: "知道了", style: .default))
+        present(alert, animated: true)
     }
 
     @objc
@@ -1169,18 +1206,16 @@ enum DetailCodeBlockLayout {
 
     private enum Layout {
         static let minHeight: CGFloat = 64
+        /// 终端内嵌展示的固定绘制比例（相对原始字号）：90%。
+        static let terminalInlineScale: CGFloat = 0.9
     }
 
     static func measure(codeBlock: RenderedCodeBlock, constrainedSize: CGSize) -> CGSize {
         let width = resolvedWidth(constrainedSize.width)
         if codeBlock.style == .terminal {
-            // 终端初始宽度铺满屏宽（整份报告左右完整可见），高度随内容自然延展。
-            let fitScale = terminalFitScale(
-                naturalWidth: terminalNaturalCodeWidth(for: codeBlock.text),
-                viewportWidth: width
-            )
+            // 终端按原始大小的 90% 绘制：纵向完整显示全部行，横向超宽时滑动查看。
             let height = contentTopInset(for: .terminal)
-                + terminalTextHeight(for: codeBlock.text) * fitScale
+                + terminalTextHeight(for: codeBlock.text) * Layout.terminalInlineScale
                 + bottomInset
             return CGSize(width: width, height: ceil(max(Layout.minHeight, height)))
         }
