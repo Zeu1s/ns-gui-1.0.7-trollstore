@@ -183,6 +183,8 @@ class PostDetailPresenter: PostDetailPresenterProtocol {
     private var commentPageTracker = CommentPageTracker()
     private var currentDetail: PostDetail?
     private var replyRefreshTracking: ReplyRefreshTracking?
+    /// "我的回复"直达定位：跨页加载完成后要滚动到的评论锚点。
+    private var myReplyAnchorIDToFocus: String?
     private var fallbackFavoriteCollectedState = false
     private var isSubmittingReply = false
     private var isSubmittingFavorite = false
@@ -852,6 +854,53 @@ extension PostDetailPresenter: PostDetailInteractorOutput {
                   loadedPage == currentDetail?.pagination?.items.map(\.page).max() {
             view?.scrollToLatestComment()
         }
+        Task { [weak self] in
+            guard let self else { return }
+            let username = await Self.currentDisplayName()
+            guard let username, username.isEmpty == false else { return }
+            // 收集"我的回复"在本帖的分布（每页各自登记，供导航栏入口直达定位）。
+            let detail = handling.renderedDetail
+            let mineAnchors = detail.comments.compactMap { comment -> String? in
+                guard comment.authorName == username,
+                      let anchorID = comment.anchorID?.trimmingCharacters(in: .whitespacesAndNewlines),
+                      anchorID.isEmpty == false else {
+                    return nil
+                }
+                return anchorID
+            }
+            await MainActor.run {
+                guard self.currentDetail?.id == detail.id else { return }
+                if mineAnchors.isEmpty == false {
+                    self.myReplyEntries[detail.page] = mineAnchors
+                }
+                let pages = Array(self.myReplyEntries.keys).sorted()
+                self.view?.updateMyReplies(
+                    pages: pages,
+                    latestAnchorID: self.myReplyEntries.values.flatMap { $0 }.last
+                )
+            }
+        }
+    }
+
+    /// 本帖"我的回复"分布：页码 → 该页我的回复锚点列表。
+    private var myReplyEntries: [Int: [String]] = [:]
+
+    nonisolated private static func currentDisplayName() async -> String? {
+        await CurrentAccountStore.shared.snapshot()?.account.displayName
+    }
+
+    func didTapMyReply(page: Int, anchorID: String?) {
+        let targetPage = max(1, page)
+        let resolvedAnchor = anchorID ?? myReplyEntries[targetPage]?.last
+        myReplyAnchorIDToFocus = resolvedAnchor
+        if targetPage == currentPage {
+            if let resolvedAnchor, resolvedAnchor.isEmpty == false {
+                view?.focusComment(anchorID: resolvedAnchor)
+            }
+            return
+        }
+        activeCommentPageRequest = .replyRefresh(page: targetPage)
+        interactor.loadPostDetail(page: targetPage)
     }
 
     private func handleCommentPageResponse(
@@ -931,7 +980,11 @@ extension PostDetailPresenter: PostDetailInteractorOutput {
                 replaceResult = CommentPageReplaceResult(detail: detail, usedFallback: true)
                 view?.render(detail: detail)
             }
-            if let anchorID = replyTargetAnchorID(from: targetComment) {
+            // "我的回复"直达优先；回帖后的新评论定位次之。
+            if let anchorID = myReplyAnchorIDToFocus, anchorID.isEmpty == false {
+                myReplyAnchorIDToFocus = nil
+                view?.focusComment(anchorID: anchorID)
+            } else if let anchorID = replyTargetAnchorID(from: targetComment) {
                 view?.focusComment(anchorID: anchorID)
             }
             AppLog.info(.postDetail, "回复后详情评论刷新并定位完成: page=\(loadedPage), count=\(detail.comments.count)")
@@ -1020,16 +1073,19 @@ extension PostDetailPresenter: PostDetailInteractorOutput {
         view?.finishReplySubmission()
 
         let responseMessage = response.message?.trimmingCharacters(in: .whitespacesAndNewlines)
-        // 回帖后跳回 0 楼（首页）：与站点网页行为一致，不再跳到末页打断浏览位置。
-        let toastMessage: String
-        if let responseMessage, responseMessage.isEmpty == false {
-            toastMessage = responseMessage
+        // 回帖成功后自动定位到刚发布的回复（落在最后一页，replyRefresh
+        // 完成后 replyTargetComment 会锁定新出现的评论并滚动定位）。
+        if let destinationPage = replyDestinationPage() {
+            let toastMessage: String
+            if let responseMessage, responseMessage.isEmpty == false {
+                toastMessage = responseMessage
+            } else {
+                toastMessage = "评论已发布，正在跳转到你的回复"
+            }
+            view?.showToast(message: toastMessage)
+            scheduleReplyRefreshAfterSubmission(destinationPage: destinationPage)
         } else {
-            toastMessage = "评论已发布"
-        }
-        view?.showToast(message: toastMessage)
-        if currentPage != 1 {
-            scheduleReplyRefreshAfterSubmission(destinationPage: 1)
+            view?.showToast(message: "评论已发布，可到最后一页查看")
         }
     }
 

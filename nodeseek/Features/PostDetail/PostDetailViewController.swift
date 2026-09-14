@@ -245,6 +245,9 @@ class PostDetailViewController: UIViewController {
     var cachedThreadedRows: [(index: Int, depth: Int)]?
     var cachedCommentAnchorIndex: [String: Comment]?
     var loadedCommentPageRanges: [Int: Range<Int>] = [:]
+    var myRepliesButton: UIBarButtonItem?
+    var myReplyPages: [Int] = []
+    var myReplyLatestAnchorID: String?
     var commentRenderedCache: [String: [RenderedContentBlock]] = [:]
     var renderedCommentIDs: Set<String> = []
     var commentRenderInFlight: Set<String> = []
@@ -836,7 +839,38 @@ class PostDetailViewController: UIViewController {
         )
         moreButton?.accessibilityLabel = "更多"
 
-        navigationItem.rightBarButtonItems = [moreButton, browserButton].compactMap { $0 }
+        myRepliesButton = UIBarButtonItem(
+            image: UIImage(systemName: "bubble.left.and.text.bubble.right"),
+            style: .plain,
+            target: self,
+            action: #selector(myRepliesTapped)
+        )
+        myRepliesButton?.accessibilityLabel = "我的回复"
+        myRepliesButton?.isEnabled = false
+
+        navigationItem.rightBarButtonItems = [moreButton, myRepliesButton, browserButton].compactMap { $0 }
+    }
+
+    func updateMyReplies(pages: [Int], latestAnchorID: String?) {
+        myReplyPages = pages
+        myReplyLatestAnchorID = latestAnchorID
+        myRepliesButton?.isEnabled = pages.isEmpty == false
+    }
+
+    @objc
+    private func myRepliesTapped() {
+        guard myReplyPages.isEmpty == false else { return }
+        let alert = UIAlertController(title: "我的回复", message: "选择要跳转的页", preferredStyle: .actionSheet)
+        for page in myReplyPages.sorted() {
+            alert.addAction(UIAlertAction(title: "第 \(page) 页", style: .default) { [weak self] _ in
+                self?.presenter?.didTapMyReply(page: page, anchorID: nil)
+            })
+        }
+        alert.addAction(UIAlertAction(title: "取消", style: .cancel))
+        if let popover = alert.popoverPresentationController {
+            popover.barButtonItem = myRepliesButton
+        }
+        present(alert, animated: true)
     }
 
     func updateTableContentInsets() {

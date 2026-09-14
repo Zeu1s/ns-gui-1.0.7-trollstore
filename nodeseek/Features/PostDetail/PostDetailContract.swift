@@ -30,6 +30,9 @@ protocol PostDetailViewProtocol: AnyObject {
     func updateCommentChickenLeg(commentID: String, count: Int?, isClicked: Bool)
     func updateCommentOppose(commentID: String, count: Int?, isClicked: Bool)
     func renderLoginRequired(message: String)
+    /// 当前用户在本帖的回复分布（pages: 已加载页中含我回复的页码；
+    /// latestAnchorID: 最新一条我的回复锚点，用于直达定位）。
+    func updateMyReplies(pages: [Int], latestAnchorID: String?)
 }
 
 // MARK: - Presenter Protocol (View -> Presenter)
@@ -50,12 +53,16 @@ protocol PostDetailPresenterProtocol: AnyObject {
     func didTapCommentLike(_ comment: Comment)
     func didTapCommentChickenLeg(_ comment: Comment)
     func didTapCommentOppose(_ comment: Comment)
+    /// 用户在"我的回复"列表中选择某条，请求加载对应页并定位。
+    func didTapMyReply(page: Int, anchorID: String?)
 }
 
 // 详情页的“跳至最后一条评论”是可选增强能力。为既有测试桩和轻量实现提供默认行为，
 // 避免协议扩展后把不参与该导航的调用方也变成编译错误。
 extension PostDetailViewProtocol {
     func scrollToLatestComment() {}
+    func updateMyReplies(pages: [Int], latestAnchorID: String?) {}
+}
 }
 
 extension PostDetailPresenterProtocol {
