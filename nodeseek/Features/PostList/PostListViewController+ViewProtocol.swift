@@ -23,6 +23,10 @@ extension PostListViewController: PostListViewProtocol {
         applyNotificationUnreadBadge(isVisible: isVisible)
     }
 
+    func renderNotificationUnreadBadge(unreadCount: NodeSeekNotificationUnreadCount) {
+        applyNotificationUnreadBadge(unreadCount: unreadCount.all)
+    }
+
     func renderCategories(_ categories: [PostListCategoryItem], selected: PostListCategoryItem) {
         let categoriesChanged = categories != self.categories
         if categoriesChanged {

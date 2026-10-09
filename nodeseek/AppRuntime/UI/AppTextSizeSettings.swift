@@ -75,6 +75,17 @@ final class AppTextSizeSettings {
 }
 
 enum AppTypography {
+    /// 深色模式避免纯白正文刺眼，浅色模式仍沿用系统主文字颜色。
+    static let primaryTextColor = UIColor { traits in
+        guard traits.userInterfaceStyle == .dark else { return .label }
+        return UIColor(red: 232.0 / 255.0, green: 232.0 / 255.0, blue: 237.0 / 255.0, alpha: 1)
+    }
+
+    static let secondaryTextColor = UIColor { traits in
+        guard traits.userInterfaceStyle == .dark else { return .secondaryLabel }
+        return UIColor(red: 174.0 / 255.0, green: 174.0 / 255.0, blue: 183.0 / 255.0, alpha: 1)
+    }
+
     static func font(
         basePointSize: CGFloat,
         weight: UIFont.Weight = .regular,

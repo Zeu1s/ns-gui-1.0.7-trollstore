@@ -15,34 +15,41 @@ final class UserCollectionsViewController: UIViewController {
     private let footerView = UserContentFooterView()
     private let errorView = UserContentErrorView(accessibilityIdentifier: "user-collections-error-view")
     private let client: NodeSeekUserContentClient
+    private let collectionSubmitter: PostCollectionSubmitting
     private let currentAccountStore: CurrentAccountStore
+    private let visitedStore: VisitedPostStoreProtocol
     private let requestedUserID: Int?
-    private let fallbackAuthorName: String?
-    private let fallbackAvatarURL: URL?
     private var records: [UserCollectionRecord] = []
+    private var resolvedPostSummaries: [Int: PostSummary] = [:]
     private var displayMode: UserContentDisplayMode = .content
     private var uid: Int?
     private var nextPage = 2
     private var hasMorePages = true
     private var isLoadingFirstPage = false
     private var isLoadingMore = false
+    private var isCurrentUsersCollection = false
+    private var removalInProgressPostID: Int?
     private var lastBatchFetchRequestedCount: Int?
     private var shouldStreamContentAppearance = false
     private let skeletonRowCount = 9
+    /// 已经在补元数据的行，避免同一行被 willDisplay 反复触发。
+    private var summaryRequests: Set<Int> = []
     var onSelectPost: ((PostSummary, Int, String?) -> Void)?
 
     init(
         userID: Int? = nil,
-        authorName: String? = nil,
-        avatarURL: URL? = nil,
+        authorName _: String? = nil,
+        avatarURL _: URL? = nil,
         client: NodeSeekUserContentClient? = nil,
-        currentAccountStore: CurrentAccountStore = .shared
+        collectionSubmitter: PostCollectionSubmitting? = nil,
+        currentAccountStore: CurrentAccountStore = .shared,
+        visitedStore: VisitedPostStoreProtocol = VisitedPostStore.shared
     ) {
         requestedUserID = userID
-        fallbackAuthorName = authorName
-        fallbackAvatarURL = avatarURL
         self.client = client ?? NodeSeekUserContentClient()
+        self.collectionSubmitter = collectionSubmitter ?? NodeSeekPostCollectionSubmitter()
         self.currentAccountStore = currentAccountStore
+        self.visitedStore = visitedStore
         super.init(nibName: nil, bundle: nil)
         title = "收藏"
     }
@@ -72,6 +79,10 @@ final class UserCollectionsViewController: UIViewController {
         tableNode.view.backgroundColor = .systemBackground
         refreshControl.addTarget(self, action: #selector(refreshTriggered), for: .valueChanged)
         tableNode.view.refreshControl = refreshControl
+        let removeSwipe = UISwipeGestureRecognizer(target: self, action: #selector(removeSwipeRecognized(_:)))
+        removeSwipe.direction = .left
+        removeSwipe.cancelsTouchesInView = false
+        tableNode.view.addGestureRecognizer(removeSwipe)
         tableNode.view.translatesAutoresizingMaskIntoConstraints = false
         errorView.onRetry = { [weak self] in
             self?.loadFirstPage()
@@ -106,6 +117,8 @@ final class UserCollectionsViewController: UIViewController {
                 let uid = try await resolveUID()
                 let loaded = try await client.loadCollections(page: 1, uid: uid)
                 self.uid = uid
+                let currentUserID = await currentAccountStore.snapshot()?.account.nodeSeekUID
+                isCurrentUsersCollection = currentUserID == uid
                 finishFirstPage(records: loaded)
             } catch {
                 showFirstPageError(error.localizedDescription)
@@ -144,6 +157,7 @@ final class UserCollectionsViewController: UIViewController {
 
     private func finishFirstPage(records: [UserCollectionRecord]) {
         self.records = records
+        resolvedPostSummaries.removeAll()
         displayMode = .content
         isLoadingFirstPage = false
         isLoadingMore = false
@@ -179,6 +193,7 @@ final class UserCollectionsViewController: UIViewController {
     private func showSkeleton() {
         displayMode = .skeleton
         records = []
+        resolvedPostSummaries.removeAll()
         errorView.isHidden = true
         footerView.stopAnimating()
         tableNode.reloadData()
@@ -219,21 +234,124 @@ final class UserCollectionsViewController: UIViewController {
         onSelectPost?(postSummary(for: record), 1, nil)
     }
 
+    @objc private func removeSwipeRecognized(_ recognizer: UISwipeGestureRecognizer) {
+        guard recognizer.state == .ended,
+              isCurrentUsersCollection,
+              displayMode == .content,
+              removalInProgressPostID == nil else {
+            return
+        }
+        let location = recognizer.location(in: tableNode.view)
+        guard let indexPath = tableNode.view.indexPathForRow(at: location),
+              records.indices.contains(indexPath.row) else {
+            return
+        }
+        confirmRemove(records[indexPath.row])
+    }
+
+    private func confirmRemove(_ record: UserCollectionRecord) {
+        let alert = UIAlertController(
+            title: "取消收藏",
+            message: "将从收藏中移除“\(record.title)”。",
+            preferredStyle: .alert
+        )
+        alert.addAction(UIAlertAction(title: "取消", style: .cancel))
+        alert.addAction(UIAlertAction(title: "取消收藏", style: .destructive) { [weak self] _ in
+            self?.remove(record)
+        })
+        present(alert, animated: true)
+    }
+
+    private func remove(_ record: UserCollectionRecord) {
+        guard removalInProgressPostID == nil else { return }
+        removalInProgressPostID = record.postID
+        let referer = NodeSeekSite.postURL(id: "\(record.postID)", page: 1)
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                _ = try await collectionSubmitter.removeFavorite(
+                    postID: "\(record.postID)",
+                    referer: referer
+                )
+                guard Task.isCancelled == false else { return }
+                finishRemoving(record)
+            } catch {
+                guard Task.isCancelled == false else { return }
+                removalInProgressPostID = nil
+                presentRemovalError(error.localizedDescription)
+            }
+        }
+    }
+
+    private func finishRemoving(_ record: UserCollectionRecord) {
+        removalInProgressPostID = nil
+        guard let index = records.firstIndex(where: { $0.postID == record.postID }) else { return }
+        let indexPath = IndexPath(row: index, section: 0)
+        tableNode.performBatch(animated: true) { [weak self] in
+            guard let self else { return }
+            self.records.remove(at: index)
+            self.tableNode.deleteRows(at: [indexPath], with: .automatic)
+        }
+    }
+
+    private func presentRemovalError(_ message: String) {
+        let alert = UIAlertController(title: "取消收藏失败", message: message, preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: "知道了", style: .default))
+        present(alert, animated: true)
+    }
+
     private func postSummary(for record: UserCollectionRecord) -> PostSummary {
-        let userID = uid ?? requestedUserID ?? 0
-        let profileURL = NodeSeekNotificationURLBuilder.profileURL(memberID: userID)
+        let resolvedSummary = resolvedPostSummaries[record.postID]
+        let resolvedAuthorName = (resolvedSummary?.authorName ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let cachedStatistics = visitedStore.record(forPostID: "\(record.postID)")
         return PostSummary(
             id: "\(record.postID)",
             title: record.title,
             url: NodeSeekSite.postURL(id: "\(record.postID)", page: 1),
-            authorName: record.authorName ?? fallbackAuthorName ?? "",
-            nodeName: nil,
-            replyCount: record.replyCount ?? 0,
-            viewCount: record.viewCount ?? 0,
+            authorName: resolvedAuthorName.isEmpty ? record.authorName ?? "" : resolvedAuthorName,
+            nodeName: resolvedSummary?.nodeName,
+            replyCount: max(max(resolvedSummary?.replyCount ?? 0, record.replyCount ?? 0), cachedStatistics?.replyCount ?? 0),
+            viewCount: max(max(resolvedSummary?.viewCount ?? 0, record.viewCount ?? 0), cachedStatistics?.viewCount ?? 0),
             lastActivityText: record.lastActivityText,
-            avatarURL: record.avatarURL ?? fallbackAvatarURL,
-            authorProfileURL: profileURL
+            avatarURL: resolvedSummary?.avatarURL ?? record.avatarURL,
+            authorProfileURL: resolvedSummary?.authorProfileURL,
+            authorBadgeTexts: resolvedSummary?.authorBadgeTexts ?? []
         )
+    }
+
+    /// 只给滚到眼前的行补元数据。
+    ///
+    /// 实测收藏接口一行只有 post_id / rank / title 三个键，浏览数、评论数、
+    /// 作者、头像、板块名一概没有，所以每行都必须抓一次整页详情才能显示东西。
+    /// 原来进页面就把当页记录一次性全丢进去：真机日志里 63 个帖子、73 次请求，
+    /// 排速队列堆到 18 深、单条最长等 40.8 秒。改成按需，一屏也就八行。
+    private func requestSummaryIfNeeded(for record: UserCollectionRecord) {
+        guard displayMode == .content,
+              resolvedPostSummaries[record.postID] == nil,
+              summaryRequests.contains(record.postID) == false else { return }
+        summaryRequests.insert(record.postID)
+
+        let cached = visitedStore.record(forPostID: "\(record.postID)")
+        let fallbackViewCount = max(record.viewCount ?? 0, cached?.viewCount ?? 0)
+        let fallbackReplyCount = max(record.replyCount ?? 0, cached?.replyCount ?? 0)
+
+        Task { [weak self] in
+            let summary = await PostSummaryResolver.shared.resolveHistoryMetadata(
+                postID: "\(record.postID)",
+                title: record.title,
+                fallbackViewCount: fallbackViewCount,
+                fallbackReplyCount: fallbackReplyCount
+            )
+            await MainActor.run { [weak self] in
+                guard let self else { return }
+                self.summaryRequests.remove(record.postID)
+                guard self.displayMode == .content, let summary else { return }
+                self.resolvedPostSummaries[record.postID] = summary
+                guard let row = self.records.firstIndex(where: { $0.postID == record.postID }) else { return }
+                self.tableNode.reloadRows(at: [IndexPath(row: row, section: 0)], with: .none)
+            }
+        }
     }
 
     private func streamVisibleRowsIfNeeded() {
@@ -279,6 +397,12 @@ extension UserCollectionsViewController: ASTableDataSource {
         case .content:
             let record = records[indexPath.row]
             let post = postSummary(for: record)
+            // 行即将生成才去补元数据：收藏接口一行只给 post_id/rank/title，
+            // 每行都得抓一次整页详情，一次性铺开会把排速队列堆到十几层。
+            // 异步一跳，避免在 Texture 生成 cell 的过程中改数据源。
+            DispatchQueue.main.async { [weak self] in
+                self?.requestSummaryIfNeeded(for: record)
+            }
             return {
                 PostSummaryCellNode(post: post)
             }

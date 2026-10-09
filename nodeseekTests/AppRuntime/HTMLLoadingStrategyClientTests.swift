@@ -107,6 +107,41 @@ struct HTMLLoadingStrategyClientTests {
         ])
     }
 
+    @Test func httpFailureUsesWebViewRecoveryResponseWhenRetryAlsoFails() async throws {
+        let url = URL(string: "https://www.nodeseek.com/post-704286-1")!
+        let events = StrategyEventRecorder()
+        let primary = ThrowingHTMLClient(label: "primary", events: events)
+        let fallback = QueueHTMLClient(
+            responses: [
+                HTMLResponse(
+                    statusCode: 200,
+                    headers: [:],
+                    finalURL: url,
+                    html: try FixtureLoader.html(named: "post-list-basic")
+                )
+            ],
+            label: "fallback",
+            events: events
+        )
+        let client = WebViewFallbackHTMLClient(
+            primaryClient: primary,
+            fallbackClient: fallback,
+            cookieSession: StrategySpyCookieSession(events: events)
+        )
+
+        let response = try await client.get(url)
+
+        #expect(response.statusCode == 200)
+        #expect(response.html.contains("测试帖子"))
+        #expect(await events.recordedEvents() == [
+            "prepare-http",
+            "primary.get",
+            "fallback.get",
+            "prepare-http",
+            "primary.get"
+        ])
+    }
+
     @Test func httpWithFallbackDoesNotUseWebViewForLoginRequired() async throws {
         let url = URL(string: "https://www.nodeseek.com/post-704286-1")!
         let events = StrategyEventRecorder()

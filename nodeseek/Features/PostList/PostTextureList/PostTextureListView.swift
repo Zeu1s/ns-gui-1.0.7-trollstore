@@ -30,6 +30,8 @@ final class PostTextureListView: UIView {
     private let refreshControl = UIRefreshControl()
     private var displayMode: DisplayMode = .content
     private var items: [PostListItem] = []
+    /// 上一轮数据快照，供差分更新识别“变化的已有行”。
+    private var previousItems: [PostListItem] = []
     private let minimumSkeletonRowCount = 8
     private var estimatedSkeletonRowHeight: CGFloat {
         PostListCellStyle.Avatar.skeletonSize
@@ -38,11 +40,13 @@ final class PostTextureListView: UIView {
     private let leadingScreensForBatching: CGFloat = 2.0
     private var skeletonRowCount: Int = 8
     private var lastBatchFetchRequestedItemCount: Int?
-    private var shouldStreamContentAppearance = false
-    private var isStreamAnimating = false
-    private var streamGeneration = 0
-    private let streamActivationRetryLimit = 12
-    private let streamActivationRetryDelay: TimeInterval = 0.04
+    /// 流式浮现的全部状态（pending 行、动画器）收在控制器里，视图只转发时机。
+    private lazy var streamController = PostListStreamAppearanceController(
+        hostView: self,
+        tableView: tableNode.view
+    )
+    private var isPostSelectionLocked = false
+    private var selectionUnlockWorkItem: DispatchWorkItem?
 
     private let loadMoreIndicator: UIActivityIndicatorView = {
         let indicator = UIActivityIndicatorView(style: .medium)
@@ -114,26 +118,27 @@ final class PostTextureListView: UIView {
     }
 
     deinit {
+        selectionUnlockWorkItem?.cancel()
         NotificationCenter.default.removeObserver(self)
     }
 
     func setItems(_ items: [PostListItem]) {
         hideErrorView()
-        let shouldStream = true
         if self.items.count != items.count {
             lastBatchFetchRequestedItemCount = nil
         }
-        if displayMode == .content, self.items == items {
-            // 刷新结果可能与当前数据完全相同，仍需重播流式动画，不能直接跳过。
-            shouldStreamContentAppearance = shouldStream && !items.isEmpty
-            scheduleStreamAppearance(afterReload: true)
+        if displayMode == .content {
+            guard self.items != items else {
+                // 刷新结果与当前完全一致：原地静默，不做任何视觉动作。
+                return
+            }
+            applyDiffedUpdate(items)
             return
         }
         if displayMode != .content {
             self.items = items
             displayMode = .content
-            shouldStreamContentAppearance = shouldStream && !items.isEmpty
-            reloadDataForContentAppearance()
+            reloadDataForStreamAppearance()
             return
         }
 
@@ -147,8 +152,132 @@ final class PostTextureListView: UIView {
         }
 
         self.items = items
-        shouldStreamContentAppearance = shouldStream && !items.isEmpty
-        reloadDataForContentAppearance()
+        reloadDataForStreamAppearance()
+    }
+
+    /// 方案乙：差分刷新。识别新出现的帖子行并带渐隐新帖标记，其余行原位刷新，
+    /// 全程整表不隐藏、不重播流式，滚动位置由 Texture 行级更新保持。
+    private func applyDiffedUpdate(_ newItems: [PostListItem]) {
+        let oldIDs = Set(self.items.map(\.post.id))
+        let insertedIndexes = newItems.enumerated().compactMap { index, item in
+            oldIDs.contains(item.post.id) ? nil : index
+        }
+        // 防御：插入路径只对“纯追加且索引严格递增对齐”的换血安全。
+        // 任何删除/重排/换血（插入数 != 总数差）都会造成 datasource 与
+        // batch updates 数量不一致（曾以 ASCollectionInvalidUpdateException 崩溃），
+        // 一律退回整表 reload。
+        let isPureAppend: Bool
+        if newItems.count > self.items.count {
+            let appendedCount = newItems.count - self.items.count
+            let appendedSlice = Array(newItems.suffix(appendedCount))
+            isPureAppend = insertedIndexes.count == appendedCount
+                && appendedSlice.allSatisfy { appendedItem in
+                    oldIDs.contains(appendedItem.post.id) == false
+                }
+        } else {
+            isPureAppend = false
+        }
+        guard isPureAppend else {
+            self.items = newItems
+            reloadDataForStreamAppearance()
+            return
+        }
+        // 新帖过多（如板块切换后的整体换血）时退回整表，不逐行打标记。
+        let shouldMarkNewRows = insertedIndexes.count <= Self.newArrivalMarkLimit
+
+        // 头部被顶走的行数：Texture 不做自动 offset 补偿，插入在可视区上方时补偿避免跳动。
+        let insertedAboveVisible = insertedIndexes.filter { $0 < firstVisibleRowIndex() }.count
+
+        self.items = newItems
+        if insertedIndexes.isEmpty {
+            tableNode.performBatch(animated: false) { [weak self] in
+                guard let self else { return }
+                let rows = (0..<newItems.count).map { IndexPath(row: $0, section: 0) }
+                self.tableNode.reloadRows(at: rows, with: .none)
+            }
+            return
+        }
+
+        if insertedAboveVisible > 0 {
+            let targetOffset = CGPoint(
+                x: tableNode.view.contentOffset.x,
+                y: tableNode.view.contentOffset.y + CGFloat(insertedAboveVisible) * Self.estimatedPostRowHeight
+            )
+            tableNode.view.setContentOffset(targetOffset, animated: false)
+        }
+
+        tableNode.performBatch(animated: false, updates: { [weak self] in
+            guard let self else { return }
+            self.tableNode.insertRows(
+                at: insertedIndexes.map { IndexPath(row: $0, section: 0) },
+                with: .none
+            )
+            let changedExistingRows = (0..<newItems.count).filter { index in
+                insertedIndexes.contains(index) == false
+                    && index < self.items.count
+                    && index < self.previousItems.count
+                    && self.previousItems[index] != newItems[index]
+            }
+            if changedExistingRows.isEmpty == false {
+                self.tableNode.reloadRows(
+                    at: changedExistingRows.map { IndexPath(row: $0, section: 0) },
+                    with: .none
+                )
+            }
+        }, completion: { [weak self] _ in
+            guard let self, shouldMarkNewRows else { return }
+            self.presentNewArrivalMarks(at: insertedIndexes)
+        })
+        self.previousItems = newItems
+    }
+
+    private func presentNewArrivalMarks(at indexes: [Int]) {
+        for index in indexes {
+            guard let node = tableNode.nodeForRow(at: IndexPath(row: index, section: 0)) as? PostSummaryCellNode else {
+                continue
+            }
+            node.presentNewArrivalMark()
+        }
+    }
+
+    private func firstVisibleRowIndex() -> Int {
+        let visible = tableNode.view.indexPathsForVisibleRows
+        return visible?.map(\.row).min() ?? 0
+    }
+
+    private static let newArrivalMarkLimit = 8
+    private static let estimatedPostRowHeight: CGFloat = 96
+
+    /// 同一批帖子只更新内容，保留已经挂载的 Texture 节点和当前滚动位置。
+    /// 历史列表的统计补全会频繁回写，若每次都 reloadData，切回 tab 时容易出现瞬间空白。
+    func replaceItemsPreservingViewport(_ items: [PostListItem]) {
+        hideErrorView()
+        guard displayMode == .content else {
+            setItems(items)
+            return
+        }
+
+        let hasSameRows = self.items.count == items.count
+            && zip(self.items, items).allSatisfy { $0.post.id == $1.post.id }
+        guard hasSameRows else {
+            setItems(items)
+            return
+        }
+        guard self.items != items else {
+            // 内容完全一致：原地静默。
+            return
+        }
+
+        self.items = items
+        let changedRows = (0..<items.count).filter { index in
+            index < self.previousItems.count && self.previousItems[index] != items[index]
+        }
+        self.previousItems = items
+        let rows = (changedRows.isEmpty ? [] : changedRows).map { IndexPath(row: $0, section: 0) }
+        guard rows.isEmpty == false else { return }
+        tableNode.performBatch(animated: false) { [weak self] in
+            self?.tableNode.reloadRows(at: rows, with: .none)
+        }
     }
 
     func updateVisitedState(at index: Int, isVisited: Bool) {
@@ -163,7 +292,7 @@ final class PostTextureListView: UIView {
     func showLoadingSkeleton() {
         hideErrorView()
         guard displayMode != .skeleton else { return }
-        cancelStreamAppearance()
+        streamController.cancelAndRestoreVisibleCells()
         displayMode = .skeleton
         lastBatchFetchRequestedItemCount = nil
         skeletonRowCount = currentSkeletonRowCount()
@@ -178,7 +307,7 @@ final class PostTextureListView: UIView {
     }
 
     func showFirstPageError(message: String) {
-        cancelStreamAppearance()
+        streamController.cancelAndRestoreVisibleCells()
         displayMode = .firstPageError
         items = []
         lastBatchFetchRequestedItemCount = nil
@@ -264,158 +393,19 @@ final class PostTextureListView: UIView {
         errorStackView.isHidden = true
     }
 
-    /// 板块/tab 切换后重新以流式方式呈现当前内容；若已有一次流式在途则直接续播。
+    /// 板块/tab 切换后重播当前可见行。整表不再先隐藏，避免 Texture 异步提交时闪白。
     func replayStreamAppearance() {
-        guard displayMode == .content, items.isEmpty == false, isStreamAnimating == false else { return }
-        shouldStreamContentAppearance = true
-        scheduleStreamAppearance(afterReload: false)
-    }
-
-    /// Texture 的 reloadData 异步提交。先隐藏整个表格，等新 cell 可见后再逐行淡入，
-    /// 防止新内容先以完整状态显示一帧，随后才被动画隐藏。
-    private func reloadDataForContentAppearance() {
-        let generation = prepareStreamAppearanceIfNeeded()
-        tableNode.reloadData()
-        if let generation {
-            activateStreamAppearance(for: generation, attempt: 0)
-        }
-    }
-
-    private func scheduleStreamAppearance(afterReload: Bool) {
-        let generation = prepareStreamAppearanceIfNeeded()
-        guard let generation else { return }
-        if afterReload {
-            tableNode.reloadData()
-        }
-        activateStreamAppearance(for: generation, attempt: 0)
-    }
-
-    private func prepareStreamAppearanceIfNeeded() -> Int? {
-        guard shouldStreamContentAppearance else { return nil }
-        guard items.isEmpty == false else { return nil }
-        streamGeneration += 1
-        isStreamAnimating = true
-        tableNode.view.layer.removeAllAnimations()
-        tableNode.view.alpha = 0
-        return streamGeneration
-    }
-
-    private func activateStreamAppearance(for generation: Int, attempt: Int) {
-        DispatchQueue.main.async { [weak self] in
-            guard let self, generation == self.streamGeneration else { return }
-            guard self.isReadyToAnimateStreamAppearance else {
-                guard attempt < self.streamActivationRetryLimit else {
-                    self.completeStreamAppearance(for: generation)
-                    return
-                }
-                DispatchQueue.main.asyncAfter(deadline: .now() + self.streamActivationRetryDelay) { [weak self] in
-                    self?.activateStreamAppearance(for: generation, attempt: attempt + 1)
-                }
-                return
-            }
-            self.tableNode.view.layoutIfNeeded()
-            let cells = self.tableNode.view.visibleCells
-                .sorted { $0.frame.minY < $1.frame.minY }
-            guard cells.isEmpty == false else {
-                if attempt < self.streamActivationRetryLimit {
-                    DispatchQueue.main.asyncAfter(deadline: .now() + self.streamActivationRetryDelay) { [weak self] in
-                        self?.activateStreamAppearance(for: generation, attempt: attempt + 1)
-                    }
-                } else {
-                    self.completeStreamAppearance(for: generation)
-                }
-                return
-            }
-            self.animateStreamAppearance(cells, generation: generation)
-        }
-    }
-
-    private func animateStreamAppearance(_ cells: [UITableViewCell], generation: Int) {
-        guard generation == streamGeneration else { return }
-        tableNode.view.layoutIfNeeded()
-        shouldStreamContentAppearance = false
-        for (index, cell) in cells.enumerated() {
-            cell.alpha = 0
-            cell.transform = CGAffineTransform(translationX: 0, y: 16).scaledBy(x: 0.98, y: 0.98)
-            if index == 0 {
-                tableNode.view.alpha = 1
-            }
-            UIView.animate(
-                withDuration: 0.42,
-                delay: Double(index) * 0.03,
-                usingSpringWithDamping: 0.86,
-                initialSpringVelocity: 0.4,
-                options: [.curveEaseOut, .allowUserInteraction, .beginFromCurrentState]
-            ) {
-                cell.alpha = 1
-                cell.transform = .identity
-            } completion: { [weak self] _ in
-                guard let self, generation == self.streamGeneration else { return }
-                if index == cells.count - 1 {
-                    self.completeStreamAppearance(for: generation)
-                }
-            }
-        }
-
-        let safetyDelay = Double(cells.count) * 0.03 + 0.65
-        DispatchQueue.main.asyncAfter(deadline: .now() + safetyDelay) { [weak self] in
-            guard let self, generation == self.streamGeneration else { return }
-            self.completeStreamAppearance(for: generation)
-        }
-    }
-
-    private func completeStreamAppearance(for generation: Int) {
-        guard generation == streamGeneration else { return }
-        isStreamAnimating = false
-        // 只归位仍处于异常状态且已无动画在途的 cell。
-        // 全量强制复位会打断尚未结束的弹簧动画，导致完成瞬间整屏闪跳；
-        // 动画在途的 cell 其 model 值已是最终态，动画自然结束后即为正确状态。
-        UIView.performWithoutAnimation {
-            if tableNode.view.alpha != 1 {
-                tableNode.view.alpha = 1
-            }
-            for cell in tableNode.view.visibleCells {
-                guard cell.layer.animationKeys()?.isEmpty != false else { continue }
-                if cell.alpha != 1 {
-                    cell.alpha = 1
-                }
-                if cell.transform != .identity {
-                    cell.transform = .identity
-                }
-            }
-        }
-    }
-
-    private func cancelStreamAppearance() {
-        streamGeneration += 1
-        isStreamAnimating = false
-        shouldStreamContentAppearance = false
-        tableNode.view.layer.removeAllAnimations()
-        tableNode.view.alpha = 1
-        for cell in tableNode.view.visibleCells {
-            cell.alpha = 1
-            cell.transform = .identity
-        }
-    }
-
-    private var isReadyToAnimateStreamAppearance: Bool {
-        guard window != nil else { return false }
-        var candidate: UIView? = self
-        while let view = candidate {
-            guard view.isHidden == false, view.alpha > 0.01 else { return false }
-            candidate = view.superview
-        }
-        return true
-    }
-
-    override func didMoveToWindow() {
-        super.didMoveToWindow()
-        if window == nil {
-            isStreamAnimating = false
-            return
-        }
         guard displayMode == .content, items.isEmpty == false else { return }
-        replayStreamAppearance()
+        streamController.layoutDidUpdate()
+        guard streamController.isBusy == false else { return }
+        streamController.replayVisibleRows(fallbackItemCount: items.count)
+    }
+
+    /// 列表内容到达时只登记首屏行，等 Texture 发出 willDisplay 回调再逐行播放。
+    /// 即使数据在首页还被其它功能页遮挡时到达，也不会丢失流式动画。
+    private func reloadDataForStreamAppearance() {
+        streamController.prepareInitialRows(count: items.count)
+        tableNode.reloadData()
     }
 
     private func makeAppendIndexPaths(from oldItems: [PostListItem], to newItems: [PostListItem]) -> [IndexPath]? {
@@ -459,8 +449,19 @@ final class PostTextureListView: UIView {
         delegate?.postTextureListViewDidRequestFirstPageRetry(self)
     }
 
+    private func lockPostSelection() {
+        isPostSelectionLocked = true
+        selectionUnlockWorkItem?.cancel()
+        let workItem = DispatchWorkItem { [weak self] in
+            self?.isPostSelectionLocked = false
+        }
+        selectionUnlockWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2, execute: workItem)
+    }
+
     override func layoutSubviews() {
         super.layoutSubviews()
+        streamController.layoutDidUpdate()
         guard displayMode == .skeleton else { return }
         let targetRowCount = currentSkeletonRowCount()
         guard targetRowCount != skeletonRowCount else { return }
@@ -509,9 +510,21 @@ extension PostTextureListView: ASTableDataSource {
 }
 
 extension PostTextureListView: ASTableDelegate {
+    func tableNode(_ tableNode: ASTableNode, willDisplayRowWith node: ASCellNode) {
+        guard displayMode == .content,
+              let indexPath = tableNode.indexPath(for: node)
+        else {
+            return
+        }
+        streamController.registerCellIfNeeded(node.view, rowIndex: indexPath.row)
+    }
+
     func tableNode(_ tableNode: ASTableNode, didSelectRowAt indexPath: IndexPath) {
-        guard displayMode == .content else { return }
+        guard displayMode == .content, isPostSelectionLocked == false else {
+            return
+        }
         tableNode.deselectRow(at: indexPath, animated: true)
+        lockPostSelection()
         delegate?.postTextureListView(self, didSelectPostAt: indexPath.row)
     }
 

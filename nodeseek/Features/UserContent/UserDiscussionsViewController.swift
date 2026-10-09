@@ -16,10 +16,11 @@ final class UserDiscussionsViewController: UIViewController {
     private let errorView = UserContentErrorView(accessibilityIdentifier: "user-discussions-error-view")
     private let client: NodeSeekUserContentClient
     private let currentAccountStore: CurrentAccountStore
+    private let visitedStore: VisitedPostStoreProtocol
     private let requestedUserID: Int?
-    private let fallbackAuthorName: String?
-    private let fallbackAvatarURL: URL?
     private var records: [UserDiscussionRecord] = []
+    private var resolvedPostSummaries: [Int: PostSummary] = [:]
+    private var summaryRefreshGeneration = 0
     private var displayMode: UserContentDisplayMode = .content
     private var uid: Int?
     private var nextPage = 2
@@ -29,21 +30,23 @@ final class UserDiscussionsViewController: UIViewController {
     private var isLoadingMore = false
     private var lastBatchFetchRequestedCount: Int?
     private var shouldStreamContentAppearance = false
+    private var allowsEditing = false
+    private var currentAccount: AccountResponse?
     private let skeletonRowCount = 9
     var onSelectPost: ((PostSummary, Int, String?) -> Void)?
 
     init(
         userID: Int? = nil,
-        authorName: String? = nil,
-        avatarURL: URL? = nil,
+        authorName _: String? = nil,
+        avatarURL _: URL? = nil,
         client: NodeSeekUserContentClient? = nil,
-        currentAccountStore: CurrentAccountStore = .shared
+        currentAccountStore: CurrentAccountStore = .shared,
+        visitedStore: VisitedPostStoreProtocol = VisitedPostStore.shared
     ) {
         requestedUserID = userID
-        fallbackAuthorName = authorName
-        fallbackAvatarURL = avatarURL
         self.client = client ?? NodeSeekUserContentClient()
         self.currentAccountStore = currentAccountStore
+        self.visitedStore = visitedStore
         super.init(nibName: nil, bundle: nil)
         title = "主题帖"
     }
@@ -69,6 +72,7 @@ final class UserDiscussionsViewController: UIViewController {
         tableNode.delegate = self
         tableNode.leadingScreensForBatching = 2
         tableNode.view.separatorStyle = .singleLine
+        tableNode.view.allowsSelection = false
         tableNode.view.tableFooterView = footerView
         tableNode.view.backgroundColor = .systemBackground
         refreshControl.addTarget(self, action: #selector(refreshTriggered), for: .valueChanged)
@@ -109,6 +113,8 @@ final class UserDiscussionsViewController: UIViewController {
                 let uid = try await resolveUID()
                 let loaded = try await client.loadDiscussions(uid: uid, page: 1)
                 self.uid = uid
+                self.currentAccount = await self.currentAccountStore.snapshot()?.account
+                self.allowsEditing = self.currentAccount?.nodeSeekUID == uid
                 finishFirstPage(records: loaded)
             } catch {
                 showFirstPageError(error.localizedDescription)
@@ -147,6 +153,7 @@ final class UserDiscussionsViewController: UIViewController {
 
     private func finishFirstPage(records: [UserDiscussionRecord]) {
         self.records = records
+        resolvedPostSummaries.removeAll()
         displayMode = .content
         isLoadingFirstPage = false
         isRefreshing = false
@@ -158,6 +165,7 @@ final class UserDiscussionsViewController: UIViewController {
         shouldStreamContentAppearance = true
         tableNode.reloadData()
         streamVisibleRowsIfNeeded()
+        refreshPostSummaries(for: records)
     }
 
     private func finishLoadMore(records loaded: [UserDiscussionRecord], page: Int) {
@@ -178,11 +186,14 @@ final class UserDiscussionsViewController: UIViewController {
         tableNode.performBatch(animated: false) { [weak self] in
             self?.tableNode.insertRows(at: indexPaths, with: .none)
         }
+        refreshPostSummaries(for: Array(records[oldCount..<newCount]))
     }
 
     private func showSkeleton() {
         displayMode = .skeleton
         records = []
+        resolvedPostSummaries.removeAll()
+        summaryRefreshGeneration += 1
         errorView.isHidden = true
         footerView.stopAnimating()
         tableNode.reloadData()
@@ -221,25 +232,110 @@ final class UserDiscussionsViewController: UIViewController {
     }
 
     private func openRecord(_ record: UserDiscussionRecord) {
+        if allowsEditing, let navigationController {
+            navigationController.pushViewController(
+                PostDetailRouter.createModule(
+                    post: postSummary(for: record),
+                    page: 1,
+                    showsDiscussionEditAction: true
+                ),
+                animated: true
+            )
+            return
+        }
         onSelectPost?(postSummary(for: record), 1, nil)
     }
 
+    private func openProfile(userID: Int?) {
+        guard let userID, userID > 0 else { return }
+        navigationController?.pushViewController(ProfileTabViewController(userID: userID), animated: true)
+    }
+
+    private func openLatestReply(for record: UserDiscussionRecord) {
+        navigationController?.pushViewController(
+            PostDetailRouter.createModule(
+                post: postSummary(for: record),
+                page: 1,
+                opensLatestComment: true
+            ),
+            animated: true
+        )
+    }
+
+
     private func postSummary(for record: UserDiscussionRecord) -> PostSummary {
-        let userID = uid ?? requestedUserID ?? 0
-        let profileURL = NodeSeekNotificationURLBuilder.profileURL(memberID: userID)
+        let resolvedSummary = resolvedPostSummaries[record.postID]
+        let resolvedAuthorName = (resolvedSummary?.authorName ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let cachedStatistics = visitedStore.record(forPostID: "\(record.postID)")
+        let recordAuthorName = record.authorName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let fallbackAccount = allowsEditing ? currentAccount : nil
+        let fallbackAuthorName = recordAuthorName.isEmpty ? (fallbackAccount?.displayName ?? "") : recordAuthorName
+
         return PostSummary(
             id: "\(record.postID)",
             title: record.title,
             url: NodeSeekSite.postURL(id: "\(record.postID)", page: 1),
-            authorName: record.authorName ?? fallbackAuthorName ?? "",
-            nodeName: nil,
-            replyCount: record.replyCount ?? 0,
-            viewCount: record.viewCount ?? 0,
+            authorName: resolvedAuthorName.isEmpty ? fallbackAuthorName : resolvedAuthorName,
+            nodeName: resolvedSummary?.nodeName ?? record.nodeName,
+            replyCount: max(max(resolvedSummary?.replyCount ?? 0, record.replyCount ?? 0), cachedStatistics?.replyCount ?? 0),
+            viewCount: max(max(resolvedSummary?.viewCount ?? 0, record.viewCount ?? 0), cachedStatistics?.viewCount ?? 0),
             createdAtText: record.createdAtText,
-            lastActivityText: record.lastActivityText,
-            avatarURL: record.avatarURL ?? fallbackAvatarURL,
-            authorProfileURL: profileURL
+            lastActivityText: resolvedSummary?.lastActivityText ?? record.lastActivityText,
+            avatarURL: resolvedSummary?.avatarURL ?? record.avatarURL ?? fallbackAccount?.avatarURL,
+            authorProfileURL: resolvedSummary?.authorProfileURL ?? fallbackAccount?.profileURL,
+            authorBadgeTexts: resolvedSummary?.authorBadgeTexts ?? []
         )
+    }
+
+    private func refreshPostSummaries(for candidates: [UserDiscussionRecord]) {
+        guard candidates.isEmpty == false else { return }
+        summaryRefreshGeneration += 1
+        let generation = summaryRefreshGeneration
+        var cachedViewCounts: [Int: Int] = [:]
+        var cachedReplyCounts: [Int: Int] = [:]
+        for record in candidates {
+            let cached = visitedStore.record(forPostID: "\(record.postID)")
+            cachedViewCounts[record.postID] = max(cachedViewCounts[record.postID] ?? 0, cached?.viewCount ?? 0)
+            cachedReplyCounts[record.postID] = max(cachedReplyCounts[record.postID] ?? 0, cached?.replyCount ?? 0)
+        }
+        Task { [weak self] in
+            var refreshed: [Int: PostSummary] = [:]
+            var start = 0
+            while start < candidates.count {
+                let end = min(start + 4, candidates.count)
+                let batch = Array(candidates[start..<end])
+                await withTaskGroup(of: (Int, PostSummary?).self) { group in
+                    for record in batch {
+                        group.addTask {
+                            let summary = await PostSummaryResolver.shared.resolveHistoryMetadata(
+                                postID: "\(record.postID)",
+                                title: record.title,
+                                fallbackViewCount: max(record.viewCount ?? 0, cachedViewCounts[record.postID] ?? 0),
+                                fallbackReplyCount: max(record.replyCount ?? 0, cachedReplyCounts[record.postID] ?? 0)
+                            )
+                            return (record.postID, summary)
+                        }
+                    }
+                    for await (postID, summary) in group {
+                        if let summary {
+                            refreshed[postID] = summary
+                        }
+                    }
+                }
+                start = end
+            }
+            await MainActor.run { [weak self] in
+                guard let self,
+                      self.summaryRefreshGeneration == generation,
+                      self.displayMode == .content else { return }
+                let relevantIDs = Set(self.records.map(\.postID))
+                let applicable = refreshed.filter { relevantIDs.contains($0.key) }
+                guard applicable.isEmpty == false else { return }
+                self.resolvedPostSummaries.merge(applicable) { _, new in new }
+                self.tableNode.reloadData()
+            }
+        }
     }
 
     private func streamVisibleRowsIfNeeded() {
@@ -286,7 +382,11 @@ extension UserDiscussionsViewController: ASTableDataSource {
             let record = records[indexPath.row]
             let post = postSummary(for: record)
             return {
-                PostSummaryCellNode(post: post)
+                UserDiscussionCellNode(
+                    record: record,
+                    post: post,
+                    onOpenPost: { [weak self] in self?.openRecord(record) }
+                )
             }
         case .skeleton:
             return {
@@ -301,12 +401,6 @@ extension UserDiscussionsViewController: ASTableDataSource {
 }
 
 extension UserDiscussionsViewController: ASTableDelegate {
-    func tableNode(_ tableNode: ASTableNode, didSelectRowAt indexPath: IndexPath) {
-        guard displayMode == .content, records.indices.contains(indexPath.row) else { return }
-        tableNode.deselectRow(at: indexPath, animated: true)
-        openRecord(records[indexPath.row])
-    }
-
     func shouldBatchFetch(for tableNode: ASTableNode) -> Bool {
         displayMode == .content
             && !records.isEmpty

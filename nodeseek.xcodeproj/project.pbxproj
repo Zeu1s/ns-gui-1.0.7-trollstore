@@ -13,6 +13,7 @@
 		7A1000152FA0000000000001 /* JXPhotoBrowser in Frameworks */ = {isa = PBXBuildFile; productRef = 7A1000172FA0000000000001 /* JXPhotoBrowser */; };
 		7A1000182FA0000000000001 /* DTCoreText in Frameworks */ = {isa = PBXBuildFile; productRef = 7A1000192FA0000000000001 /* DTCoreText */; };
 		7A10001C2FA0000000000001 /* SVGKit in Frameworks */ = {isa = PBXBuildFile; productRef = 7A10001D2FA0000000000001 /* SVGKit */; };
+		7A1000202FA0000000000001 /* CrashReporter in Frameworks */ = {isa = PBXBuildFile; productRef = 7A1000212FA0000000000001 /* CrashReporter */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -67,6 +68,7 @@
 				7A1000152FA0000000000001 /* JXPhotoBrowser in Frameworks */,
 				7A1000182FA0000000000001 /* DTCoreText in Frameworks */,
 				7A10001C2FA0000000000001 /* SVGKit in Frameworks */,
+				7A1000202FA0000000000001 /* CrashReporter in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -124,6 +126,7 @@
 				7A1000172FA0000000000001 /* JXPhotoBrowser */,
 				7A1000192FA0000000000001 /* DTCoreText */,
 				7A10001D2FA0000000000001 /* SVGKit */,
+				7A1000212FA0000000000001 /* CrashReporter */,
 			);
 			productName = nodeseek;
 			productReference = 5CD3D9512F9EFACE008DB075 /* nodeseek.app */;
@@ -187,6 +190,7 @@
 				7A1000162FA0000000000001 /* XCRemoteSwiftPackageReference "PhotoBrowser" */,
 				7A10001A2FA0000000000001 /* XCRemoteSwiftPackageReference "DTCoreText" */,
 				7A10001B2FA0000000000001 /* XCRemoteSwiftPackageReference "SVGKit" */,
+				7A1000222FA0000000000001 /* XCRemoteSwiftPackageReference "PLCrashReporter" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 5CD3D9522F9EFACE008DB075 /* Products */;
@@ -259,7 +263,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 3.0.0;
+				MARKETING_VERSION = 1.1.8;
 				OTHER_LDFLAGS = (
 					"$(inherited)",
 					"-lsqlite3",
@@ -294,7 +298,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 3.0.0;
+				MARKETING_VERSION = 1.1.8;
 				OTHER_LDFLAGS = (
 					"$(inherited)",
 					"-lsqlite3",
@@ -442,7 +446,7 @@
 				DEVELOPMENT_TEAM = Z9K94479DQ;
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
-				MARKETING_VERSION = 3.0.0;
+				MARKETING_VERSION = 1.1.8;
 				PRODUCT_BUNDLE_IDENTIFIER = com.zeu1s.nodeseekTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = NO;
@@ -464,7 +468,7 @@
 				DEVELOPMENT_TEAM = Z9K94479DQ;
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
-				MARKETING_VERSION = 3.0.0;
+				MARKETING_VERSION = 1.1.8;
 				PRODUCT_BUNDLE_IDENTIFIER = com.zeu1s.nodeseekTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = NO;
@@ -558,6 +562,14 @@
 				kind = branch;
 			};
 		};
+		7A1000222FA0000000000001 /* XCRemoteSwiftPackageReference "PLCrashReporter" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/microsoft/plcrashreporter.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 1.11.2;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -590,6 +602,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 7A10001B2FA0000000000001 /* XCRemoteSwiftPackageReference "SVGKit" */;
 			productName = SVGKit;
+		};
+		7A1000212FA0000000000001 /* CrashReporter */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 7A1000222FA0000000000001 /* XCRemoteSwiftPackageReference "PLCrashReporter" */;
+			productName = CrashReporter;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

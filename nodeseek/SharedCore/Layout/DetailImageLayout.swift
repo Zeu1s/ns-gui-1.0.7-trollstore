@@ -31,7 +31,7 @@ nonisolated enum DetailImageLayout {
     static let fixedStickerHeight: CGFloat = 65
     static let maxImageHeight: CGFloat = 420
     private static let extremeAspectRatio: CGFloat = 1.8
-    private static let reportPlaceholderAspectRatio: CGFloat = 74 * 0.6 / 47
+    private static let reportPlaceholderAspectRatio: CGFloat = 16 / 9
 
     static func fixedNormalImageSize(maxWidth: CGFloat) -> CGSize {
         guard maxWidth > 0 else { return .zero }
@@ -120,15 +120,10 @@ nonisolated enum DetailImageLayout {
             return DetailImagePresentation(size: fixedNormalImageSize(maxWidth: maxWidth), mode: .thumbnailCrop)
         }
 
-        let maxPreviewHeight = normalPreviewMaxHeight(maxWidth: maxWidth)
-        let aspectFitSize = scaledSize(for: originalSize, maxWidth: maxWidth, maxHeight: nil)
-        guard maxPreviewHeight > 0, aspectFitSize.height > maxPreviewHeight else {
-            return DetailImagePresentation(size: aspectFitSize, mode: .aspectFit)
-        }
-
+        // 帖子图片一律按比例完整显示，不再裁剪半屏等待手动点开。
         return DetailImagePresentation(
-            size: CGSize(width: maxWidth, height: maxPreviewHeight),
-            mode: .thumbnailCrop
+            size: scaledSize(for: originalSize, maxWidth: maxWidth, maxHeight: nil),
+            mode: .aspectFit
         )
     }
 
@@ -140,10 +135,6 @@ nonisolated enum DetailImageLayout {
             size: scaledSize(for: originalSize, maxWidth: maxWidth, maxHeight: nil),
             mode: .aspectFit
         )
-    }
-
-    private static func normalPreviewMaxHeight(maxWidth: CGFloat) -> CGFloat {
-        floor(maxWidth / 2)
     }
 
     static func allowsInlineAnimation(

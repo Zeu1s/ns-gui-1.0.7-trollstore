@@ -7,6 +7,37 @@
 
 import UIKit
 
+enum BrowserOpenMode: String, CaseIterable {
+    case inAppSafari
+    case safari
+    case chrome
+
+    private static let storageKey = "nodeseek.browserOpenMode"
+
+    static var current: BrowserOpenMode {
+        guard let rawValue = UserDefaults.standard.string(forKey: storageKey),
+              let mode = BrowserOpenMode(rawValue: rawValue) else {
+            return .inAppSafari
+        }
+        return mode
+    }
+
+    static func setCurrent(_ mode: BrowserOpenMode) {
+        UserDefaults.standard.set(mode.rawValue, forKey: storageKey)
+    }
+
+    var title: String {
+        switch self {
+        case .inAppSafari:
+            return "应用内 Safari"
+        case .safari:
+            return "Safari"
+        case .chrome:
+            return "Chrome"
+        }
+    }
+}
+
 struct SettingsBuildInfo: Equatable {
     let appVersion: String
     let buildNumber: String
@@ -88,24 +119,9 @@ final class DefaultNodeImageAuthorizationPresenter: NodeImageAuthorizationPresen
         from presentingViewController: UIViewController,
         onAPIKey: @escaping @MainActor (String) -> Void
     ) {
-        let alert = UIAlertController(
-            title: "填写 NodeImage API Key",
-            message: "粘贴已有的 API Key 后即可使用原生图片上传。",
-            preferredStyle: .alert
-        )
-        alert.addTextField { field in
-            field.placeholder = "X-API-Key"
-            field.textContentType = .password
-            field.autocapitalizationType = .none
-            field.autocorrectionType = .no
-        }
-        alert.addAction(UIAlertAction(title: "取消", style: .cancel))
-        alert.addAction(UIAlertAction(title: "保存", style: .default) { [weak alert] _ in
-            let apiKey = NodeImageAPIKeyNormalizer.normalized(alert?.textFields?.first?.text ?? "")
-            guard apiKey.isEmpty == false else { return }
-            onAPIKey(apiKey)
-        })
-        presentingViewController.present(alert, animated: true)
+        // 以前这里是一个手动粘贴框。现在统一走自动取 Key 那条路径，
+        // 粘贴只作为授权页左上角的兜底按钮。
+        presentingViewController.presentNodeImageAuthorization(then: onAPIKey)
     }
 }
 
@@ -114,23 +130,29 @@ class SettingsViewController: UITableViewController {
         case reading
         case features
         case storage
-        case debug
-        case about
         case account
+        case about
     }
 
     private enum ReadingRow: Int, CaseIterable {
         case categoryPreferences
-        case homeSearchEntry
         case textSize
         case displayScale
         case signatureDisplay
     }
 
     private enum FeatureRow: Int, CaseIterable {
-        case nodeImage
         case specialFollow
         case autoCheckIn
+        case browserOpenMode
+        case monitoringLog
+        case nodeImageAuthorization
+    }
+
+    private enum AccountRow: Int, CaseIterable {
+        case profile
+        case systemSettings
+        case logout
     }
 
     private let cacheManager: SettingsCacheManaging
@@ -142,7 +164,6 @@ class SettingsViewController: UITableViewController {
     private let textSizeSettings: AppTextSizeSettings
     private let displayScaleSettings: AppDisplayScaleSettings
     private let signatureDisplaySettings: PostSignatureDisplaySettings
-    private let searchEntrySettings: PostListSearchEntrySettings
     private let categoryPreferenceStore: PostCategoryPreferenceStore
     private let specialFollowKeywordStore: SpecialFollowKeywordStore
     private let autoCheckInSummaryProvider: @MainActor () -> String
@@ -166,7 +187,6 @@ class SettingsViewController: UITableViewController {
         textSizeSettings: AppTextSizeSettings = .shared,
         displayScaleSettings: AppDisplayScaleSettings = .shared,
         signatureDisplaySettings: PostSignatureDisplaySettings = .shared,
-        searchEntrySettings: PostListSearchEntrySettings = .shared,
         categoryPreferenceStore: PostCategoryPreferenceStore = .shared,
         specialFollowKeywordStore: SpecialFollowKeywordStore = .shared,
         autoCheckInSummaryProvider: @escaping @MainActor () -> String = { AutoCheckInModule.settingsSummary },
@@ -187,7 +207,6 @@ class SettingsViewController: UITableViewController {
         self.textSizeSettings = textSizeSettings
         self.displayScaleSettings = displayScaleSettings
         self.signatureDisplaySettings = signatureDisplaySettings
-        self.searchEntrySettings = searchEntrySettings
         self.categoryPreferenceStore = categoryPreferenceStore
         self.specialFollowKeywordStore = specialFollowKeywordStore
         self.autoCheckInSummaryProvider = autoCheckInSummaryProvider
@@ -209,6 +228,7 @@ class SettingsViewController: UITableViewController {
         tableView.accessibilityIdentifier = "settings-table-view"
         tableView.rowHeight = UITableView.automaticDimension
         tableView.estimatedRowHeight = 72
+        tableView.backgroundColor = .systemGroupedBackground
         tableView.register(UITableViewCell.self, forCellReuseIdentifier: "SettingsCell")
         refreshCacheSize()
         refreshAccountState()
@@ -248,12 +268,10 @@ class SettingsViewController: UITableViewController {
             return FeatureRow.allCases.count
         case .storage:
             return 1
-        case .debug:
-            return 1
+        case .account:
+            return isLoggedIn ? AccountRow.allCases.count : 0
         case .about:
             return 1
-        case .account:
-            return isLoggedIn ? 1 : 0
         case .none:
             return 0
         }
@@ -267,12 +285,10 @@ class SettingsViewController: UITableViewController {
             return "功能"
         case .storage:
             return "存储"
-        case .debug:
-            return nil
-        case .about:
-            return nil
         case .account:
             return isLoggedIn ? "账号" : nil
+        case .about:
+            return "关于"
         case .none:
             return nil
         }
@@ -286,12 +302,10 @@ class SettingsViewController: UITableViewController {
             return featureCell(for: indexPath)
         case .storage:
             return cacheCell(for: indexPath)
-        case .debug:
-            return debugEntryCell(for: indexPath)
+        case .account:
+            return accountCell(for: indexPath)
         case .about:
             return aboutCell(for: indexPath)
-        case .account:
-            return logoutCell(for: indexPath)
         case .none:
             return UITableViewCell()
         }
@@ -306,13 +320,11 @@ class SettingsViewController: UITableViewController {
             handleFeatureSelection(at: indexPath)
         case .storage:
             confirmClearCache()
-        case .debug:
-            showDebugSettings()
-        case .about:
-            showAboutSettings()
         case .account:
             guard isLoggedIn else { return }
-            confirmLogout()
+            handleAccountSelection(at: indexPath)
+        case .about:
+            showAboutSettings()
         case .none:
             break
         }
@@ -333,8 +345,6 @@ class SettingsViewController: UITableViewController {
         switch ReadingRow(rawValue: indexPath.row) {
         case .categoryPreferences:
             return categoryPreferencesCell(for: indexPath)
-        case .homeSearchEntry:
-            return homeSearchEntryCell(for: indexPath)
         case .textSize:
             return textSizeCell(for: indexPath)
         case .displayScale:
@@ -348,12 +358,16 @@ class SettingsViewController: UITableViewController {
 
     private func featureCell(for indexPath: IndexPath) -> UITableViewCell {
         switch FeatureRow(rawValue: indexPath.row) {
-        case .nodeImage:
-            return nodeImageAuthorizationCell(for: indexPath)
         case .specialFollow:
             return specialFollowCell(for: indexPath)
         case .autoCheckIn:
             return autoCheckInCell(for: indexPath)
+        case .browserOpenMode:
+            return browserOpenModeCell(for: indexPath)
+        case .monitoringLog:
+            return monitoringLogCell(for: indexPath)
+        case .nodeImageAuthorization:
+            return nodeImageAuthorizationCell(for: indexPath)
         case .none:
             return UITableViewCell()
         }
@@ -387,20 +401,6 @@ class SettingsViewController: UITableViewController {
         cell.accessoryView = signatureSwitch
         cell.selectionStyle = .none
         cell.accessibilityIdentifier = "settings-post-signature-cell"
-        return cell
-    }
-
-    private func homeSearchEntryCell(for indexPath: IndexPath) -> UITableViewCell {
-        let cell = UITableViewCell(style: .default, reuseIdentifier: nil)
-        cell.textLabel?.text = "首页搜索入口"
-        cell.imageView?.image = UIImage(systemName: "magnifyingglass")
-        let searchEntrySwitch = UISwitch()
-        searchEntrySwitch.isOn = searchEntrySettings.showsTopSearchEntry
-        searchEntrySwitch.accessibilityIdentifier = "settings-home-search-entry-switch"
-        searchEntrySwitch.addTarget(self, action: #selector(homeSearchEntrySwitchChanged(_:)), for: .valueChanged)
-        cell.accessoryView = searchEntrySwitch
-        cell.selectionStyle = .none
-        cell.accessibilityIdentifier = "settings-home-search-entry-cell"
         return cell
     }
 
@@ -461,6 +461,28 @@ class SettingsViewController: UITableViewController {
         return cell
     }
 
+    private func browserOpenModeCell(for indexPath: IndexPath) -> UITableViewCell {
+        let cell = UITableViewCell(style: .value1, reuseIdentifier: nil)
+        cell.textLabel?.text = "浏览器打开方式"
+        cell.detailTextLabel?.text = BrowserOpenMode.current.title
+        cell.detailTextLabel?.textColor = .secondaryLabel
+        cell.imageView?.image = UIImage(systemName: "safari")
+        cell.accessoryType = .disclosureIndicator
+        cell.accessibilityIdentifier = "settings-browser-open-mode-cell"
+        return cell
+    }
+
+    private func monitoringLogCell(for indexPath: IndexPath) -> UITableViewCell {
+        let cell = UITableViewCell(style: .subtitle, reuseIdentifier: nil)
+        cell.textLabel?.text = "监控日志"
+        cell.detailTextLabel?.text = NodeSeekDebugConfig.enableFileLogging ? "正在记录" : "未开启"
+        cell.detailTextLabel?.textColor = .secondaryLabel
+        cell.imageView?.image = UIImage(systemName: "waveform.path.ecg")
+        cell.accessoryType = .disclosureIndicator
+        cell.accessibilityIdentifier = "settings-monitoring-log-cell"
+        return cell
+    }
+
     private func logoutCell(for indexPath: IndexPath) -> UITableViewCell {
         let cell = UITableViewCell(style: .default, reuseIdentifier: nil)
         cell.textLabel?.text = isLoggingOut ? "正在退出登录..." : "退出登录"
@@ -470,6 +492,33 @@ class SettingsViewController: UITableViewController {
         cell.isUserInteractionEnabled = !isLoggingOut
         cell.accessibilityIdentifier = "settings-logout-cell"
         return cell
+    }
+
+    private func accountCell(for indexPath: IndexPath) -> UITableViewCell {
+        switch AccountRow(rawValue: indexPath.row) {
+        case .profile:
+            let cell = UITableViewCell(style: .subtitle, reuseIdentifier: nil)
+            cell.textLabel?.text = "个人信息"
+            cell.detailTextLabel?.text = "头像、Bio、签名与 Readme"
+            cell.detailTextLabel?.textColor = .secondaryLabel
+            cell.imageView?.image = UIImage(systemName: "person.text.rectangle")
+            cell.accessoryType = .disclosureIndicator
+            cell.accessibilityIdentifier = "settings-account-profile-cell"
+            return cell
+        case .systemSettings:
+            let cell = UITableViewCell(style: .subtitle, reuseIdentifier: nil)
+            cell.textLabel?.text = "NodeSeek 系统设置"
+            cell.detailTextLabel?.text = "安全、双因素验证、联系方式等"
+            cell.detailTextLabel?.textColor = .secondaryLabel
+            cell.imageView?.image = UIImage(systemName: "gearshape")
+            cell.accessoryType = .disclosureIndicator
+            cell.accessibilityIdentifier = "settings-nodeseek-system-cell"
+            return cell
+        case .logout:
+            return logoutCell(for: indexPath)
+        case .none:
+            return UITableViewCell()
+        }
     }
 
     private func aboutCell(for indexPath: IndexPath) -> UITableViewCell {
@@ -542,12 +591,35 @@ class SettingsViewController: UITableViewController {
 
     private func handleFeatureSelection(at indexPath: IndexPath) {
         switch FeatureRow(rawValue: indexPath.row) {
-        case .nodeImage:
-            handleNodeImageAuthorizationSelection()
         case .specialFollow:
             showSpecialFollowKeywords()
         case .autoCheckIn:
             showAutoCheckInSettings()
+        case .browserOpenMode:
+            showBrowserOpenModeSettings()
+        case .monitoringLog:
+            showMonitoringLogSettings()
+        case .nodeImageAuthorization:
+            handleNodeImageAuthorizationSelection()
+        case .none:
+            break
+        }
+    }
+
+    private func handleAccountSelection(at indexPath: IndexPath) {
+        switch AccountRow(rawValue: indexPath.row) {
+        case .profile:
+            navigationController?.pushViewController(
+                NodeSeekAccountProfileViewController(currentAccountStore: currentAccountStore),
+                animated: true
+            )
+        case .systemSettings:
+            navigationController?.pushViewController(
+                NodeSeekSystemSettingsViewController(currentAccountStore: currentAccountStore),
+                animated: true
+            )
+        case .logout:
+            confirmLogout()
         case .none:
             break
         }
@@ -561,7 +633,7 @@ class SettingsViewController: UITableViewController {
             showTextSizeSettings()
         case .displayScale:
             showDisplayScaleSettings()
-        case .homeSearchEntry, .signatureDisplay, .none:
+        case .signatureDisplay, .none:
             break
         }
     }
@@ -617,16 +689,34 @@ class SettingsViewController: UITableViewController {
         navigationController?.pushViewController(autoCheckInSettingsViewControllerFactory(), animated: true)
     }
 
-    private func showAboutSettings() {
-        let viewController = SettingsAboutViewController(buildInfo: buildInfo)
-        navigationController?.pushViewController(viewController, animated: true)
+    private func showBrowserOpenModeSettings() {
+        let alert = UIAlertController(
+            title: "浏览器打开方式",
+            message: "适用于帖子右上角的浏览器按钮和 HTTP(S) 外链。Telegram 等应用链接仍会按系统方式请求打开。",
+            preferredStyle: .actionSheet
+        )
+        for mode in BrowserOpenMode.allCases {
+            let title = mode == BrowserOpenMode.current ? "\(mode.title)  ✓" : mode.title
+            alert.addAction(UIAlertAction(title: title, style: .default) { [weak self] _ in
+                BrowserOpenMode.setCurrent(mode)
+                AppLog.info(.runtime, "浏览器打开方式已切换为: \(mode.title)")
+                self?.tableView.reloadSections(IndexSet(integer: Section.features.rawValue), with: .none)
+            })
+        }
+        alert.addAction(UIAlertAction(title: "取消", style: .cancel))
+        if let popover = alert.popoverPresentationController {
+            popover.sourceView = view
+            popover.sourceRect = CGRect(x: view.bounds.midX, y: view.bounds.midY, width: 1, height: 1)
+        }
+        present(alert, animated: true)
     }
 
-    private func showDebugSettings() {
-        let viewController = SettingsDebugViewController(
-            onLogFile: onLogFile,
-            onDetailTest: onDetailTest
-        )
+    private func showMonitoringLogSettings() {
+        navigationController?.pushViewController(MonitoringLogSettingsViewController(), animated: true)
+    }
+
+    private func showAboutSettings() {
+        let viewController = SettingsAboutViewController(buildInfo: buildInfo)
         navigationController?.pushViewController(viewController, animated: true)
     }
 
@@ -683,10 +773,6 @@ class SettingsViewController: UITableViewController {
 
     @objc private func signatureDisplaySwitchChanged(_ sender: UISwitch) {
         signatureDisplaySettings.setShowsSignatures(sender.isOn)
-    }
-
-    @objc private func homeSearchEntrySwitchChanged(_ sender: UISwitch) {
-        searchEntrySettings.setShowsTopSearchEntry(sender.isOn)
     }
 
     @objc private func specialFollowKeywordsDidChange(_ notification: Notification) {

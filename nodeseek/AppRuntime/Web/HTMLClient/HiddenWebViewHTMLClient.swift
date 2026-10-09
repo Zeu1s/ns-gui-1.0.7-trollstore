@@ -45,6 +45,61 @@ private final class WebViewCacheTuner {
     }
 }
 
+/// 隐藏 WebView 只要 HTML 文本，图片/字体/媒体这三类子资源对抓取毫无用处，
+/// 而 NodeSeek 页面上这类资源数量很大——真机日志里资料页与粉丝页分别占满
+/// 14.4 秒和 21.4 秒全局请求锁，其中相当一部分时间是在等它们下载完。
+///
+/// 只作用于隐藏 WebView：登录页、图床授权页和正文渲染用的可见 WebView 不走
+/// 这里，用户照常看到图片。规则里不含 script 与 document，因此 Cloudflare 的
+/// JS 质询和主文档加载都不受影响。
+@MainActor
+enum HiddenWebViewResourceBlocker {
+    private static let identifier = "com.zeu1s.nodeseek.hiddenwebview.block-subresources"
+    private static let rulesJSON =
+        """
+        [{"trigger":{"url-filter":".*","resource-type":["image","media","font"]},"action":{"type":"block"}}]
+        """
+
+    private static var cachedRuleList: WKContentRuleList?
+    private static var isPreparing = false
+
+    /// 编译是异步的，而规则列表只能在 WKWebView 创建之前挂上，
+    /// 所以必须在启动最早处调用。没准备好就照常加载，只是不加速。
+    ///
+    /// 只走 compile 一个入口：系统会按 identifier 持久化编译结果，
+    /// 之后每次冷启动它都直接命中缓存并很快返回，不需要再单独查一次
+    /// （lookUp 与 compile 的回调签名不同，少用一个是少一处踩坑）。
+    static func prewarm() {
+        guard cachedRuleList == nil, isPreparing == false else { return }
+        isPreparing = true
+        // WKContentRuleListStore.default() 返回可选值：拿不到存储就静默不启用。
+        guard let store = WKContentRuleListStore.default() else {
+            isPreparing = false
+            return
+        }
+        store.compileContentRuleList(
+            forIdentifier: identifier,
+            encodedContentRuleList: rulesJSON
+        ) { compiled, _ in
+            Task { @MainActor in
+                cachedRuleList = compiled
+                isPreparing = false
+                if compiled == nil {
+                    AppLog.warning(.webView, "隐藏 WebView 子资源拦截规则编译失败，本次不启用")
+                }
+            }
+        }
+    }
+
+    static func attach(to configuration: WKWebViewConfiguration) {
+        guard let cachedRuleList else {
+            prewarm()
+            return
+        }
+        configuration.userContentController.add(cachedRuleList)
+    }
+}
+
 actor HiddenWebViewRequestLock {
     static let shared = HiddenWebViewRequestLock()
 
@@ -227,6 +282,7 @@ private final class HiddenWebViewPreloadLoader: NSObject, WKNavigationDelegate {
 
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = .default()
+        HiddenWebViewResourceBlocker.attach(to: configuration)
 
         let webView = NoBounceWebView(frame: .zero, configuration: configuration)
         webView.customUserAgent = WebRequestFingerprint.userAgent
@@ -377,6 +433,7 @@ final class HiddenWebViewLoader: NSObject, WKNavigationDelegate {
         WebViewCacheTuner.tuneIfNeeded()
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = .default()
+        HiddenWebViewResourceBlocker.attach(to: configuration)
         self.webView = NoBounceWebView(frame: .zero, configuration: configuration)
         self.webView.customUserAgent = WebRequestFingerprint.userAgent
         self.cookieSession = NodeSeekCookieSession(
@@ -393,8 +450,17 @@ final class HiddenWebViewLoader: NSObject, WKNavigationDelegate {
         htmlPollingTask?.cancel()
     }
 
-    func load(request: URLRequest, timeoutInterval: TimeInterval) async throws -> HTMLResponse {
+    /// SPA 页（/fans、/space）缺少可用内容标记，常规挑战轮询会空转
+    /// 13 秒才放行；自动化脚本自带校验时由调用方跳过轮询。
+    private var skipsChallengePollingForCurrentLoad = false
+
+    func load(
+        request: URLRequest,
+        timeoutInterval: TimeInterval,
+        skipsChallengePolling: Bool = false
+    ) async throws -> HTMLResponse {
         self.timeoutInterval = timeoutInterval
+        skipsChallengePollingForCurrentLoad = skipsChallengePolling
         resetForNextRequest()
         initialURL = request.url
         updateDebugOverlayIfNeeded()
@@ -665,14 +731,19 @@ final class HiddenWebViewLoader: NSObject, WKNavigationDelegate {
         source: String,
         arguments: [String: Any],
         timeoutInterval: TimeInterval,
-        actionName: String
+        actionName: String,
+        requireCleanPage: Bool = true
     ) async throws -> [String: Any] {
         let response = try await loadAutomationPageIfNeeded(
             pageURL: pageURL,
             timeoutInterval: timeoutInterval,
-            actionName: actionName
+            actionName: actionName,
+            skipsChallengePolling: requireCleanPage == false
         )
-        if let challenge = ChallengeDetector().detect(response: response) {
+        // requireCleanPage=false 用于 SPA 页面（/fans、/space 等）：这类页面
+        // 缺少帖子列表标记，会被 ChallengeDetector 误判成 Cloudflare 挑战页，
+        // 导致脚本从未执行。脚本自身带轮询与超时，可以自证页面可用性。
+        if requireCleanPage, let challenge = ChallengeDetector().detect(response: response) {
             return [
                 "ok": false,
                 "statusCode": response.statusCode,
@@ -709,22 +780,35 @@ final class HiddenWebViewLoader: NSObject, WKNavigationDelegate {
         ]
     }
 
-    private func loadAutomationPage(pageURL: URL, timeoutInterval: TimeInterval) async throws -> HTMLResponse {
+    private func loadAutomationPage(
+        pageURL: URL,
+        timeoutInterval: TimeInterval,
+        skipsChallengePolling: Bool = false
+    ) async throws -> HTMLResponse {
         let request = makeAutomationPageRequest(pageURL: pageURL, timeoutInterval: timeoutInterval)
         AppLog.info(.webView, "自动化页面请求已创建: method=\(request.httpMethod ?? "nil"), url=\(pageURL.absoluteString), cachePolicy=\(request.cachePolicy.rawValue), timeout=\(Int(timeoutInterval))s")
-        return try await load(request: request, timeoutInterval: timeoutInterval)
+        return try await load(
+            request: request,
+            timeoutInterval: timeoutInterval,
+            skipsChallengePolling: skipsChallengePolling
+        )
     }
 
     private func loadAutomationPageIfNeeded(
         pageURL: URL,
         timeoutInterval: TimeInterval,
-        actionName: String
+        actionName: String,
+        skipsChallengePolling: Bool = false
     ) async throws -> HTMLResponse {
         if let cachedResponse = reusableAutomationPageResponse(for: pageURL, actionName: actionName) {
             return cachedResponse
         }
         AppLog.info(.webView, "动作页缓存未命中，重新加载: action=\(actionName), url=\(pageURL.absoluteString)")
-        return try await loadAutomationPage(pageURL: pageURL, timeoutInterval: timeoutInterval)
+        return try await loadAutomationPage(
+            pageURL: pageURL,
+            timeoutInterval: timeoutInterval,
+            skipsChallengePolling: skipsChallengePolling
+        )
     }
 
     private func reusableAutomationPageResponse(for pageURL: URL, actionName: String) -> HTMLResponse? {
@@ -779,9 +863,19 @@ final class HiddenWebViewLoader: NSObject, WKNavigationDelegate {
             while !Task.isCancelled {
                 do {
                     let html = try await self.readOuterHTML()
-                    let hasUsableContent = ChallengeDetector.containsUsableNodeSeekHTML(html)
-                    let isChallengePage = Self.isChallengePage(html: html)
-                    let shouldResolve = !isChallengePage || self.challengePollCount >= self.maxChallengePollCount
+                    // Kanna/正则解析 200KB+ 页面在主线程会卡出秒级停顿，
+                    // 挪到后台线程执行，主线程只负责读 HTML 与续行/收尾。
+                    let htmlForParse = html
+                    let parseResult = await Task.detached(priority: .userInitiated) { () -> (Bool, Bool) in
+                        let usable = ChallengeDetector.containsUsableNodeSeekHTML(htmlForParse)
+                        let challenge = ChallengeDetector.containsCloudflareChallengeHTML(htmlForParse)
+                        return (usable, challenge)
+                    }.value
+                    let hasUsableContent = parseResult.0
+                    let isChallengePage = parseResult.1
+                    let shouldResolve = !isChallengePage
+                        || self.challengePollCount >= self.maxChallengePollCount
+                        || self.skipsChallengePollingForCurrentLoad
 
                     if hasUsableContent || shouldResolve {
                         AppLog.info(.webView, "结束轮询，challenge 状态: \(isChallengePage), usableContent: \(hasUsableContent), pollCount: \(self.challengePollCount)")
@@ -871,6 +965,7 @@ final class HiddenWebViewLoader: NSObject, WKNavigationDelegate {
         switch result {
         case .success(let response):
             lastCompletedResponse = response
+            AppLogMetrics.shared.record(.webViewPageLoads)
             AppLog.info(.webView, "抓取完成: status=\(response.statusCode), htmlLength=\(response.html.count), finalURL=\(response.finalURL.absoluteString)")
             continuation.resume(returning: response)
         case .failure(let error):
@@ -1171,12 +1266,16 @@ final class HiddenWebViewLoader: NSObject, WKNavigationDelegate {
             return "站点当前需要 Cloudflare 验证，请稍后重试。"
         case .blocked:
             return "站点当前返回了拦截页面，请稍后重试。"
+        case .rateLimited:
+            return "请求过于频繁，站点已限流，请稍后再试。"
         case .unsupported:
             return "站点当前返回了无法处理的验证页面，请稍后重试。"
+        case .httpError(let status, _):
+            return "站点返回了错误 \(status)，请稍后重试。"
         }
     }
 
-    private static func isChallengePage(html: String) -> Bool {
+    fileprivate static func isChallengePage(html: String) -> Bool {
         ChallengeDetector.containsCloudflareChallengeHTML(html)
     }
 

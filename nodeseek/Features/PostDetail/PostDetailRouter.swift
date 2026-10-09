@@ -17,19 +17,20 @@ class PostDetailRouter: PostDetailRouterProtocol {
     static func createModule(
         post: PostSummary? = nil,
         page: Int = 1,
-        initialAnchorID: String? = nil
+        initialAnchorID: String? = nil,
+        opensLatestComment: Bool = false,
+        opensDiscussionEditor: Bool = false,
+        showsDiscussionEditAction: Bool = false
     ) -> UIViewController {
         let router = PostDetailRouter()
-        let interactor = PostDetailInteractor(
-            post: post,
-            actionPagePreparer: WebViewPostActionPagePreparer(),
-            page: page
-        )
+        let interactor = PostDetailInteractor(post: post, page: page)
         let presenter = PostDetailPresenter(
             interactor: interactor,
             router: router,
             initialPage: page,
-            visitedStore: VisitedPostStore.shared
+            sourcePost: post,
+            visitedStore: VisitedPostStore.shared,
+            opensLatestComment: opensLatestComment
         )
         
         interactor.presenter = presenter
@@ -42,6 +43,8 @@ class PostDetailRouter: PostDetailRouterProtocol {
             initialAnchorID: initialAnchorID
         )
         
+        view.shouldOpenDiscussionEditorAfterInitialRender = opensDiscussionEditor
+        view.showsDiscussionEditAction = showsDiscussionEditAction
         presenter.setView(view)
         router.viewController = view
         

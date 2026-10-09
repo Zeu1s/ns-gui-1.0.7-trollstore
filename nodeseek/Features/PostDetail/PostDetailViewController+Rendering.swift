@@ -10,6 +10,8 @@ import DTCoreText
 import UIKit
 
 extension PostDetailViewController {
+    private static let maximumPreheatedCommentCount = 4
+
     func scheduleHeaderRender(for content: PostDetailHeaderContent) {
         let generation = renderGeneration
         let html = content.contentHTML
@@ -220,7 +222,7 @@ extension PostDetailViewController {
             let paragraphText = (mutable.string as NSString).substring(with: paragraphRange)
             if didApplyTopSpacing == false,
                paragraphText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false {
-                style.paragraphSpacingBefore = 6
+                style.paragraphSpacingBefore = 12
                 didApplyTopSpacing = true
             } else {
                 style.paragraphSpacingBefore = 0
@@ -263,7 +265,9 @@ extension PostDetailViewController {
     }
 
     func preheatCommentRender(for comments: [Comment]) {
-        for comment in comments {
+        // 可见行仍会即时补全渲染；这里只保留紧邻当前页的少量预热，防止长文连续翻页
+        // 时在串行队列中积压过多 HTML 解析任务。
+        for comment in comments.prefix(Self.maximumPreheatedCommentCount) {
             scheduleCommentRenderIfNeeded(for: comment)
         }
     }
@@ -274,7 +278,15 @@ extension PostDetailViewController {
         guard commentRenderInFlight.insert(commentID).inserted else { return }
 
         let generation = renderGeneration
-        let html = comment.contentHTML
+        let reference = CommentReplyReferenceResolver.reference(
+            for: comment,
+            among: comments,
+            index: commentAnchorIndex
+        )
+        let html = CommentReplyReferenceResolver.contentHTMLRemovingLeadingReference(
+            from: comment.contentHTML,
+            reference: reference
+        )
         let signatureHTML = comment.signatureHTML
         let showsSignature = PostSignatureDisplaySettings.shared.showsSignatures
         let width = availableCommentContentWidth

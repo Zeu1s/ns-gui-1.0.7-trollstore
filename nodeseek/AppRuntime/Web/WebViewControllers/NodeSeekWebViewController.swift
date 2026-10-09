@@ -6,17 +6,26 @@
 //
 
 import UIKit
+import WebKit
 
 final class NodeSeekWebViewController: BaseWebViewController {
     override var usesCustomUserAgent: Bool {
         false
     }
 
-    init(url: URL, automaticallyLoadsPage: Bool = true) {
+    init(
+        url: URL,
+        pageTitle: String = "网页",
+        automaticallyLoadsPage: Bool = true,
+        allowsPageZoom: Bool = false,
+        additionalUserScripts: [WKUserScript] = []
+    ) {
         super.init(
             initialURL: url,
-            pageTitle: "网页",
-            automaticallyLoadsPage: automaticallyLoadsPage
+            pageTitle: pageTitle,
+            automaticallyLoadsPage: automaticallyLoadsPage,
+            allowsPageZoom: allowsPageZoom,
+            additionalUserScripts: additionalUserScripts
         )
     }
 

@@ -29,7 +29,7 @@ enum XPathRules {
     static let viewCount = ".//*[contains(@class, 'info-views')]//span"
     static let replyCount = ".//*[contains(@class, 'reply-count')] | .//*[contains(@class, 'info-comments-count')]//span[last()]"
     static let lastActive = ".//*[contains(@class, 'last-active')] | .//*[contains(@class, 'info-last-comment-time')]//time"
-    static let fallbackPostLinks = "//a[contains(@href, '/post-') or contains(@href, '/post/')]"
+    static let fallbackPostLinks = "//a[(contains(@href, '/post-') or contains(@href, '/post/')) and not(ancestor::footer)]"
     static let fallbackPostContainer = "./ancestor::*[self::article or self::li or self::tr or self::div][1]"
     static let fallbackAvatar = ".//img[contains(@src, '/avatar/')]"
     static let fallbackAuthor = ".//a[contains(@href, '/space/') or contains(@href, '/user/')]"
@@ -52,11 +52,15 @@ enum XPathRules {
     static let contentAuthorProfileLink = ".//*[contains(@class, 'author-name') and @href]"
     static let contentAvatarProfileLink = ".//*[contains(concat(' ', normalize-space(@class), ' '), ' avatar-wrapper ')]//a[contains(@href, '/space/')]"
     static let contentCreatedAt = ".//*[contains(@class, 'date-created')]//time"
+    /// 站点只在楼层真被编辑过时才渲染这个 span，`title` 形如
+    /// `Edited 2026-09-19 15:41:23 by qa33794530`，节点文本是 `edited 1day ago`。
+    static let contentUpdatedAt = ".//*[contains(@class, 'date-updated')]"
     static let contentCategory = ".//*[contains(@class, 'content-category')]//a"
     static let contentFloor = ".//*[contains(@class, 'floor-link')]"
     static let contentHotBadge = ".//*[contains(concat(' ', normalize-space(@class), ' '), ' hot-badge ')]"
     static let contentArticle = ".//*[self::article or self::div][contains(concat(' ', normalize-space(@class), ' '), ' post-content ')]"
     static let contentSignature = "./*[contains(concat(' ', normalize-space(@class), ' '), ' signature ')][1]"
     static let postDetailBodyLeft = "//*[@id='nsk-body-left'][1]"
+    static let postVoteRoot = "//*[@id='vote-editor-mount'][1]"
     static let postDetailRestrictedNotice = "//*[@id='nsk-body-left']//*[(contains(normalize-space(.), '需要注册用户才能查看') or contains(normalize-space(.), '权限不足')) and not(*)][1] | //*[contains(concat(' ', normalize-space(@class), ' '), ' restricted-post ')]//*[(contains(normalize-space(.), '需要注册用户才能查看') or contains(normalize-space(.), '权限不足'))][1]"
 }

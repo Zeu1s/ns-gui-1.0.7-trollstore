@@ -26,20 +26,30 @@ actor CurrentAccountStore {
         self.userDefaults = userDefaults
         self.storageKey = storageKey
         self.cachedSnapshot = Self.loadSnapshot(userDefaults: userDefaults, storageKey: storageKey)
+        Self.lastLoadedSnapshot = cachedSnapshot
     }
 
     func snapshot() -> Snapshot? {
         cachedSnapshot
     }
 
+    /// 供 MainActor 代码同步取当前用户 ID（从启动时已加载的缓存快照读取，不进 actor 队列）。
+    nonisolated func syncCachedUserID() -> Int? {
+        Self.lastLoadedSnapshot?.account.nodeSeekUID
+    }
+
+    private static var lastLoadedSnapshot: Snapshot?
+
     func save(_ account: AccountResponse, updatedAt: Date = Date()) {
         let snapshot = Snapshot(account: account, updatedAt: updatedAt)
         cachedSnapshot = snapshot
+        Self.lastLoadedSnapshot = snapshot
         persist(snapshot)
     }
 
     func clear() {
         cachedSnapshot = nil
+        Self.lastLoadedSnapshot = nil
         userDefaults.removeObject(forKey: storageKey)
     }
 

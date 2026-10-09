@@ -48,6 +48,16 @@ extension PostDetailViewController {
         }
     }
 
+    func handleEditComment(_ comment: Comment) {
+        ensureNodeSeekLoggedIn(context: "editComment", allowCachedLogin: true) { [weak self] in
+            guard let self else { return }
+            let plainText = CommentCopyTextFormatter.plainText(for: comment, baseURL: self.baseURL)
+            self.replyComposerMode = .plain
+            self.replyTextView.text = plainText
+            self.presentReplyEditor(mode: .plain)
+        }
+    }
+
     func handleReply(toPostHeader header: PostDetailHeaderContent) {
         let comment = Comment(
             id: header.postID,
@@ -81,6 +91,71 @@ extension PostDetailViewController {
         scrollToTopButton.isHidden = isHidden
         floatingReplyPanel.isHidden = isHidden
         floatingReplyButtonContainer.isHidden = isHidden
+        if isHidden {
+            floatingControlsHideWorkItem?.cancel()
+            floatingControlsRevealed = false
+            floatingScrollMovement = 0
+            floatingReplyButtonContainer.alpha = 1
+        } else {
+            if abs(floatingReplyButtonContainer.alpha - floatingControlsActiveAlpha) < 0.01 {
+                floatingControlsRevealed = true
+            } else {
+                floatingControlsRevealed = false
+                floatingReplyButtonContainer.alpha = floatingControlsIdleAlpha
+            }
+            // 进帖默认超高透明度；滑动后显示 30% 透明度；停止 2 秒后淡回超高透明度。
+            scheduleFloatingControlsHide()
+        }
+    }
+
+    func handleFloatingControlsScrollActivity(_ scrollView: UIScrollView) {
+        guard floatingReplyButtonContainer.isHidden == false else { return }
+        let currentY = scrollView.contentOffset.y
+        let delta = abs(currentY - lastFloatingScrollOffsetY)
+        lastFloatingScrollOffsetY = currentY
+        if floatingControlsRevealed == false {
+            floatingScrollMovement += delta
+            guard floatingScrollMovement >= floatingControlsRevealThreshold else { return }
+        }
+        revealFloatingControlsIfNeeded()
+        scheduleFloatingControlsHide()
+    }
+
+    private func revealFloatingControlsIfNeeded() {
+        guard floatingControlsRevealed == false else { return }
+        floatingControlsRevealed = true
+        floatingScrollMovement = 0
+        UIView.animate(withDuration: 0.3, delay: 0, options: [.curveEaseOut, .allowUserInteraction]) {
+            self.floatingReplyButtonContainer.alpha = self.floatingControlsActiveAlpha
+        }
+    }
+
+    private func scheduleFloatingControlsHide() {
+        floatingControlsHideWorkItem?.cancel()
+        let workItem = DispatchWorkItem { [weak self] in
+            guard let self, self.floatingControlsRevealed else { return }
+            self.fadeFloatingControlsToIdle()
+        }
+        floatingControlsHideWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + floatingControlsHideDelay, execute: workItem)
+    }
+
+    func applyFloatingControlsIdleStateIfNeeded() {
+        guard floatingControlsRevealed == false,
+              floatingReplyButtonContainer.isHidden == false,
+              abs(floatingReplyButtonContainer.alpha - floatingControlsIdleAlpha) > 0.01 else {
+            return
+        }
+        floatingReplyButtonContainer.alpha = floatingControlsIdleAlpha
+    }
+
+    private func fadeFloatingControlsToIdle() {
+        guard floatingControlsRevealed, floatingReplyButtonContainer.isHidden == false else { return }
+        floatingControlsRevealed = false
+        floatingScrollMovement = 0
+        UIView.animate(withDuration: 0.4, delay: 0, options: [.curveEaseIn, .allowUserInteraction]) {
+            self.floatingReplyButtonContainer.alpha = self.floatingControlsIdleAlpha
+        }
     }
 
     @objc

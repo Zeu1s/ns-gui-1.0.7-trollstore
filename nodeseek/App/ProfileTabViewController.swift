@@ -4,11 +4,13 @@
 //
 
 import UIKit
+import WebKit
 
 @MainActor
 final class ProfileTabViewController: UIViewController {
     private enum Section: Int, CaseIterable {
         case content
+        case readme
         case utility
     }
 
@@ -37,6 +39,7 @@ final class ProfileTabViewController: UIViewController {
     private let requestedUserID: Int?
     private let userInfoClient: NodeSeekUserInfoLoading
     private let relationshipClient: NodeSeekUserRelationshipManaging
+    private let accountSettingsClient = NodeSeekAccountSettingsClient()
     private let currentAccountStore: CurrentAccountStore
     private let tableView = UITableView(frame: .zero, style: .insetGrouped)
     private let headerView = ProfileHeaderView()
@@ -45,8 +48,19 @@ final class ProfileTabViewController: UIViewController {
     private var currentUserID: Int?
     private var account: AccountResponse?
     private var userInfo: NodeSeekUserInfo?
+    private var readme: String?
+    private var readmeContentHeight: CGFloat = 64
+    private var readmeLoadGeneration = 0
+    private var hasResolvedReadme = false
+    private var readmeLoadFailed = false
+    /// README 兜底落态时限。链路要跨 getInfo 接口、HTTP 回退和空间页抓取三段，
+    /// 任一段被取消或静默早退都会让"正在加载 Readme"永远不清。
+    private static let readmeResolveTimeout: TimeInterval = 30
+    private var readmeResolveWorkItem: DispatchWorkItem?
     private var loadTask: Task<Void, Never>?
     private var isChangingFollowState = false
+    private var followState: NodeSeekFollowState = .notFollowing
+    private var hasAppearedOnce = false
 
     init(
         userID: Int? = nil,
@@ -84,6 +98,15 @@ final class ProfileTabViewController: UIViewController {
         loadProfile()
     }
 
+    override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
+        guard hasAppearedOnce else {
+            hasAppearedOnce = true
+            return
+        }
+        loadProfile()
+    }
+
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         let desiredWidth = tableView.bounds.width
@@ -101,7 +124,15 @@ final class ProfileTabViewController: UIViewController {
         tableView.dataSource = self
         tableView.delegate = self
         tableView.rowHeight = 52
+        tableView.sectionFooterHeight = 8
+        if #available(iOS 15.0, *) {
+            tableView.sectionHeaderTopPadding = 0
+        }
+        let bottomInset = AppDisplayScaleSettings.scaled(96)
+        tableView.contentInset.bottom = bottomInset
+        tableView.verticalScrollIndicatorInsets.bottom = bottomInset
         tableView.register(UITableViewCell.self, forCellReuseIdentifier: "ProfileCell")
+        tableView.register(ProfileReadmeCell.self, forCellReuseIdentifier: ProfileReadmeCell.reuseIdentifier)
         refreshControl.addTarget(self, action: #selector(refreshTriggered), for: .valueChanged)
         tableView.refreshControl = refreshControl
         headerView.frame = CGRect(x: 0, y: 0, width: view.bounds.width, height: headerView.preferredHeight)
@@ -109,12 +140,31 @@ final class ProfileTabViewController: UIViewController {
         headerView.onPrivateMessageTapped = { [weak self] in
             self?.openPrivateMessage()
         }
+        headerView.onDiscussionsTapped = { [weak self] in
+            self?.openContent(.discussions)
+        }
+        headerView.onCommentsTapped = { [weak self] in
+            self?.openContent(.comments)
+        }
+        headerView.onCoinTapped = { [weak self] in
+            self?.openCredit()
+        }
+        headerView.onStardustTapped = { [weak self] in
+            self?.openStardustList()
+        }
+        headerView.onFansTapped = { [weak self] in
+            self?.openFansList()
+        }
+        headerView.onLevelTapped = { [weak self] in
+            self?.openLevelInfo()
+        }
         headerView.onFollowTapped = { [weak self] in
             self?.followUser()
         }
         headerView.onTransferTapped = { [weak self] in
             self?.openStardustTransfer()
         }
+
         headerView.onHeightNeedsUpdate = { [weak self, weak headerView] in
             guard let self, let headerView else { return }
             let desiredHeight = headerView.preferredHeight
@@ -134,6 +184,7 @@ final class ProfileTabViewController: UIViewController {
 
     private func loadProfile() {
         loadTask?.cancel()
+        readmeLoadGeneration &+= 1
         let hasVisibleProfile = userInfo != nil
         if hasVisibleProfile == false {
             headerView.setLoading()
@@ -147,41 +198,69 @@ final class ProfileTabViewController: UIViewController {
             guard let userID = requestedUserID ?? currentUserID else {
                 activeUserID = nil
                 userInfo = nil
+                readme = nil
+                hasResolvedReadme = true
                 headerView.setSignedOut()
                 refreshControl.endRefreshing()
                 tableView.reloadData()
                 return
             }
 
+            if activeUserID != userID {
+                readme = nil
+                readmeContentHeight = 64
+                hasResolvedReadme = false
+                // 切到新用户就已经进入加载态，但下面 loadUserInfo 一旦失败就再也不会
+                // 走到 loadReadme，加载态于是没人清。先挂上兜底，超时落失败态。
+                armReadmeResolveWatchdog(userID: userID)
+            }
             activeUserID = userID
-            for attempt in 0...1 {
+            // 站点的 503 是成片的（真机日志 108 秒里 8 次），只重试一次、还只隔
+            // 0.7 秒，基本必然撞在同一个窗口里，然后页面就一直停在错误态，
+            // 等用户手动下拉。改成阶梯退避自动重试，全失败才落错误态。
+            let retryDelays: [UInt64] = [0, 700_000_000, 2_500_000_000, 6_000_000_000]
+            for (attempt, delay) in retryDelays.enumerated() {
+                if delay > 0 {
+                    AppLog.info(
+                        .account,
+                        "个人资料自动重试: uid=\(userID), 第\(attempt + 1)/\(retryDelays.count) 次, 等待=\(delay / 1_000_000)ms"
+                    )
+                    try? await Task.sleep(nanoseconds: delay)
+                    guard Task.isCancelled == false else { return }
+                }
                 do {
                     let info = try await userInfoClient.loadUserInfo(userID: userID)
                     guard Task.isCancelled == false else { return }
                     userInfo = info
+                    followState = info.followState
                     headerView.configure(
                         userInfo: info,
                         avatarURL: avatarURL(for: userID),
-                        isCurrentUser: userID == currentUserID
+                        isCurrentUser: userID == currentUserID,
+                        followState: info.followState
                     )
                     refreshControl.endRefreshing()
                     tableView.reloadData()
+                    loadReadme(for: userID)
                     return
                 } catch {
                     guard Task.isCancelled == false else { return }
-                    if attempt == 0, Self.isTemporaryServerError(error) {
-                        try? await Task.sleep(nanoseconds: 700_000_000)
-                        guard Task.isCancelled == false else { return }
+                    if Self.isTemporaryServerError(error), attempt < retryDelays.count - 1 {
                         continue
                     }
 
                     // A transient failure must not replace an already usable profile with a blank error state.
                     if hasVisibleProfile == false {
                         userInfo = nil
-                        headerView.setError(error.localizedDescription)
+                        headerView.setError(Self.profileErrorMessage(for: error))
                     } else {
                         AppLog.warning(.account, "个人资料刷新失败，保留已展示内容: \(error.localizedDescription)")
                     }
+                    // 已登录用户的 readme 独立重载，不因资料接口失败而卡在失败态。
+                    if let userID = requestedUserID ?? currentUserID {
+                        loadReadme(for: userID)
+                    }
+                    break
                 }
             }
             refreshControl.endRefreshing()
@@ -189,9 +268,94 @@ final class ProfileTabViewController: UIViewController {
         }
     }
 
+    /// 超时兜底：仍处在同一代次、同一用户且没落态，才强制置为失败态以便手动重试。
+    /// 真实加载随后成功时会照常覆盖这里的结果，所以最坏情况只是闪一下失败提示。
+    private func armReadmeResolveWatchdog(userID: Int) {
+        readmeResolveWorkItem?.cancel()
+        let generation = readmeLoadGeneration
+        let workItem = DispatchWorkItem { [weak self] in
+            guard let self,
+                  self.readmeLoadGeneration == generation,
+                  self.activeUserID == userID,
+                  self.hasResolvedReadme == false else { return }
+            AppLog.warning(.account, "Readme 超时未落态，强制置为失败以便重试: uid=\(userID)")
+            self.readmeLoadFailed = true
+            self.hasResolvedReadme = true
+            self.tableView.reloadData()
+        }
+        readmeResolveWorkItem = workItem
+        DispatchQueue.main.asyncAfter(
+            deadline: .now() + Self.readmeResolveTimeout,
+            execute: workItem
+        )
+    }
+
+    private func loadReadme(for userID: Int) {
+        let generation = readmeLoadGeneration
+        hasResolvedReadme = false
+        readmeContentHeight = 64
+        armReadmeResolveWatchdog(userID: userID)
+        tableView.reloadData()
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                let profile = try await self.accountSettingsClient.loadProfile(userID: userID)
+                guard self.readmeLoadGeneration == generation else { return }
+                var trimmedReadme = profile.readme.trimmingCharacters(in: .whitespacesAndNewlines)
+                if trimmedReadme.isEmpty {
+                    // getInfo 未携带内容（他人资料接口固定 500）时走空间页抓取。
+                    // 空间页 SSR 是 12KB 骨架不含 readme（日志已证），直接用
+                    // WebView 渲染抓取（脚本含 API 直读回填）。
+                    if let rendered = await self.accountSettingsClient.loadReadmeViaSpacePage(userID: userID) {
+                        trimmedReadme = rendered.trimmingCharacters(in: .whitespacesAndNewlines)
+                    }
+                }
+                guard self.readmeLoadGeneration == generation, self.activeUserID == userID else { return }
+                self.readme = trimmedReadme.isEmpty ? nil : trimmedReadme
+                self.readmeLoadFailed = false
+            } catch {
+                guard self.readmeLoadGeneration == generation else { return }
+                let message = error.localizedDescription
+                if message.contains("429") || message.contains("限流") || message.contains("请求过于频繁") {
+                    // 限流是暂时的：保持已有 readme 与原状态，不打失败红字。
+                    AppLog.warning(.account, "Readme 加载被限流，保留现有内容: \(message)")
+                } else {
+                    guard self.activeUserID == userID else { return }
+                    // 接口链路失败：走空间页 WebView 渲染抓取（脚本含 API 直读回填），
+                    // 仍失败才落失败态。
+                    let scraped = await self.accountSettingsClient.loadReadmeViaSpacePage(userID: userID)
+                    if let scraped, scraped.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false {
+                        guard self.readmeLoadGeneration == generation, self.activeUserID == userID else { return }
+                        self.readme = scraped.trimmingCharacters(in: .whitespacesAndNewlines)
+                        self.readmeLoadFailed = false
+                    } else {
+                        guard self.readmeLoadGeneration == generation, self.activeUserID == userID else { return }
+                        self.readme = nil
+                        self.readmeLoadFailed = true
+                        AppLog.warning(.account, "Readme 加载失败: " + message)
+                    }
+                }
+            }
+            self.hasResolvedReadme = true
+            self.tableView.reloadData()
+        }
+    }
     private static func isTemporaryServerError(_ error: Error) -> Bool {
+        TemporaryServerErrorClassifier.isServiceUnavailable(error)
+    }
+
+    private static func profileErrorMessage(for error: Error) -> String {
         let message = error.localizedDescription.lowercased()
-        return message.contains("503") || message.contains("service unavailable")
+        if message.contains("429") || message.contains("too many requests") {
+            return "请求过于频繁，请稍后下拉刷新。"
+        }
+        if error is URLError
+            || message.contains("network connection was lost")
+            || message.contains("network is offline")
+            || message.contains("not connected to the internet") {
+            return "网络连接已中断，请检查网络后重试。"
+        }
+        return "暂时无法加载资料，请稍后重试。"
     }
 
     private func avatarURL(for userID: Int) -> URL {
@@ -211,6 +375,11 @@ final class ProfileTabViewController: UIViewController {
     }
 
     @objc private func refreshTriggered() {
+        // 下拉重试需同时重置 readme 区，否则失败态文案会停留且无重载入口。
+        readmeLoadGeneration &+= 1
+        hasResolvedReadme = false
+        readmeLoadFailed = false
+        readme = nil
         loadProfile()
     }
 
@@ -255,6 +424,48 @@ final class ProfileTabViewController: UIViewController {
         )
     }
 
+    private func openCredit() {
+        guard let uid = activeUserID else { return }
+        navigationController?.pushViewController(
+            CreditLedgerViewController(kind: .coin, uid: uid),
+            animated: true
+        )
+    }
+
+    private func openStardustList() {
+        guard let uid = activeUserID else { return }
+        navigationController?.pushViewController(
+            CreditLedgerViewController(kind: .stardust, uid: uid),
+            animated: true
+        )
+    }
+
+    private func openLevelInfo() {
+        // 站内没有独立的等级说明页（/about 会 302 到官方介绍帖），
+        // 改为本地弹窗展示等级与鸡腿的对应规则（App 内等级计算同源）。
+        let message = [
+            "Lv1：鸡腿 ≥ 100",
+            "Lv2：鸡腿 ≥ 400",
+            "Lv3：鸡腿 ≥ 900",
+            "Lv4：鸡腿 ≥ 1600",
+            "Lv5：鸡腿 ≥ 2500",
+            "Lv6：鸡腿 ≥ 3600",
+            "",
+            "等级由鸡腿数目按开方公式折算，发帖被送鸡腿即可提升。"
+        ].joined(separator: "\n")
+        let alert = UIAlertController(title: "等级说明", message: message, preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: "知道了", style: .default))
+        present(alert, animated: true)
+    }
+
+    private func openFansList() {
+        guard let uid = activeUserID else { return }
+        navigationController?.pushViewController(
+            FansListViewController(fansOf: uid, isSelfProfile: uid == currentUserID),
+            animated: true
+        )
+    }
+
     private func openPrivateMessage() {
         guard let userID = activeUserID,
               userID != currentUserID else {
@@ -267,6 +478,109 @@ final class ProfileTabViewController: UIViewController {
         )
     }
 
+    private func handleReadmeLink(_ url: URL) {
+        let text = url.absoluteString
+        if text.contains("/notification"), text.contains("mode=talk") {
+            if let toRange = text.range(of: "to=") {
+                let tail = text[toRange.upperBound...]
+                if let participantID = Int(tail.split(separator: "&").first?.split(separator: "#").first ?? "") {
+                    let participantName = userInfo?.username ?? "用户 \(participantID)"
+                    navigationController?.pushViewController(
+                        PrivateMessageViewController(participantID: participantID, participantName: participantName),
+                        animated: true
+                    )
+                    return
+                }
+            }
+        }
+        if isTelegramLink(url) {
+            openTelegramLink(url)
+            return
+        }
+        // 复用帖子详情的链接分类器：站内帖子/用户/私信走原生页，
+        // 真正的站外链接才进内置浏览器，与网页端跳转体验一致。
+        guard let destination = PostDetailLinkResolver.destination(
+            for: url,
+            baseURL: NodeSeekSite.baseURL
+        ) else {
+            navigationController?.pushViewController(NodeSeekWebViewController(url: url), animated: true)
+            return
+        }
+        switch destination {
+        case .nativePost(let postID, let page, let resolvedURL):
+            let anchorID = NodeSeekPostRouteResolver.route(
+                for: resolvedURL,
+                baseURL: NodeSeekSite.baseURL
+            )?.anchorID
+            let post = PostSummary(
+                id: postID,
+                title: "帖子 #\(postID)",
+                url: resolvedURL,
+                authorName: "",
+                nodeName: nil,
+                replyCount: 0,
+                lastActivityText: nil
+            )
+            navigationController?.pushViewController(
+                PostDetailRouter.createModule(post: post, page: page, initialAnchorID: anchorID),
+                animated: true
+            )
+        case .nativePrivateMessage(let participantID):
+            navigationController?.pushViewController(
+                PrivateMessageViewController(
+                    participantID: participantID,
+                    participantName: userInfo?.username ?? "私信"
+                ),
+                animated: true
+            )
+        case .userProfile(let profileURL):
+            if let userID = NodeSeekUserIDResolver.uid(from: profileURL) {
+                navigationController?.pushViewController(ProfileTabViewController(userID: userID), animated: true)
+            } else {
+                navigationController?.pushViewController(NodeSeekWebViewController(url: profileURL), animated: true)
+            }
+        case .web(let webURL):
+            navigationController?.pushViewController(NodeSeekWebViewController(url: webURL), animated: true)
+        case .safari(let safariURL):
+            UIApplication.shared.open(safariURL)
+        case .externalApp(let appURL):
+            UIApplication.shared.open(appURL)
+        case .currentPageAnchor:
+            break
+        }
+    }
+
+    private func isTelegramLink(_ url: URL) -> Bool {
+        if url.scheme?.lowercased() == "tg" { return true }
+        let host = url.host?.lowercased()
+        return host == "t.me" || host == "telegram.me" || host == "www.t.me" || host == "www.telegram.me"
+    }
+
+    private func openTelegramLink(_ url: URL) {
+        guard url.scheme?.lowercased() != "tg" else {
+            UIApplication.shared.open(url)
+            return
+        }
+
+        let pathComponents = url.path.split(separator: "/")
+        guard let username = pathComponents.first,
+              username.hasPrefix("+") == false,
+              var components = URLComponents(string: "tg://resolve") else {
+            UIApplication.shared.open(url)
+            return
+        }
+        components.queryItems = [URLQueryItem(name: "domain", value: String(username))]
+        guard let telegramURL = components.url else {
+            UIApplication.shared.open(url)
+            return
+        }
+        // tg:// 唤起 Telegram；未安装时回退浏览器打开原链接。
+        UIApplication.shared.open(telegramURL, options: [:]) { opened in
+            if opened == false {
+                UIApplication.shared.open(url)
+            }
+        }
+    }
     private func followUser() {
         guard let userID = activeUserID,
               userID != currentUserID,
@@ -277,23 +591,30 @@ final class ProfileTabViewController: UIViewController {
             presentMessage(title: "请先登录", message: "登录后才能关注用户。")
             return
         }
+
+        let previousFollowState = followState
+        let nextFollowState = followState.updatingFollowing(!followState.isFollowing)
+        let actionName = nextFollowState.isFollowing ? "关注" : "取消关注"
         isChangingFollowState = true
+        followState = nextFollowState
+        headerView.setFollowState(nextFollowState)
         headerView.setFollowLoading(true)
         Task { [weak self] in
             guard let self else { return }
             do {
-                try await relationshipClient.setFollowing(userID: userID, following: true)
+                try await relationshipClient.setFollowing(userID: userID, following: nextFollowState.isFollowing)
                 isChangingFollowState = false
-                headerView.setFollowing(true)
+                headerView.setFollowState(nextFollowState)
                 headerView.setFollowLoading(false)
             } catch {
                 isChangingFollowState = false
+                followState = previousFollowState
+                headerView.setFollowState(previousFollowState)
                 headerView.setFollowLoading(false)
-                presentMessage(title: "关注失败", message: error.localizedDescription)
+                presentMessage(title: "\(actionName)失败", message: error.localizedDescription)
             }
         }
     }
-
     private func openStardustTransfer() {
         guard let userID = activeUserID,
               userID != currentUserID else {
@@ -331,6 +652,8 @@ extension ProfileTabViewController: UITableViewDataSource, UITableViewDelegate {
         switch section {
         case .content:
             return ContentRow.allCases.count
+        case .readme:
+            return userInfo == nil ? 0 : 1
         case .utility:
             return requestedUserID == nil ? 1 : 0
         }
@@ -341,35 +664,84 @@ extension ProfileTabViewController: UITableViewDataSource, UITableViewDelegate {
         switch section {
         case .content:
             return "内容"
+        case .readme:
+            return userInfo == nil ? nil : "Readme"
         case .utility:
             return requestedUserID == nil ? "应用" : nil
         }
     }
 
-    func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
-        let cell = tableView.dequeueReusableCell(withIdentifier: "ProfileCell", for: indexPath)
-        var configuration = cell.defaultContentConfiguration()
-        let section = Section(rawValue: indexPath.section)
-        switch section {
-        case .content:
-            let row = ContentRow(rawValue: indexPath.row)!
-            configuration.text = row.title
-            configuration.image = UIImage(systemName: row.imageName)
-            configuration.imageProperties.tintColor = .systemOrange
-            cell.accessoryType = .disclosureIndicator
-            cell.isUserInteractionEnabled = activeUserID != nil
-            configuration.textProperties.color = activeUserID == nil ? .secondaryLabel : .label
-        case .utility:
-            configuration.text = "设置"
-            configuration.image = UIImage(systemName: "gearshape")
-            configuration.imageProperties.tintColor = .secondaryLabel
-            cell.accessoryType = .disclosureIndicator
-            cell.isUserInteractionEnabled = true
-        case .none:
-            break
+    func tableView(_ tableView: UITableView, heightForHeaderInSection section: Int) -> CGFloat {
+        guard Section(rawValue: section) != nil else { return .leastNormalMagnitude }
+        return 22
+    }
+
+    func tableView(_ tableView: UITableView, heightForFooterInSection section: Int) -> CGFloat {
+        8
+    }
+    func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
+        guard Section(rawValue: indexPath.section) == .readme, readme != nil else {
+            return 52
         }
-        cell.contentConfiguration = configuration
-        return cell
+        return readmeContentHeight
+    }
+
+    func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
+        guard let section = Section(rawValue: indexPath.section) else {
+            return UITableViewCell()
+        }
+        switch section {
+        case .readme:
+            guard let cell = tableView.dequeueReusableCell(
+                withIdentifier: ProfileReadmeCell.reuseIdentifier,
+                for: indexPath
+            ) as? ProfileReadmeCell else {
+                return UITableViewCell()
+            }
+            cell.onLinkTapped = { [weak self] url in
+                self?.handleReadmeLink(url)
+            }
+            cell.onContentHeightChanged = { [weak self] height in
+                guard let self, self.readme != nil,
+                      abs(self.readmeContentHeight - height) > 1 else {
+                    return
+                }
+                self.readmeContentHeight = height
+                self.tableView.beginUpdates()
+                self.tableView.endUpdates()
+            }
+            if let readme {
+                cell.configure(markdown: readme)
+            } else {
+                cell.configureEmptyState(message: readmeLoadFailed ? "Readme 加载失败，下拉重试" : (hasResolvedReadme ? "暂无 Readme" : "正在加载 Readme..."))
+            }
+            return cell
+        case .content, .utility:
+            let cell = tableView.dequeueReusableCell(withIdentifier: "ProfileCell", for: indexPath)
+            var configuration = cell.defaultContentConfiguration()
+            switch section {
+            case .content:
+                guard let row = ContentRow(rawValue: indexPath.row) else {
+                    return UITableViewCell()
+                }
+                configuration.text = row.title
+                configuration.image = UIImage(systemName: row.imageName)
+                configuration.imageProperties.tintColor = .systemOrange
+                cell.accessoryType = .disclosureIndicator
+                cell.isUserInteractionEnabled = activeUserID != nil
+                configuration.textProperties.color = activeUserID == nil ? .secondaryLabel : .label
+            case .utility:
+                configuration.text = "设置"
+                configuration.image = UIImage(systemName: "gearshape")
+                configuration.imageProperties.tintColor = .secondaryLabel
+                cell.accessoryType = .disclosureIndicator
+                cell.isUserInteractionEnabled = true
+            case .readme:
+                break
+            }
+            cell.contentConfiguration = configuration
+            return cell
+        }
     }
 
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
@@ -381,27 +753,31 @@ extension ProfileTabViewController: UITableViewDataSource, UITableViewDelegate {
             openContent(row)
         case .utility:
             navigationController?.pushViewController(SettingsViewController(), animated: true)
+        case .readme:
+            break
         }
     }
 }
-
 private final class ProfileHeaderView: UIView {
-    static let preferredHeight: CGFloat = 322
-
-    /// 根据操作按钮是否可见计算头部高度，头像/账号/等级/指标整体居中。
+    /// 根据操作按钮是否可见计算头部高度：头像行 + 简介 + 统计卡 + 操作按钮。
     var preferredHeight: CGFloat {
-        actionStack.isHidden ? 268 : 322
+        actionStack.isHidden ? 192 : 236
     }
 
     var onHeightNeedsUpdate: (() -> Void)?
 
     var onPrivateMessageTapped: (() -> Void)?
+    var onDiscussionsTapped: (() -> Void)?
+    var onCommentsTapped: (() -> Void)?
+    var onCoinTapped: (() -> Void)?
+    var onStardustTapped: (() -> Void)?
+    var onFansTapped: (() -> Void)?
+    var onLevelTapped: (() -> Void)?
     var onFollowTapped: (() -> Void)?
     var onTransferTapped: (() -> Void)?
 
     private let avatarImageView = UIImageView()
     private let nameLabel = UILabel()
-    private let levelLabel = UILabel()
     private let statusLabel = UILabel()
     private let metricContainer = UIView()
     private let metricStack = UIStackView()
@@ -424,7 +800,6 @@ private final class ProfileHeaderView: UIView {
         avatarImageView.image = UIImage(systemName: "person.crop.circle.fill")
         avatarImageView.tintColor = .tertiaryLabel
         nameLabel.text = "正在加载"
-        levelLabel.text = nil
         statusLabel.text = ""
         setActionsVisible(false)
         setMetrics(Self.placeholderMetrics)
@@ -434,7 +809,6 @@ private final class ProfileHeaderView: UIView {
         avatarImageView.image = UIImage(systemName: "person.crop.circle.badge.questionmark")
         avatarImageView.tintColor = .secondaryLabel
         nameLabel.text = "未登录"
-        levelLabel.text = nil
         statusLabel.text = "登录后可查看个人资料"
         setActionsVisible(false)
         setMetrics(Self.placeholderMetrics)
@@ -444,31 +818,76 @@ private final class ProfileHeaderView: UIView {
         avatarImageView.image = UIImage(systemName: "exclamationmark.circle")
         avatarImageView.tintColor = .systemOrange
         nameLabel.text = "资料加载失败"
-        levelLabel.text = nil
         statusLabel.text = message
         setActionsVisible(false)
         setMetrics(Self.placeholderMetrics)
     }
 
-    func configure(userInfo: NodeSeekUserInfo, avatarURL: URL, isCurrentUser: Bool) {
+    func configure(userInfo: NodeSeekUserInfo, avatarURL: URL, isCurrentUser: Bool, followState: NodeSeekFollowState) {
         avatarImageView.image = UIImage(systemName: "person.crop.circle.fill")
         avatarImageView.tintColor = .tertiaryLabel
         ImageLoad.url(avatarURL)
             .toAvatar(requestID: "profile-\(userInfo.userID)")
             .into(avatarImageView)
-        nameLabel.text = userInfo.username ?? (isCurrentUser ? "我的账号" : "用户 \(userInfo.userID)")
-        levelLabel.text = "等级 Lv \(userInfo.level)"
+        let nickname = userInfo.username ?? (isCurrentUser ? "我的账号" : "未知用户")
+        // 对照官方 PWA：主标题为昵称，ID 并入简介行。
+        nameLabel.text = nickname
         let bio = userInfo.bio?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        statusLabel.text = bio.isEmpty ? "加入 NodeSeek \(userInfo.joinDays) 天" : bio
+        let highlightedAttributes: [NSAttributedString.Key: Any] = [
+            .foregroundColor: UIColor.systemOrange,
+            .font: UIFont.preferredFont(forTextStyle: .footnote)
+        ]
+        let status = NSMutableAttributedString(
+            string: "ID \(userInfo.userID) · Lv \(userInfo.level) · 加入 \(userInfo.joinDays) 天",
+            attributes: highlightedAttributes
+        )
+        if bio.isEmpty == false {
+            status.append(NSAttributedString(
+                string: " · \(bio)",
+                attributes: [.foregroundColor: UIColor.secondaryLabel]
+            ))
+        }
+        statusLabel.attributedText = status
         setActionsVisible(!isCurrentUser)
-        setFollowing(false)
+        setFollowState(followState)
         setMetrics([
-            ("等级", "Lv \(userInfo.level)", UIImage(systemName: "diamond")),
-            ("主题帖", "\(userInfo.nPost)", UIImage(systemName: "square.and.pencil")),
-            ("鸡腿", "\(userInfo.coin)", ReactionIconRenderer.chickenLeg(pointSize: 18)),
-            ("评论数", "\(userInfo.nComment)", UIImage(systemName: "text.bubble")),
-            ("星辰", "\(userInfo.stardust)", UIImage(systemName: "wallet.pass")),
-            ("粉丝", "\(userInfo.fans)", UIImage(systemName: "dot.radiowaves.left.and.right"))
+            ProfileMetric(
+                title: "等级",
+                value: "Lv \(userInfo.level)",
+                image: UIImage(systemName: "diamond"),
+                onTap: isCurrentUser ? onLevelTapped : nil
+            ),
+            ProfileMetric(
+                title: "主题帖",
+                value: "\(userInfo.nPost)",
+                image: UIImage(systemName: "square.and.pencil"),
+                onTap: onDiscussionsTapped
+            ),
+            ProfileMetric(
+                title: "鸡腿",
+                value: "\(userInfo.coin)",
+                image: ReactionIconRenderer.chickenLeg(pointSize: 18),
+                imageTintColor: .secondaryLabel,
+                onTap: onCoinTapped
+            ),
+            ProfileMetric(
+                title: "评论数",
+                value: "\(userInfo.nComment)",
+                image: UIImage(systemName: "text.bubble"),
+                onTap: onCommentsTapped
+            ),
+            ProfileMetric(
+                title: "星辰",
+                value: "\(userInfo.stardust)",
+                image: UIImage(systemName: "wallet.pass"),
+                onTap: onStardustTapped
+            ),
+            ProfileMetric(
+                title: "粉丝",
+                value: "\(userInfo.fans)",
+                image: UIImage(systemName: "dot.radiowaves.left.and.right"),
+                onTap: onFansTapped
+            )
         ])
     }
 
@@ -477,56 +896,69 @@ private final class ProfileHeaderView: UIView {
         followButton.isEnabled = !isLoading
     }
 
-    func setFollowing(_ isFollowing: Bool) {
-        var configuration = followButton.configuration ?? UIButton.Configuration.filled()
-        configuration.title = isFollowing ? "已关注" : "关注"
-        configuration.image = UIImage(systemName: isFollowing ? "checkmark" : "person.badge.plus")
-        configuration.imagePadding = 5
-        configuration.baseBackgroundColor = isFollowing ? .systemGray : .systemBlue
-        configuration.baseForegroundColor = .white
+    func setFollowState(_ followState: NodeSeekFollowState) {
+        var configuration = followButton.configuration ?? UIButton.Configuration.gray()
+        if followState.isMutual {
+            configuration.title = "互相关注"
+            configuration.image = UIImage(systemName: "person.2.fill")
+            followButton.accessibilityLabel = "互相关注，点击取消关注"
+        } else if followState.isFollowing {
+            configuration.title = "取消关注"
+            configuration.image = UIImage(systemName: "person.badge.minus")
+            followButton.accessibilityLabel = "取消关注"
+        } else {
+            configuration.title = "关注"
+            configuration.image = UIImage(systemName: "person.badge.plus")
+            followButton.accessibilityLabel = "关注用户"
+        }
+        configuration.imagePadding = 4
+        configuration.baseBackgroundColor = .tertiarySystemFill
+        configuration.baseForegroundColor = .label
+        configuration.cornerStyle = .medium
+        configuration.contentInsets = NSDirectionalEdgeInsets(top: 6, leading: 8, bottom: 6, trailing: 8)
         followButton.configuration = configuration
-        followButton.accessibilityLabel = isFollowing ? "已关注" : "关注用户"
     }
 
     private func setupUI() {
+        // 与下方 insetGrouped 内容单元保持相同的左右边距。
+        layoutMargins = UIEdgeInsets(top: 0, left: 20, bottom: 0, right: 20)
+
+        // 对照官方 PWA：大头像（圆角方形）、名字与简介、等宽统计卡一行。
         avatarImageView.translatesAutoresizingMaskIntoConstraints = false
         avatarImageView.contentMode = .scaleAspectFill
         avatarImageView.clipsToBounds = true
-        avatarImageView.layer.cornerRadius = 36
+        avatarImageView.layer.cornerRadius = 12
 
         nameLabel.translatesAutoresizingMaskIntoConstraints = false
-        nameLabel.font = .preferredFont(forTextStyle: .title2)
+        nameLabel.font = .preferredFont(forTextStyle: .title3)
         nameLabel.textColor = .label
-        nameLabel.textAlignment = .center
+        nameLabel.textAlignment = .left
         nameLabel.adjustsFontForContentSizeCategory = true
-
-        levelLabel.translatesAutoresizingMaskIntoConstraints = false
-        levelLabel.font = .preferredFont(forTextStyle: .subheadline)
-        levelLabel.textColor = .systemOrange
-        levelLabel.textAlignment = .center
-        levelLabel.adjustsFontForContentSizeCategory = true
+        nameLabel.adjustsFontSizeToFitWidth = true
+        nameLabel.minimumScaleFactor = 0.8
+        nameLabel.lineBreakMode = .byTruncatingTail
 
         statusLabel.translatesAutoresizingMaskIntoConstraints = false
-        statusLabel.font = .preferredFont(forTextStyle: .subheadline)
+        statusLabel.font = .preferredFont(forTextStyle: .footnote)
         statusLabel.textColor = .secondaryLabel
-        statusLabel.textAlignment = .center
+        statusLabel.textAlignment = .left
         statusLabel.adjustsFontForContentSizeCategory = true
         statusLabel.numberOfLines = 2
+        statusLabel.lineBreakMode = .byTruncatingTail
 
         metricContainer.translatesAutoresizingMaskIntoConstraints = false
-        metricContainer.backgroundColor = .secondarySystemBackground
+        metricContainer.backgroundColor = .secondarySystemGroupedBackground
         metricContainer.layer.cornerRadius = 10
-        metricContainer.layer.cornerCurve = .continuous
 
         metricStack.translatesAutoresizingMaskIntoConstraints = false
-        metricStack.axis = .vertical
+        metricStack.axis = .horizontal
         metricStack.distribution = .fillEqually
-        metricStack.spacing = 3
+        metricStack.spacing = 2
         metricContainer.addSubview(metricStack)
 
-        configureActionButton(transferButton, title: "转账", imageName: "arrow.left.arrow.right", color: .systemGreen)
-        configureActionButton(privateMessageButton, title: "私信", imageName: "paperplane.fill", color: .systemGreen)
-        setFollowing(false)
+        configureActionButton(transferButton, title: "转账", imageName: "arrow.left.arrow.right")
+        configureActionButton(privateMessageButton, title: "私信", imageName: "paperplane.fill")
+        setFollowState(.notFollowing)
         transferButton.addTarget(self, action: #selector(transferTapped), for: .touchUpInside)
         followButton.addTarget(self, action: #selector(followTapped), for: .touchUpInside)
         privateMessageButton.addTarget(self, action: #selector(privateMessageTapped), for: .touchUpInside)
@@ -535,62 +967,56 @@ private final class ProfileHeaderView: UIView {
         actionStack.axis = .horizontal
         actionStack.alignment = .fill
         actionStack.distribution = .fillEqually
-        actionStack.spacing = 12
+        actionStack.spacing = 6
         actionStack.addArrangedSubview(transferButton)
         actionStack.addArrangedSubview(followButton)
         actionStack.addArrangedSubview(privateMessageButton)
 
         addSubview(avatarImageView)
         addSubview(nameLabel)
-        addSubview(levelLabel)
         addSubview(statusLabel)
         addSubview(metricContainer)
         addSubview(actionStack)
         NSLayoutConstraint.activate([
-            avatarImageView.centerXAnchor.constraint(equalTo: centerXAnchor),
+            avatarImageView.leadingAnchor.constraint(equalTo: layoutMarginsGuide.leadingAnchor),
             avatarImageView.topAnchor.constraint(equalTo: topAnchor, constant: 12),
-            avatarImageView.widthAnchor.constraint(equalToConstant: 72),
-            avatarImageView.heightAnchor.constraint(equalToConstant: 72),
+            avatarImageView.widthAnchor.constraint(equalToConstant: 64),
+            avatarImageView.heightAnchor.constraint(equalToConstant: 64),
 
-            nameLabel.centerXAnchor.constraint(equalTo: centerXAnchor),
-            nameLabel.topAnchor.constraint(equalTo: avatarImageView.bottomAnchor, constant: 10),
-            nameLabel.leadingAnchor.constraint(greaterThanOrEqualTo: layoutMarginsGuide.leadingAnchor, constant: 16),
-            nameLabel.trailingAnchor.constraint(lessThanOrEqualTo: layoutMarginsGuide.trailingAnchor, constant: -16),
+            nameLabel.leadingAnchor.constraint(equalTo: avatarImageView.trailingAnchor, constant: 12),
+            nameLabel.centerYAnchor.constraint(equalTo: avatarImageView.centerYAnchor),
+            nameLabel.trailingAnchor.constraint(lessThanOrEqualTo: layoutMarginsGuide.trailingAnchor),
 
-            levelLabel.centerXAnchor.constraint(equalTo: centerXAnchor),
-            levelLabel.topAnchor.constraint(equalTo: nameLabel.bottomAnchor, constant: 3),
-
-            statusLabel.centerXAnchor.constraint(equalTo: centerXAnchor),
-            statusLabel.topAnchor.constraint(equalTo: levelLabel.bottomAnchor, constant: 4),
-            statusLabel.leadingAnchor.constraint(greaterThanOrEqualTo: layoutMarginsGuide.leadingAnchor, constant: 24),
-            statusLabel.trailingAnchor.constraint(lessThanOrEqualTo: layoutMarginsGuide.trailingAnchor, constant: -24),
+            statusLabel.leadingAnchor.constraint(equalTo: layoutMarginsGuide.leadingAnchor),
+            statusLabel.topAnchor.constraint(equalTo: avatarImageView.bottomAnchor, constant: 8),
+            statusLabel.trailingAnchor.constraint(equalTo: layoutMarginsGuide.trailingAnchor),
 
             metricContainer.leadingAnchor.constraint(equalTo: layoutMarginsGuide.leadingAnchor),
             metricContainer.trailingAnchor.constraint(equalTo: layoutMarginsGuide.trailingAnchor),
-            metricContainer.topAnchor.constraint(equalTo: statusLabel.bottomAnchor, constant: 14),
-            metricContainer.heightAnchor.constraint(equalToConstant: 80),
+            metricContainer.topAnchor.constraint(equalTo: statusLabel.bottomAnchor, constant: 10),
+            metricContainer.heightAnchor.constraint(equalToConstant: 64),
 
-            metricStack.leadingAnchor.constraint(equalTo: metricContainer.layoutMarginsGuide.leadingAnchor),
-            metricStack.trailingAnchor.constraint(equalTo: metricContainer.layoutMarginsGuide.trailingAnchor),
-            metricStack.topAnchor.constraint(equalTo: metricContainer.layoutMarginsGuide.topAnchor),
-            metricStack.bottomAnchor.constraint(equalTo: metricContainer.layoutMarginsGuide.bottomAnchor),
+            metricStack.leadingAnchor.constraint(equalTo: metricContainer.leadingAnchor, constant: 4),
+            metricStack.trailingAnchor.constraint(equalTo: metricContainer.trailingAnchor, constant: -4),
+            metricStack.topAnchor.constraint(equalTo: metricContainer.topAnchor, constant: 6),
+            metricStack.bottomAnchor.constraint(equalTo: metricContainer.bottomAnchor, constant: -6),
 
             actionStack.leadingAnchor.constraint(equalTo: layoutMarginsGuide.leadingAnchor),
             actionStack.trailingAnchor.constraint(equalTo: layoutMarginsGuide.trailingAnchor),
             actionStack.topAnchor.constraint(equalTo: metricContainer.bottomAnchor, constant: 10),
-            actionStack.heightAnchor.constraint(equalToConstant: 44)
+            actionStack.heightAnchor.constraint(equalToConstant: 34)
         ])
         setLoading()
     }
-
-    private func configureActionButton(_ button: UIButton, title: String, imageName: String, color: UIColor) {
-        var configuration = UIButton.Configuration.filled()
+    private func configureActionButton(_ button: UIButton, title: String, imageName: String) {
+        var configuration = UIButton.Configuration.gray()
         configuration.title = title
         configuration.image = UIImage(systemName: imageName)
-        configuration.imagePadding = 5
-        configuration.baseBackgroundColor = color
-        configuration.baseForegroundColor = .white
+        configuration.imagePadding = 4
+        configuration.baseBackgroundColor = .tertiarySystemFill
+        configuration.baseForegroundColor = .label
         configuration.cornerStyle = .medium
+        configuration.contentInsets = NSDirectionalEdgeInsets(top: 7, leading: 10, bottom: 7, trailing: 10)
         button.configuration = configuration
         button.titleLabel?.font = .preferredFont(forTextStyle: .body)
         button.titleLabel?.adjustsFontForContentSizeCategory = true
@@ -602,24 +1028,17 @@ private final class ProfileHeaderView: UIView {
         onHeightNeedsUpdate?()
     }
 
-    private func setMetrics(_ metrics: [(String, String, UIImage?)]) {
+    /// 对照官方 PWA：六个统计项一行等宽排布（card-block 的 space-between 等效实现）。
+    private func setMetrics(_ metrics: [ProfileMetric]) {
         metricStack.arrangedSubviews.forEach {
             metricStack.removeArrangedSubview($0)
             $0.removeFromSuperview()
         }
-        for row in stride(from: 0, to: metrics.count, by: 2) {
-            let rowStack = UIStackView()
-            rowStack.axis = .horizontal
-            rowStack.alignment = .fill
-            rowStack.distribution = .fillEqually
-            rowStack.spacing = 12
-            rowStack.addArrangedSubview(ProfileMetricView(title: metrics[row].0, value: metrics[row].1, image: metrics[row].2))
-            if row + 1 < metrics.count {
-                rowStack.addArrangedSubview(ProfileMetricView(title: metrics[row + 1].0, value: metrics[row + 1].1, image: metrics[row + 1].2))
-            } else {
-                rowStack.addArrangedSubview(UIView())
-            }
-            metricStack.addArrangedSubview(rowStack)
+        metricStack.axis = .horizontal
+        metricStack.distribution = .fillEqually
+        metricStack.spacing = 2
+        for metric in metrics {
+            metricStack.addArrangedSubview(ProfileMetricView(metric: metric))
         }
     }
 
@@ -635,25 +1054,553 @@ private final class ProfileHeaderView: UIView {
         onPrivateMessageTapped?()
     }
 
-    private static let placeholderMetrics: [(String, String, UIImage?)] = [
-        ("等级", "-", UIImage(systemName: "diamond")),
-        ("主题帖", "-", UIImage(systemName: "square.and.pencil")),
-        ("鸡腿", "-", ReactionIconRenderer.chickenLeg(pointSize: 18)),
-        ("评论数", "-", UIImage(systemName: "text.bubble")),
-        ("星辰", "-", UIImage(systemName: "wallet.pass")),
-        ("粉丝", "-", UIImage(systemName: "dot.radiowaves.left.and.right"))
+    private static let placeholderMetrics: [ProfileMetric] = [
+        ProfileMetric(title: "等级", value: "-", image: UIImage(systemName: "diamond")),
+        ProfileMetric(title: "主题帖", value: "-", image: UIImage(systemName: "square.and.pencil")),
+        ProfileMetric(
+            title: "鸡腿",
+            value: "-",
+            image: ReactionIconRenderer.chickenLeg(pointSize: 18),
+            imageTintColor: .secondaryLabel
+        ),
+        ProfileMetric(title: "评论数", value: "-", image: UIImage(systemName: "text.bubble")),
+        ProfileMetric(title: "星辰", value: "-", image: UIImage(systemName: "wallet.pass")),
+        ProfileMetric(title: "粉丝", value: "-", image: UIImage(systemName: "dot.radiowaves.left.and.right"))
     ]
+}
+
+private final class ProfileReadmeCell: UITableViewCell, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler {
+    static let reuseIdentifier = "ProfileReadmeCell"
+    private static let messageHandlerName = "nodeseekReadme"
+
+    var onLinkTapped: ((URL) -> Void)?
+    var onContentHeightChanged: ((CGFloat) -> Void)?
+
+    private lazy var readmeWebView: WKWebView = {
+        let configuration = WKWebViewConfiguration()
+        configuration.userContentController.add(self, name: Self.messageHandlerName)
+        return WKWebView(frame: .zero, configuration: configuration)
+    }()
+    private let emptyStateLabel = UILabel()
+    private var renderedMarkdown: String?
+    private var lastReportedContentHeight: CGFloat?
+    private var hasFinishedInitialDocument = false
+    /// README 在后台线程转换，回来时必须确认这份结果仍然对应最新一次配置。
+    private var markdownRenderToken = 0
+
+    override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
+        super.init(style: style, reuseIdentifier: reuseIdentifier)
+        selectionStyle = .none
+        backgroundColor = .secondarySystemGroupedBackground
+        contentView.backgroundColor = .secondarySystemGroupedBackground
+
+        readmeWebView.translatesAutoresizingMaskIntoConstraints = false
+        readmeWebView.navigationDelegate = self
+        readmeWebView.uiDelegate = self
+        readmeWebView.scrollView.isScrollEnabled = false
+        readmeWebView.isOpaque = false
+        readmeWebView.backgroundColor = .clear
+        emptyStateLabel.translatesAutoresizingMaskIntoConstraints = false
+        emptyStateLabel.font = .preferredFont(forTextStyle: .subheadline)
+        emptyStateLabel.textColor = .secondaryLabel
+        emptyStateLabel.textAlignment = .center
+        emptyStateLabel.adjustsFontForContentSizeCategory = true
+        emptyStateLabel.numberOfLines = 2
+        emptyStateLabel.isHidden = true
+        contentView.addSubview(readmeWebView)
+        contentView.addSubview(emptyStateLabel)
+        NSLayoutConstraint.activate([
+            readmeWebView.leadingAnchor.constraint(equalTo: contentView.layoutMarginsGuide.leadingAnchor),
+            readmeWebView.trailingAnchor.constraint(equalTo: contentView.layoutMarginsGuide.trailingAnchor),
+            readmeWebView.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 6),
+            readmeWebView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -6),
+            emptyStateLabel.leadingAnchor.constraint(equalTo: contentView.layoutMarginsGuide.leadingAnchor),
+            emptyStateLabel.trailingAnchor.constraint(equalTo: contentView.layoutMarginsGuide.trailingAnchor),
+            emptyStateLabel.centerYAnchor.constraint(equalTo: contentView.centerYAnchor)
+        ])
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    deinit {
+        readmeWebView.configuration.userContentController.removeScriptMessageHandler(forName: Self.messageHandlerName)
+    }
+
+    func configure(markdown: String) {
+        let trimmed = markdown.trimmingCharacters(in: .whitespacesAndNewlines)
+        emptyStateLabel.isHidden = true
+        readmeWebView.isHidden = false
+        guard renderedMarkdown != trimmed else { return }
+        renderedMarkdown = trimmed
+        lastReportedContentHeight = nil
+        hasFinishedInitialDocument = false
+        // README 是任意长度的远程文本，转换要跑近十个正则并多次遍历整段字符串。
+        // 这里在 @MainActor 上，直接在调用线程做会卡住主线程，放到后台算完再回主线程装载。
+        let renderToken = markdownRenderToken &+ 1
+        markdownRenderToken = renderToken
+        Task { [weak self] in
+            let document = await Task.detached(priority: .userInitiated) {
+                Self.htmlDocument(for: trimmed)
+            }.value
+            guard let self, self.markdownRenderToken == renderToken, self.renderedMarkdown == trimmed else { return }
+            self.readmeWebView.loadHTMLString(document, baseURL: NodeSeekSite.baseURL)
+        }
+    }
+
+    func configureEmptyState(message: String) {
+        renderedMarkdown = nil
+        lastReportedContentHeight = nil
+        hasFinishedInitialDocument = false
+        readmeWebView.stopLoading()
+        readmeWebView.isHidden = true
+        emptyStateLabel.text = message
+        emptyStateLabel.isHidden = false
+    }
+
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        hasFinishedInitialDocument = true
+        reportContentHeight()
+    }
+
+    func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+        // 渲染失败时回退纯文本，避免整段空白。
+        AppLog.warning(.account, "Readme WebView 渲染失败: \(error.localizedDescription)")
+        fallbackToPlainTextIfNeeded()
+    }
+
+    func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+        AppLog.warning(.account, "Readme WebView 导航失败: \(error.localizedDescription)")
+        fallbackToPlainTextIfNeeded()
+    }
+
+    private func fallbackToPlainTextIfNeeded() {
+        guard let markdown = renderedMarkdown, markdown.isEmpty == false else { return }
+        readmeWebView.isHidden = true
+        emptyStateLabel.text = markdown
+        emptyStateLabel.isHidden = false
+        emptyStateLabel.numberOfLines = 0
+        report(height: 0)
+        onContentHeightChanged?(200)
+    }
+
+    func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
+        guard message.name == Self.messageHandlerName,
+              let number = message.body as? NSNumber else {
+            return
+        }
+        report(height: number.doubleValue)
+    }
+
+    private func reportContentHeight() {
+        readmeWebView.evaluateJavaScript("Math.max(document.body.scrollHeight, document.documentElement.scrollHeight)") { [weak self] result, _ in
+            guard let self, let number = result as? NSNumber else { return }
+            self.report(height: number.doubleValue)
+        }
+    }
+
+    private func report(height rawHeight: Double) {
+        let height = max(CGFloat(rawHeight) + 12, 64)
+        guard abs((self.lastReportedContentHeight ?? 0) - height) > 1 else { return }
+        self.lastReportedContentHeight = height
+        self.onContentHeightChanged?(height)
+    }
+
+    func webView(
+        _ webView: WKWebView,
+        decidePolicyFor navigationAction: WKNavigationAction,
+        decisionHandler: @escaping (WKNavigationActionPolicy) -> Void
+    ) {
+        guard let url = navigationAction.request.url else {
+            decisionHandler(.allow)
+            return
+        }
+        // 用户点击的链接永远优先分流（含 t.me / tg:// Telegram 唤起）；
+        // 非点击型主框架导航（初始 loadHTMLString 等）才放行给内嵌 WebView。
+        if navigationAction.navigationType == .linkActivated {
+            onLinkTapped?(url)
+            decisionHandler(.cancel)
+            return
+        }
+        let isMainFrameLink = navigationAction.targetFrame?.isMainFrame == true
+        let shouldOpenInsideApp = isMainFrameLink && hasFinishedInitialDocument
+        guard shouldOpenInsideApp else {
+            decisionHandler(.allow)
+            return
+        }
+        onLinkTapped?(url)
+        decisionHandler(.cancel)
+    }
+
+    func webView(
+        _ webView: WKWebView,
+        createWebViewWith configuration: WKWebViewConfiguration,
+        for navigationAction: WKNavigationAction,
+        windowFeatures: WKWindowFeatures
+    ) -> WKWebView? {
+        if let url = navigationAction.request.url {
+            onLinkTapped?(url)
+        }
+        return nil
+    }
+
+    nonisolated private static func htmlDocument(for content: String) -> String {
+        let body: String
+        if containsStructuralHTML(content) {
+            // 还原转义标签后再渲染。结构化 HTML 与 markdown 常混排（站点编辑器
+            // 允许 <div> 与 [文本](url) 共存），HTML 分支也必须转换裸 markdown
+            // 链接，否则混排段落里的链接全是死文本（README 链接不能点的另一半根因）。
+            let unescaped = content
+                .replacingOccurrences(of: "&lt;", with: "<")
+                .replacingOccurrences(of: "&gt;", with: ">")
+                .replacingOccurrences(of: "&amp;amp;", with: "&amp;")
+            body = convertingMarkdownLinks(in: unescaped)
+        } else {
+            body = markdownToHTML(content)
+        }
+        return """
+        <!doctype html><html><head><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"><style>
+        :root{color-scheme:light dark}
+        body{font-family:-apple-system;font-size:15px;line-height:1.5;margin:0;padding:8px 0;color:#000;word-wrap:break-word;overflow-wrap:break-word}
+        @media(prefers-color-scheme:dark){body{color:#fff}}
+        a{color:#0A84FF;text-decoration:none} img{display:block;max-width:100%;height:auto;margin:4px 0}.dynamic-embed{display:block;width:100%;height:140px;border:0;margin:4px 0}
+        table{max-width:100%;border-collapse:collapse}td,th{border:1px solid #999;padding:4px 8px}
+        </style></head><body>\(body)\(heightObserverScript)</body></html>
+        """
+    }
+
+    nonisolated(unsafe) private static let structuralHTMLPattern = try! NSRegularExpression(
+        pattern: #"<(?:div|section|table|style|script|center|font|h[1-6]|ul|ol|li|blockquote|pre|hr|form|iframe|marquee|tbody|tr|td|th)[\s>]"#,
+        options: [.caseInsensitive]
+    )
+
+    // README 转换在每次资料页渲染时执行，正则必须只编译一次。
+    // 原来这些 pattern 都是现场 `try? NSRegularExpression(...)` 构造。
+    nonisolated(unsafe) private static let markdownImagePattern = try? NSRegularExpression(
+        pattern: "!\\[([^\\]]*)\\]\\((https://[^\\s\\)]+)\\)",
+        options: []
+    )
+    nonisolated(unsafe) private static let markdownLinkPattern = try? NSRegularExpression(
+        pattern: "\\[([^\\]]+)\\]\\(([^\\)]+)\\)",
+        options: []
+    )
+    nonisolated(unsafe) private static let bareURLPattern = try? NSRegularExpression(
+        pattern: "(?<![\"'=>>(])(https?://[a-zA-Z0-9._~:/?#@!$'()*+,;=%-]+)",
+        options: []
+    )
+    nonisolated(unsafe) private static let fencedCodePattern = try? NSRegularExpression(
+        pattern: "```[a-zA-Z0-9_+-]*\\n([\\s\\S]*?)```"
+    )
+    nonisolated(unsafe) private static let iframeEmbedPattern = try? NSRegularExpression(
+        pattern: "(?s)&lt;iframe\\b.*?\\bsrc\\s*=\\s*[\\\"'](https://[^\\\"'\\s]+)[\\\"'].*?&gt;(?:\\s*&lt;/iframe&gt;)?",
+        options: []
+    )
+    nonisolated(unsafe) private static let boldPattern = try? NSRegularExpression(pattern: "\\*\\*([^*]+)\\*\\*", options: [])
+    nonisolated(unsafe) private static let italicPattern = try? NSRegularExpression(
+        pattern: "(?<!\\*)\\*([^*\\n]+)\\*(?!\\*)",
+        options: []
+    )
+    nonisolated(unsafe) private static let strikePattern = try? NSRegularExpression(pattern: "~~([^~\\n]+)~~", options: [])
+    nonisolated(unsafe) private static let inlineCodePattern = try? NSRegularExpression(pattern: "`([^`\\n]+)`", options: [])
+
+    /// 把裸的 markdown 链接/图片转成可点的 <a>/<img>。
+    /// 顺序关键：先图片、再 markdown 链接、最后裸网址——若裸网址先跑，
+    /// 会把 `[文字](url)` 里的 url 先包成 <a>，后续 markdown 转换再包一层，
+    /// 产生 href="<a href=..." 的嵌套非法 HTML（链接显示异常且不可点）。
+    /// 裸网址匹配排除已在属性（" ' =）、锚点文本（>）或 markdown 括号内（(）的地址。
+    nonisolated private static func convertingMarkdownLinks(in html: String) -> String {
+        var result = html
+        if let imageRegex = markdownImagePattern {
+            result = imageRegex.stringByReplacingMatches(
+                in: result,
+                options: [],
+                range: NSRange(result.startIndex..., in: result),
+                withTemplate: "<img src=\"$2\" alt=\"$1\">"
+            )
+        }
+        if let linkRegex = markdownLinkPattern {
+            result = linkRegex.stringByReplacingMatches(
+                in: result,
+                options: [],
+                range: NSRange(result.startIndex..., in: result),
+                withTemplate: "<a href=\"$2\">$1</a>"
+            )
+        }
+        // 裸网址（站点编辑器允许不套 markdown 语法直接贴 URL）。
+        if let bareURLRegex = bareURLPattern {
+            let nsResult = result as NSString
+            let fullRange = NSRange(location: 0, length: nsResult.length)
+            var rebuilt = ""
+            var cursor = 0
+            for match in bareURLRegex.matches(in: result, options: [], range: fullRange) {
+                rebuilt += nsResult.substring(with: NSRange(location: cursor, length: match.range.location - cursor))
+                let url = nsResult.substring(with: match.range)
+                rebuilt += "<a href=\"\(url)\">\(url)</a>"
+                cursor = match.range.location + match.range.length
+            }
+            rebuilt += nsResult.substring(from: cursor)
+            result = rebuilt
+        }
+        return result
+    }
+
+    nonisolated private static func containsStructuralHTML(_ text: String) -> Bool {
+        // 站点接口返回的文本里 HTML 标签常以 &lt; 转义形态出现，
+        // 直接原样渲染会整段不可读；出现转义标签时先还原再判定。
+        let unescaped = text
+            .replacingOccurrences(of: "&lt;", with: "<")
+            .replacingOccurrences(of: "&gt;", with: ">")
+            .replacingOccurrences(of: "&amp;", with: "&")
+        let range = NSRange(unescaped.startIndex..., in: unescaped)
+        let hasRealTags = structuralHTMLPattern.firstMatch(in: unescaped, options: [], range: range) != nil
+        return hasRealTags
+    }
+
+    nonisolated private static let heightObserverScript = """
+    <script>
+    (() => {
+      const handlerName = 'nodeseekReadme';
+      let scheduled = false;
+      const report = () => {
+        if (scheduled) return;
+        scheduled = true;
+        requestAnimationFrame(() => {
+          scheduled = false;
+          const height = Math.max(document.body.scrollHeight, document.documentElement.scrollHeight);
+          if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers[handlerName]) {
+            window.webkit.messageHandlers[handlerName].postMessage(height);
+          }
+        });
+      };
+      window.addEventListener('load', report);
+      setTimeout(report, 300);
+      setTimeout(report, 1500);
+      setTimeout(report, 3000);
+      if (document.images && document.images.length) {
+        Array.prototype.forEach.call(document.images, (image) => {
+          image.addEventListener('load', report);
+          image.addEventListener('error', report);
+        });
+      }
+      if (window.MutationObserver) {
+        new MutationObserver(report).observe(document.documentElement, { childList: true, subtree: true, attributes: true, characterData: true });
+      }
+    })();
+    </script>
+    """
+
+    nonisolated private static func markdownToHTML(_ markdown: String) -> String {
+        var html = markdown
+            .replacingOccurrences(of: "&", with: "&amp;")
+            .replacingOccurrences(of: "<", with: "&lt;")
+            .replacingOccurrences(of: ">", with: "&gt;")
+
+        // 围栏代码块先摘出占位，避免内部内容被后续行内转换污染。
+        var codeBlocks: [String] = []
+        if let fenceRegex = fencedCodePattern {
+            let nshtml = html as NSString
+            let fullRange = NSRange(html.startIndex..., in: html)
+            let matches = fenceRegex.matches(in: html, options: [], range: fullRange)
+            for match in matches {
+                codeBlocks.append(nshtml.substring(with: match.range(at: 1)))
+            }
+            for match in matches.reversed() {
+                let index = matches.firstIndex(of: match) ?? 0
+                html = nshtml.replacingCharacters(in: match.range, with: "\u{E000}NSCODE\(index)\u{E001}")
+            }
+        }
+
+        if let iframeRegex = iframeEmbedPattern {
+            html = iframeRegex.stringByReplacingMatches(
+                in: html,
+                options: [],
+                range: NSRange(html.startIndex..., in: html),
+                withTemplate: "<iframe class=\"dynamic-embed\" src=\"$1\" loading=\"lazy\"></iframe>"
+            )
+        }
+        html = convertingMarkdownLinks(in: html)
+        html = renderHeaders(in: html)
+        if let boldRegex = boldPattern {
+            html = boldRegex.stringByReplacingMatches(
+                in: html,
+                options: [],
+                range: NSRange(html.startIndex..., in: html),
+                withTemplate: "<strong>$1</strong>"
+            )
+        }
+        if let italicRegex = italicPattern {
+            html = italicRegex.stringByReplacingMatches(
+                in: html,
+                options: [],
+                range: NSRange(html.startIndex..., in: html),
+                withTemplate: "<em>$1</em>"
+            )
+        }
+        if let strikeRegex = strikePattern {
+            html = strikeRegex.stringByReplacingMatches(
+                in: html,
+                options: [],
+                range: NSRange(html.startIndex..., in: html),
+                withTemplate: "<del>$1</del>"
+            )
+        }
+        if let inlineCodeRegex = inlineCodePattern {
+            html = inlineCodeRegex.stringByReplacingMatches(
+                in: html,
+                options: [],
+                range: NSRange(html.startIndex..., in: html),
+                withTemplate: "<code style=\"background:rgba(128,128,128,0.16);padding:1px 4px;border-radius:3px;\">$1</code>"
+            )
+        }
+
+        // 列表 / 引用 / 分割线：逐行分组后整块输出（不产生内部换行，避免被 <br> 污染）。
+        html = Self.renderLineBlocks(in: html)
+
+        html = html.replacingOccurrences(of: "\n", with: "<br>")
+
+        // 还原围栏代码块：<pre> 内保留原始换行。
+        for (index, code) in codeBlocks.enumerated() {
+            let token = "\u{E000}NSCODE\(index)\u{E001}"
+            let escaped = code
+                .replacingOccurrences(of: "&", with: "&amp;")
+                .replacingOccurrences(of: "<", with: "&lt;")
+                .replacingOccurrences(of: ">", with: "&gt;")
+            html = html.replacingOccurrences(
+                of: token,
+                with: "<pre style=\"background:rgba(128,128,128,0.14);padding:8px;border-radius:6px;overflow-x:auto;white-space:pre\"><code>\(escaped)</code></pre>"
+            )
+        }
+        return html
+    }
+
+    /// 把连续的列表行 / 引用行 / 分割线分组渲染为整块 HTML。
+    nonisolated private static func renderLineBlocks(in text: String) -> String {
+        var outputLines: [String] = []
+        var listBuffer: [String] = []
+        var listOrdered = false
+        var quoteBuffer: [String] = []
+
+        func flushList() {
+            guard listBuffer.isEmpty == false else { return }
+            let tag = listOrdered ? "ol" : "ul"
+            outputLines.append("<\(tag) style=\"margin:4px 0;padding-left:22px\">"
+                + listBuffer.map({ "<li>\($0)</li>" }).joined()
+                + "</\(tag)>")
+            listBuffer.removeAll()
+        }
+        func flushQuote() {
+            guard quoteBuffer.isEmpty == false else { return }
+            outputLines.append("<blockquote style=\"margin:4px 0;padding:4px 10px;border-left:3px solid rgba(128,128,128,0.5);color:inherit\">"
+                + quoteBuffer.joined(separator: "<br>")
+                + "</blockquote>")
+            quoteBuffer.removeAll()
+        }
+
+        for rawLine in text.components(separatedBy: "\n") {
+            let line = rawLine.trimmingCharacters(in: .whitespaces)
+            let trimmed = line.dropFirst(1).trimmingCharacters(in: .whitespaces)
+            if line == "---" || line == "***" || line == "___" {
+                flushList(); flushQuote()
+                outputLines.append("<hr style=\"border:0;border-top:1px solid rgba(128,128,128,0.4)\">")
+                continue
+            }
+            if line.hasPrefix("- ") || line.hasPrefix("* ") {
+                flushQuote()
+                if listBuffer.isEmpty {
+                    listOrdered = false
+                } else if listOrdered {
+                    flushList()
+                }
+                listBuffer.append(trimmed)
+                continue
+            }
+            if line.hasPrefix("> ") || line == ">" {
+                flushList()
+                quoteBuffer.append(String(line.dropFirst(line.hasPrefix("> ") ? 2 : 1)))
+                continue
+            }
+            let ordered = Self.matchOrderedListItem(line)
+            if let item = ordered {
+                flushQuote()
+                if listBuffer.isEmpty { listOrdered = true }
+                if listOrdered == false, listBuffer.isEmpty == false { flushList() }
+                listBuffer.append(item)
+                continue
+            }
+            flushList(); flushQuote()
+            outputLines.append(line)
+        }
+        flushList(); flushQuote()
+        return outputLines.joined(separator: "\n")
+    }
+
+    nonisolated private static func matchOrderedListItem(_ line: String) -> String? {
+        guard let spaceIndex = line.firstIndex(of: " ") else { return nil }
+        let marker = line[line.startIndex..<spaceIndex]
+        guard marker.hasSuffix("."), marker.dropLast().allSatisfy(\.isNumber), marker.count <= 4 else { return nil }
+        return line[spaceIndex...].dropFirst().trimmingCharacters(in: .whitespaces)
+    }
+
+    nonisolated private static func renderHeaders(in text: String) -> String {
+        text.components(separatedBy: "\n").map { line in
+            let leading = line.prefix(while: { $0 == " " || $0 == "\t" })
+            let body = line.dropFirst(leading.count)
+            var level = 0
+            for character in body {
+                guard character == "#", level < 6 else { break }
+                level += 1
+            }
+            guard level > 0 else { return line }
+            let after = body.dropFirst(level)
+            guard let first = after.first, first == " " || first == "\t" else { return line }
+            let content = after.dropFirst().trimmingCharacters(in: .whitespacesAndNewlines)
+            guard content.isEmpty == false else { return line }
+            return "\(leading)<h\(level)>\(content)</h\(level)>"
+        }.joined(separator: "\n")
+    }
+}
+private struct ProfileMetric {
+    let title: String
+    let value: String
+    let image: UIImage?
+    let imageTintColor: UIColor?
+    let onTap: (() -> Void)?
+
+    init(
+        title: String,
+        value: String,
+        image: UIImage?,
+        imageTintColor: UIColor? = nil,
+        onTap: (() -> Void)? = nil
+    ) {
+        self.title = title
+        self.value = value
+        self.image = image
+        self.imageTintColor = imageTintColor
+        self.onTap = onTap
+    }
+
 }
 
 private final class ProfileMetricView: UIView {
     private let imageView = UIImageView()
     private let textLabel = UILabel()
+    private let valueLabel = UILabel()
     private let contentStack = UIStackView()
 
-    init(title: String, value: String, image: UIImage?) {
+    private let imageTintColor: UIColor?
+    private let onTap: (() -> Void)?
+
+    init(metric: ProfileMetric) {
+        imageTintColor = metric.imageTintColor
+        onTap = metric.onTap
         super.init(frame: .zero)
-        imageView.image = image
-        textLabel.text = "\(title) \(value)"
+        imageView.image = metric.image
+        textLabel.text = metric.title
+        valueLabel.text = metric.value
+        accessibilityLabel = "\(metric.title) \(metric.value)"
+        accessibilityTraits = metric.onTap == nil ? .staticText : .button
         setupUI()
     }
 
@@ -661,32 +1608,55 @@ private final class ProfileMetricView: UIView {
         fatalError("init(coder:) has not been implemented")
     }
 
+    /// 对照官方 PWA 的 card-item：图标+数值一行居中，标题小字在下，等宽小卡。
     private func setupUI() {
         imageView.translatesAutoresizingMaskIntoConstraints = false
-        imageView.tintColor = .label
+        imageView.tintColor = imageTintColor ?? .secondaryLabel
         imageView.contentMode = .scaleAspectFit
 
+        valueLabel.translatesAutoresizingMaskIntoConstraints = false
+        valueLabel.font = .preferredFont(forTextStyle: .subheadline)
+        valueLabel.textColor = .label
+        valueLabel.textAlignment = .center
+        valueLabel.adjustsFontForContentSizeCategory = true
+        valueLabel.adjustsFontSizeToFitWidth = true
+        valueLabel.minimumScaleFactor = 0.66
+        valueLabel.lineBreakMode = .byTruncatingTail
+
         textLabel.translatesAutoresizingMaskIntoConstraints = false
-        textLabel.font = .preferredFont(forTextStyle: .subheadline)
-        textLabel.textColor = .label
+        textLabel.font = .preferredFont(forTextStyle: .caption2)
+        textLabel.textColor = .secondaryLabel
         textLabel.textAlignment = .center
         textLabel.adjustsFontForContentSizeCategory = true
-        textLabel.adjustsFontSizeToFitWidth = true
-        textLabel.minimumScaleFactor = 0.72
+        textLabel.lineBreakMode = .byTruncatingTail
 
         contentStack.translatesAutoresizingMaskIntoConstraints = false
-        contentStack.axis = .horizontal
+        contentStack.axis = .vertical
         contentStack.alignment = .center
-        contentStack.spacing = 6
+        contentStack.spacing = 3
         contentStack.addArrangedSubview(imageView)
+        contentStack.addArrangedSubview(valueLabel)
         contentStack.addArrangedSubview(textLabel)
         addSubview(contentStack)
+        if onTap != nil {
+            isUserInteractionEnabled = true
+            addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(metricTapped)))
+        }
         NSLayoutConstraint.activate([
             contentStack.centerXAnchor.constraint(equalTo: centerXAnchor),
             contentStack.centerYAnchor.constraint(equalTo: centerYAnchor),
-            imageView.widthAnchor.constraint(equalToConstant: 22),
-            imageView.heightAnchor.constraint(equalToConstant: 22),
-            textLabel.widthAnchor.constraint(equalToConstant: 84)
+            contentStack.leadingAnchor.constraint(greaterThanOrEqualTo: leadingAnchor, constant: 1),
+            contentStack.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -1),
+            valueLabel.leadingAnchor.constraint(equalTo: contentStack.leadingAnchor),
+            valueLabel.trailingAnchor.constraint(equalTo: contentStack.trailingAnchor),
+            textLabel.leadingAnchor.constraint(equalTo: contentStack.leadingAnchor),
+            textLabel.trailingAnchor.constraint(equalTo: contentStack.trailingAnchor),
+            imageView.widthAnchor.constraint(equalToConstant: 16),
+            imageView.heightAnchor.constraint(equalToConstant: 16)
         ])
+    }
+
+    @objc private func metricTapped() {
+        onTap?()
     }
 }

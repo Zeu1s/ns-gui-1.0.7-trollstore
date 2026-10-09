@@ -100,6 +100,44 @@ struct PostDetailPresenterTests {
         #expect(visitedStore.markedPosts.first?.url.absoluteString == "https://www.nodeseek.com/post-706958-2")
     }
 
+    @Test func loadingDetailKeepsSourcePostStatisticsInHistory() {
+        let interactor = SpyPostDetailInteractor()
+        let router = SpyPostDetailRouter()
+        let visitedStore = SpyVisitedPostStore()
+        let sourcePost = PostSummary(
+            id: "706958",
+            title: "列表标题",
+            url: URL(string: "https://www.nodeseek.com/post-706958-1")!,
+            authorName: "mist",
+            nodeName: nil,
+            replyCount: 28,
+            viewCount: 4096,
+            lastActivityText: nil
+        )
+        let presenter = PostDetailPresenter(
+            interactor: interactor,
+            router: router,
+            sourcePost: sourcePost,
+            visitedStore: visitedStore
+        )
+        let detail = PostDetail(
+            id: "706958",
+            title: "详情标题",
+            authorName: "mist",
+            avatarURL: nil,
+            metadataText: nil,
+            contentHTML: "<p>正文</p>",
+            comments: [],
+            page: 1,
+            isLastPage: true
+        )
+
+        presenter.didLoadPostDetail(PostDetailResponse(detail: detail))
+
+        #expect(visitedStore.markedPosts.first?.viewCount == 4096)
+        #expect(visitedStore.markedPosts.first?.replyCount == 28)
+    }
+
     @Test func approachingCommentEndLoadsNextPage() {
         let interactor = SpyPostDetailInteractor()
         let router = SpyPostDetailRouter()
@@ -1264,12 +1302,60 @@ struct PostDetailPresenterTests {
         #expect(view.updatedCommentOpposeEvents.last?.isClicked == true)
         #expect(view.toastMessage == "已反对")
     }
+
+    @Test func voteSelectionSubmitsAndUpdatesPostBody() {
+        let interactor = SpyPostDetailInteractor()
+        let router = SpyPostDetailRouter()
+        let view = SpyPostDetailView()
+        let presenter = PostDetailPresenter(interactor: interactor, router: router, initialPage: 1)
+        presenter.setView(view)
+        let vote = PostVote(
+            title: "选择一个方案",
+            canSubmit: true,
+            options: [
+                PostVoteOption(id: "a", title: "方案 A"),
+                PostVoteOption(id: "b", title: "方案 B")
+            ]
+        )
+        let detail = PostDetail(
+            id: "vote-post",
+            title: "投票帖",
+            authorName: "tester",
+            avatarURL: nil,
+            metadataText: nil,
+            contentHTML: "<p>正文</p>",
+            vote: vote,
+            comments: []
+        )
+        presenter.didLoadPostDetail(PostDetailResponse(detail: detail))
+
+        presenter.didTapVote(optionIDs: ["b"])
+
+        #expect(interactor.submittedVoteOptionIDs == ["b"])
+        #expect(view.updatedPostBodyDetails.last?.vote?.isSubmitting == true)
+
+        let resolvedVote = PostVote(
+            title: "选择一个方案",
+            totalVoteCount: 4,
+            statusText: "已投票",
+            canSubmit: false,
+            options: [
+                PostVoteOption(id: "a", title: "方案 A", voteCount: 1),
+                PostVoteOption(id: "b", title: "方案 B", voteCount: 3, isSelected: true)
+            ]
+        )
+        presenter.didSubmitPostVote(PostVoteSubmissionResponse(vote: resolvedVote, message: "投票成功"))
+
+        #expect(view.updatedPostBodyDetails.last?.vote == resolvedVote)
+        #expect(view.toastMessage == "投票成功")
+    }
 }
 
 private final class SpyPostDetailInteractor: PostDetailInteractorInput {
     private(set) var loadedPages: [Int] = []
     private(set) var loadPostDetailCount = 0
     private(set) var submittedReplyContent: String?
+    private(set) var submittedVoteOptionIDs: [String] = []
     private(set) var favoriteSubmitCount = 0
     private(set) var favoriteRemoveCount = 0
     private(set) var postLikeSubmitCount = 0
@@ -1290,6 +1376,10 @@ private final class SpyPostDetailInteractor: PostDetailInteractorInput {
 
     func submitReply(content: String) {
         submittedReplyContent = content
+    }
+
+    func submitVote(optionIDs: [String]) {
+        submittedVoteOptionIDs = optionIDs
     }
 
     func addFavorite() {

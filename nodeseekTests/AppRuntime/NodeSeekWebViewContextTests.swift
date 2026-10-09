@@ -18,6 +18,16 @@ struct NodeSeekWebViewContextTests {
         #expect(context.webView.scrollView.alwaysBounceHorizontal == false)
     }
 
+    @Test func pageZoomContextEnablesPinchAndZoomableViewport() {
+        let context = NodeSeekWebViewContext(allowsPageZoom: true)
+        let sources = context.webView.configuration.userContentController.userScripts
+            .map(\.source)
+            .joined(separator: "\n")
+
+        #expect(context.webView.scrollView.pinchGestureRecognizer?.isEnabled == true)
+        #expect(sources.contains("maximum-scale=5, user-scalable=yes"))
+    }
+
     @Test func sharedWebViewUsesSystemBackgroundBehindPageContent() {
         let context = NodeSeekWebViewContext()
 

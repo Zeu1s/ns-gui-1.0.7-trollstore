@@ -51,6 +51,12 @@ final class WKWebCookieStoreAdapter: WebCookieStore {
 // 本质上是在包 WebKit 的 Cookie API
 @MainActor
 final class CookieBridge {
+    /// Web→URLSession 方向是一次跨进程全量导出 + 主线程逐条回写，代价很高。
+    /// 真机日志实测 143 秒会话内跑了 44 次（约每 3.3 秒一次），因为每个调用点
+    /// 都"在发请求前先同步一遍"。同一份全局存储下这个频率毫无必要。
+    private static let globalSyncLeeway: TimeInterval = 10
+    private static var lastGlobalSyncAt: Date?
+
     private var webCookieStore: WebCookieStore?
     private let makeDefaultWebCookieStore: @MainActor () -> WebCookieStore
     private let urlCookieStorage: HTTPCookieStorage
@@ -73,11 +79,24 @@ final class CookieBridge {
         self.allowedDomains = allowedDomains
     }
 
-    func syncWebViewCookiesToURLSession() async {
+    /// - Parameter throttled: 是否允许走全局时间窗口。登录捕获、登出、页面动作
+    ///   回抓这类"cookie 刚刚变过"的调用必须传 false —— 否则会丢掉新的 session，
+    ///   表现成"登录了却仍显示未登录"。
+    func syncWebViewCookiesToURLSession(throttled: Bool = false) async {
+        let now = Date()
+        if throttled,
+           let lastSyncedAt = Self.lastGlobalSyncAt,
+           now.timeIntervalSince(lastSyncedAt) < Self.globalSyncLeeway {
+            return
+        }
+
         let webCookieStore = resolvedWebCookieStore()
         let cookies = await webCookieStore.allCookies()
         for cookie in cookies where isAllowed(cookie) {
             urlCookieStorage.setCookie(cookie)
+        }
+        if throttled {
+            Self.lastGlobalSyncAt = now
         }
     }
 
@@ -90,6 +109,8 @@ final class CookieBridge {
     }
 
     func clearSession() async {
+        // 清完必须让窗口失效，否则紧接着的首次同步会被跳过。
+        Self.lastGlobalSyncAt = nil
         let webCookieStore = resolvedWebCookieStore()
         let urlCookies = urlCookieStorage.cookies ?? []
         for cookie in urlCookies where isAllowed(cookie) {

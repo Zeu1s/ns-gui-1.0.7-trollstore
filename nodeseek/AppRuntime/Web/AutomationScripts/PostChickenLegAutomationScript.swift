@@ -36,7 +36,9 @@ enum PostChickenLegAutomationScript {
 
       const pickPostRoot = () =>
         document.querySelector(".nsk-post > .content-item") ||
+        document.querySelector("[id='0'][data-comment-id]") ||
         document.querySelector(".post-title + .content-item") ||
+        document.querySelector(".post-title ~ .content-item") ||
         document.querySelector("#nsk-body-left .content-item");
 
       const readPostCommentID = (postRoot) => {

@@ -4,6 +4,7 @@
 //
 
 import PhotosUI
+import SafariServices
 import UIKit
 import UniformTypeIdentifiers
 
@@ -123,6 +124,9 @@ final class PrivateMessageViewController: UIViewController {
         messageTextView.returnKeyType = .default
         messageTextView.delegate = self
         messageTextView.accessibilityLabel = "私信内容"
+        messageTextView.onPasteImage = { [weak self] image in
+            self?.uploadPastedImage(image) ?? false
+        }
 
         markdownLabel.translatesAutoresizingMaskIntoConstraints = false
         markdownLabel.text = "Markdown"
@@ -132,6 +136,8 @@ final class PrivateMessageViewController: UIViewController {
 
         markdownSwitch.translatesAutoresizingMaskIntoConstraints = false
         markdownSwitch.accessibilityLabel = "以 Markdown 发送"
+        // 图床返回 Markdown 图片文本，新私信默认按 Markdown 发送以确保图片正常渲染。
+        markdownSwitch.isOn = true
 
         var imageConfiguration = UIButton.Configuration.plain()
         imageConfiguration.image = UIImage(systemName: "camera.fill")
@@ -302,26 +308,11 @@ final class PrivateMessageViewController: UIViewController {
     }
 
     private func presentNodeImageKeyInput() {
-        let alert = UIAlertController(
-            title: "填写 NodeImage API Key",
-            message: "输入已有的 API Key 后即可发送图片。",
-            preferredStyle: .alert
-        )
-        alert.addTextField { field in
-            field.placeholder = "X-API-Key"
-            field.textContentType = .password
-            field.autocapitalizationType = .none
-            field.autocorrectionType = .no
-        }
-        alert.addAction(UIAlertAction(title: "取消", style: .cancel))
-        alert.addAction(UIAlertAction(title: "保存", style: .default) { [weak self, weak alert] _ in
+        presentNodeImageAuthorization { [weak self] key in
             guard let self else { return }
-            let key = NodeImageAPIKeyNormalizer.normalized(alert?.textFields?.first?.text ?? "")
-            guard key.isEmpty == false else { return }
             self.nodeImageAPIKeyStore.save(apiKey: key)
             self.presentImagePicker()
-        })
-        present(alert, animated: true)
+        }
     }
 
     private func presentImagePicker() {
@@ -401,6 +392,23 @@ final class PrivateMessageViewController: UIViewController {
         updateComposerState()
     }
 
+    private func uploadPastedImage(_ image: UIImage) -> Bool {
+        guard nodeImageAPIKeyStore.apiKey()?.isEmpty == false else {
+            presentError("请先完成 NodeImage 授权。")
+            return false
+        }
+        guard let data = image.jpegData(compressionQuality: 0.9) else {
+            presentError("图片编码失败。")
+            return false
+        }
+        uploadImage(
+            data: data,
+            fileName: "nodeseek-paste-\(Int(Date().timeIntervalSince1970)).jpg",
+            mimeType: "image/jpeg"
+        )
+        return true
+    }
+
     private func presentError(_ message: String) {
         let alert = UIAlertController(title: nil, message: message, preferredStyle: .alert)
         alert.addAction(UIAlertAction(title: "好", style: .default))
@@ -424,7 +432,10 @@ extension PrivateMessageViewController: UITableViewDataSource, UITableViewDelega
         cell.configure(
             message: message,
             isOutgoing: message.senderID == currentUserID,
-            ownAvatarURL: currentUserAvatarURL
+            ownAvatarURL: currentUserAvatarURL,
+            onLinkTap: { [weak self] url in
+                self?.openMessageLink(url)
+            }
         )
         return cell
     }
@@ -456,6 +467,73 @@ extension PrivateMessageViewController: UITableViewDataSource, UITableViewDelega
         markdownSwitch.setOn(message.isMarkdown, animated: true)
         updateComposerState()
         messageTextView.becomeFirstResponder()
+    }
+
+    private func openMessageLink(_ url: URL) {
+        guard let destination = PostDetailLinkResolver.destination(
+            for: url,
+            baseURL: NodeSeekSite.baseURL
+        ) else {
+            return
+        }
+
+        switch destination {
+        case .nativePost(let postID, let page, let resolvedURL):
+            let post = PostSummary(
+                id: postID,
+                title: "帖子 #\(postID)",
+                url: resolvedURL,
+                authorName: "",
+                nodeName: nil,
+                replyCount: 0,
+                lastActivityText: nil
+            )
+            let anchorID = NodeSeekPostRouteResolver.route(
+                for: resolvedURL,
+                baseURL: NodeSeekSite.baseURL
+            )?.anchorID
+            showLinkedDestination(
+                PostDetailRouter.createModule(
+                    post: post,
+                    page: page,
+                    initialAnchorID: anchorID
+                )
+            )
+        case .nativePrivateMessage(let participantID):
+            showLinkedDestination(
+                PrivateMessageViewController(
+                    participantID: participantID,
+                    participantName: "私信"
+                )
+            )
+        case .userProfile(let profileURL):
+            if let userID = NodeSeekUserIDResolver.uid(from: profileURL) {
+                showLinkedDestination(ProfileTabViewController(userID: userID))
+            } else {
+                showLinkedDestination(NodeSeekWebViewController(url: profileURL))
+            }
+        case .web(let webURL):
+            showLinkedDestination(NodeSeekWebViewController(url: webURL))
+        case .currentPageAnchor:
+            showLinkedDestination(NodeSeekWebViewController(url: url))
+        case .safari(let safariURL):
+            present(SFSafariViewController(url: safariURL), animated: true)
+        case .externalApp(let externalURL):
+            UIApplication.shared.open(externalURL, options: [:]) { [weak self] success in
+                guard success == false else { return }
+                DispatchQueue.main.async {
+                    self?.presentError("无法打开这个链接。")
+                }
+            }
+        }
+    }
+
+    private func showLinkedDestination(_ viewController: UIViewController) {
+        if let navigationController {
+            navigationController.pushViewController(viewController, animated: true)
+            return
+        }
+        present(UINavigationController(rootViewController: viewController), animated: true)
     }
 }
 
@@ -518,16 +596,19 @@ private final class PrivateMessageCell: UITableViewCell {
 
     private let avatarImageView = UIImageView()
     private let bubbleView = UIView()
-    private let contentLabel = UILabel()
+    private let contentTextView = UITextView()
     private let messageImageView = UIImageView()
     private let timeLabel = UILabel()
     private var imageHeightConstraint: NSLayoutConstraint!
+    private var imageWidthConstraint: NSLayoutConstraint!
     private var labelBottomConstraint: NSLayoutConstraint!
     private var imageTopConstraint: NSLayoutConstraint!
     private var imageBottomConstraint: NSLayoutConstraint!
     private var leadingConstraints: [NSLayoutConstraint] = []
     private var trailingConstraints: [NSLayoutConstraint] = []
     private var representedID = 0
+    private var messageImageURL: URL?
+    private var onLinkTap: ((URL) -> Void)?
 
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
         super.init(style: style, reuseIdentifier: reuseIdentifier)
@@ -545,23 +626,39 @@ private final class PrivateMessageCell: UITableViewCell {
         super.prepareForReuse()
         AvatarImageLoader.shared.cancel(on: avatarImageView)
         representedID = 0
-        contentLabel.text = nil
+        contentTextView.attributedText = nil
+        contentTextView.isUserInteractionEnabled = false
         timeLabel.text = nil
         messageImageView.image = nil
+        messageImageURL = nil
+        onLinkTap = nil
     }
 
-    func configure(message: NodeSeekPrivateMessage, isOutgoing: Bool, ownAvatarURL: URL?) {
+    func configure(
+        message: NodeSeekPrivateMessage,
+        isOutgoing: Bool,
+        ownAvatarURL: URL?,
+        onLinkTap: @escaping (URL) -> Void
+    ) {
         representedID = message.id
+        self.onLinkTap = onLinkTap
         let avatarURL = isOutgoing ? ownAvatarURL : message.senderAvatarURL
         ImageLoad.url(avatarURL)
             .toAvatar(requestID: "message-\(isOutgoing ? "self" : String(message.senderID))")
             .into(avatarImageView)
 
         let imageURL = Self.markdownImageURL(in: message.content)
-        contentLabel.text = imageURL == nil ? message.content : "图片"
+        messageImageURL = imageURL
+        let renderedMessage = NodeSeekPrivateMessageMarkdownRenderer.render(message.content)
+        contentTextView.attributedText = imageURL == nil
+            ? renderedMessage.attributedText
+            : NSAttributedString(string: "图片", attributes: Self.messageTextAttributes)
+        contentTextView.isUserInteractionEnabled = true
         timeLabel.text = NodeSeekNotificationDateParser.displayText(from: message.createdAt)
+        messageImageView.image = nil
         messageImageView.isHidden = imageURL == nil
         imageHeightConstraint.constant = imageURL == nil ? 0 : 164
+        imageWidthConstraint.isActive = imageURL != nil
         labelBottomConstraint.isActive = imageURL == nil
         imageTopConstraint.isActive = imageURL != nil
         imageBottomConstraint.isActive = imageURL != nil
@@ -569,7 +666,7 @@ private final class PrivateMessageCell: UITableViewCell {
         NSLayoutConstraint.deactivate(leadingConstraints + trailingConstraints)
         NSLayoutConstraint.activate(isOutgoing ? trailingConstraints : leadingConstraints)
         bubbleView.backgroundColor = isOutgoing ? UIColor.systemOrange.withAlphaComponent(0.16) : .secondarySystemBackground
-        contentLabel.textAlignment = .natural
+        contentTextView.textAlignment = .natural
         timeLabel.textAlignment = isOutgoing ? .right : .left
 
         if let imageURL {
@@ -578,7 +675,21 @@ private final class PrivateMessageCell: UITableViewCell {
                 .load { [weak self] image in
                     DispatchQueue.main.async {
                         guard let self, self.representedID == message.id else { return }
+                        guard let image else {
+                            self.messageImageView.isHidden = true
+                            self.imageWidthConstraint.isActive = false
+                            self.imageHeightConstraint.constant = 0
+                            self.imageTopConstraint.isActive = false
+                            self.imageBottomConstraint.isActive = false
+                            self.labelBottomConstraint.isActive = true
+                            self.contentTextView.attributedText = Self.imageLoadFailureText(url: imageURL)
+                            self.invalidateTableRowHeight()
+                            return
+                        }
                         self.messageImageView.image = image
+                        self.messageImageView.isHidden = false
+                        self.imageHeightConstraint.constant = self.imageDisplayHeight(for: image)
+                        self.invalidateTableRowHeight()
                     }
                 }
         }
@@ -595,16 +706,29 @@ private final class PrivateMessageCell: UITableViewCell {
         bubbleView.translatesAutoresizingMaskIntoConstraints = false
         bubbleView.layer.cornerRadius = 14
 
-        contentLabel.translatesAutoresizingMaskIntoConstraints = false
-        contentLabel.font = .preferredFont(forTextStyle: .body)
-        contentLabel.textColor = .label
-        contentLabel.numberOfLines = 0
-        contentLabel.adjustsFontForContentSizeCategory = true
+        contentTextView.translatesAutoresizingMaskIntoConstraints = false
+        contentTextView.backgroundColor = .clear
+        contentTextView.font = .preferredFont(forTextStyle: .body)
+        contentTextView.textColor = .label
+        contentTextView.adjustsFontForContentSizeCategory = true
+        contentTextView.isEditable = false
+        contentTextView.isScrollEnabled = false
+        contentTextView.isSelectable = true
+        contentTextView.dataDetectorTypes = [.link]
+        contentTextView.delegate = self
+        contentTextView.textContainerInset = .zero
+        contentTextView.textContainer.lineFragmentPadding = 0
+        contentTextView.linkTextAttributes = [
+            .foregroundColor: UIColor.link,
+            .underlineStyle: 0
+        ]
 
         messageImageView.translatesAutoresizingMaskIntoConstraints = false
-        messageImageView.contentMode = .scaleAspectFill
+        messageImageView.contentMode = .scaleAspectFit
         messageImageView.clipsToBounds = true
         messageImageView.layer.cornerRadius = 8
+        messageImageView.isUserInteractionEnabled = true
+        messageImageView.addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(openMessageImage)))
 
         timeLabel.translatesAutoresizingMaskIntoConstraints = false
         timeLabel.font = .preferredFont(forTextStyle: .caption2)
@@ -614,12 +738,17 @@ private final class PrivateMessageCell: UITableViewCell {
         contentView.addSubview(avatarImageView)
         contentView.addSubview(bubbleView)
         contentView.addSubview(timeLabel)
-        bubbleView.addSubview(contentLabel)
+        bubbleView.addSubview(contentTextView)
         bubbleView.addSubview(messageImageView)
 
         imageHeightConstraint = messageImageView.heightAnchor.constraint(equalToConstant: 0)
-        labelBottomConstraint = contentLabel.bottomAnchor.constraint(equalTo: bubbleView.bottomAnchor, constant: -9)
-        imageTopConstraint = messageImageView.topAnchor.constraint(equalTo: contentLabel.bottomAnchor, constant: 7)
+        imageWidthConstraint = messageImageView.widthAnchor.constraint(
+            equalTo: contentView.widthAnchor,
+            multiplier: 0.60
+        )
+        imageWidthConstraint.isActive = false
+        labelBottomConstraint = contentTextView.bottomAnchor.constraint(equalTo: bubbleView.bottomAnchor, constant: -9)
+        imageTopConstraint = messageImageView.topAnchor.constraint(equalTo: contentTextView.bottomAnchor, constant: 7)
         imageBottomConstraint = messageImageView.bottomAnchor.constraint(equalTo: bubbleView.bottomAnchor, constant: -9)
         imageTopConstraint.isActive = false
         imageBottomConstraint.isActive = false
@@ -645,9 +774,9 @@ private final class PrivateMessageCell: UITableViewCell {
             bubbleView.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 12),
             bubbleView.widthAnchor.constraint(lessThanOrEqualTo: contentView.widthAnchor, multiplier: 0.68),
 
-            contentLabel.leadingAnchor.constraint(equalTo: bubbleView.leadingAnchor, constant: 11),
-            contentLabel.trailingAnchor.constraint(equalTo: bubbleView.trailingAnchor, constant: -11),
-            contentLabel.topAnchor.constraint(equalTo: bubbleView.topAnchor, constant: 9),
+            contentTextView.leadingAnchor.constraint(equalTo: bubbleView.leadingAnchor, constant: 11),
+            contentTextView.trailingAnchor.constraint(equalTo: bubbleView.trailingAnchor, constant: -11),
+            contentTextView.topAnchor.constraint(equalTo: bubbleView.topAnchor, constant: 9),
             labelBottomConstraint,
 
             messageImageView.leadingAnchor.constraint(equalTo: bubbleView.leadingAnchor, constant: 11),
@@ -659,13 +788,142 @@ private final class PrivateMessageCell: UITableViewCell {
         ])
     }
 
+    private func imageDisplayHeight(for image: UIImage) -> CGFloat {
+        guard image.size.width > 0, image.size.height > 0 else { return 164 }
+        let width = contentView.bounds.width * 0.60
+        guard width > 0 else { return 164 }
+        return ceil(width * image.size.height / image.size.width)
+    }
+
+    private func invalidateTableRowHeight() {
+        setNeedsLayout()
+        superview?.superview?.setNeedsLayout()
+        var ancestor = superview
+        while let view = ancestor {
+            if let tableView = view as? UITableView {
+                tableView.performBatchUpdates(nil)
+                return
+            }
+            ancestor = view.superview
+        }
+    }
+
+    @objc private func openMessageImage() {
+        guard let messageImageURL else { return }
+        UIApplication.shared.open(messageImageURL)
+    }
+
+    fileprivate static var messageTextAttributes: [NSAttributedString.Key: Any] {
+        [
+            .font: UIFont.preferredFont(forTextStyle: .body),
+            .foregroundColor: UIColor.label
+        ]
+    }
+
+    private static func imageLoadFailureText(url: URL) -> NSAttributedString {
+        var attributes = messageTextAttributes
+        attributes[.link] = url
+        return NSAttributedString(
+            string: "图片加载失败，轻点查看原图",
+            attributes: attributes
+        )
+    }
+
     private static func markdownImageURL(in content: String) -> URL? {
-        guard let opening = content.range(of: "]("),
-              let closing = content[opening.upperBound...].firstIndex(of: ")") else {
+        guard let imageStart = content.range(of: "!["),
+              let altTextEnd = content[imageStart.upperBound...].firstIndex(of: "]"),
+              content[altTextEnd...].hasPrefix("]("),
+              let closing = content[altTextEnd...].firstIndex(of: ")") else {
             return nil
         }
-        let value = String(content[opening.upperBound..<closing])
+        let urlStart = content.index(altTextEnd, offsetBy: 2)
+        let value = String(content[urlStart..<closing])
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .split(whereSeparator: { $0.isWhitespace })
+            .first
+            .map(String.init) ?? ""
         guard let url = URL(string: value), ["http", "https"].contains(url.scheme?.lowercased()) else {
+            return nil
+        }
+        return url
+    }
+}
+
+extension PrivateMessageCell: UITextViewDelegate {
+    func textView(
+        _ textView: UITextView,
+        shouldInteractWith url: URL,
+        in characterRange: NSRange,
+        interaction: UITextItemInteraction
+    ) -> Bool {
+        onLinkTap?(url)
+        return false
+    }
+}
+
+struct NodeSeekPrivateMessageMarkdownRenderer {
+    struct RenderedMessage {
+        let attributedText: NSAttributedString
+        let hasLinks: Bool
+    }
+
+    static func render(_ content: String) -> RenderedMessage {
+        let result = NSMutableAttributedString()
+        var cursor = content.startIndex
+        var hasLinks = false
+
+        while let linkStart = content[cursor...].firstIndex(of: "[") {
+            guard linkStart == content.startIndex || content[content.index(before: linkStart)] != "!",
+                  let labelEnd = content[linkStart...].firstIndex(of: "]"),
+                  content[labelEnd...].hasPrefix("]("),
+                  let urlEnd = content[labelEnd...].firstIndex(of: ")") else {
+                let next = content.index(after: linkStart)
+                result.append(NSAttributedString(
+                    string: String(content[cursor..<next]),
+                    attributes: PrivateMessageCell.messageTextAttributes
+                ))
+                cursor = next
+                continue
+            }
+
+            let urlStart = content.index(labelEnd, offsetBy: 2)
+            let label = String(content[content.index(after: linkStart)..<labelEnd])
+            let rawURL = String(content[urlStart..<urlEnd])
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .split(whereSeparator: { $0.isWhitespace })
+                .first
+                .map(String.init) ?? ""
+            guard label.isEmpty == false, let url = resolvedHTTPURL(rawURL) else {
+                let next = content.index(after: linkStart)
+                result.append(NSAttributedString(
+                    string: String(content[cursor..<next]),
+                    attributes: PrivateMessageCell.messageTextAttributes
+                ))
+                cursor = next
+                continue
+            }
+
+            result.append(NSAttributedString(
+                string: String(content[cursor..<linkStart]),
+                attributes: PrivateMessageCell.messageTextAttributes
+            ))
+            var linkAttributes = PrivateMessageCell.messageTextAttributes
+            linkAttributes[.link] = url
+            result.append(NSAttributedString(string: label, attributes: linkAttributes))
+            cursor = content.index(after: urlEnd)
+            hasLinks = true
+        }
+
+        result.append(NSAttributedString(
+            string: String(content[cursor...]),
+            attributes: PrivateMessageCell.messageTextAttributes
+        ))
+        return RenderedMessage(attributedText: result, hasLinks: hasLinks)
+    }
+
+    private static func resolvedHTTPURL(_ rawURL: String) -> URL? {
+        guard let url = URL(string: rawURL, relativeTo: NodeSeekSite.baseURL)?.absoluteURL,
+              ["http", "https"].contains(url.scheme?.lowercased()) else {
             return nil
         }
         return url

@@ -82,6 +82,88 @@ struct AppLogTests {
         }
     }
 
+    @Test func exportsCurrentFileLogAsShareableCopy() async throws {
+        try await withTemporaryFileLogging { _ in
+            AppLog.notice(.postDetail, "exported monitoring message")
+            AppLog.flushFileLogsForTesting()
+
+            let exportURL = try AppLog.exportFileLog()
+            defer { try? FileManager.default.removeItem(at: exportURL) }
+
+            #expect(exportURL.lastPathComponent.hasPrefix("nodeseek-monitor-"))
+            #expect(exportURL.pathExtension == "log")
+            let content = try String(contentsOf: exportURL, encoding: .utf8)
+            #expect(content.contains("exported monitoring message"))
+        }
+    }
+    @Test func listsReadsExportsAndDeletesSingleSegmentLog() async throws {
+        try await withTemporaryFileLogging { directory in
+            let segmentURL = directory.appendingPathComponent("nodeseek-monitor-20260824-1200.log")
+            try Data("hello segment".utf8).write(to: segmentURL)
+
+            let files = try AppLog.logFiles()
+            guard let file = files.first(where: { $0.url.lastPathComponent == segmentURL.lastPathComponent }) else {
+                Issue.record("Segment log file was not listed.")
+                return
+            }
+
+            let content = try AppLog.fileLogContent(for: file)
+            #expect(content.contains("hello segment"))
+
+            let exportURL = try AppLog.exportFileLog(file)
+            defer { try? FileManager.default.removeItem(at: exportURL) }
+            #expect(FileManager.default.fileExists(atPath: exportURL.path) == true)
+
+            try AppLog.deleteFileLog(file)
+            let remaining = try AppLog.logFiles()
+            #expect(remaining.contains { $0.url == file.url } == false)
+        }
+    }
+
+    @Test func listsReadsExportsAndDeletesCrashReportFile() async throws {
+        try await withTemporaryFileLogging { directory in
+            let crashURL = directory.appendingPathComponent("nodeseek-crash-20260824-153045.log")
+            try Data("crash report body".utf8).write(to: crashURL)
+
+            let files = try AppLog.logFiles()
+            guard let file = files.first(where: { $0.url.lastPathComponent == crashURL.lastPathComponent }) else {
+                Issue.record("Crash report file was not listed.")
+                return
+            }
+
+            #expect(file.displayName.contains("崩溃报告"))
+            let content = try AppLog.fileLogContent(for: file)
+            #expect(content.contains("crash report body"))
+
+            let exportURL = try AppLog.exportFileLog(file)
+            defer { try? FileManager.default.removeItem(at: exportURL) }
+            #expect(FileManager.default.fileExists(atPath: exportURL.path) == true)
+
+            try AppLog.deleteFileLog(file)
+            let remaining = try AppLog.logFiles()
+            #expect(remaining.contains { $0.url == file.url } == false)
+        }
+    }
+
+    @Test func logFilesReadsSegmentWithInvalidUTF8WithoutFailing() async throws {
+        try await withTemporaryFileLogging { directory in
+            let segmentURL = directory.appendingPathComponent("nodeseek-monitor-20260824-1200.log")
+            let invalidData = Data([0x41, 0xFF, 0x42])
+            try invalidData.write(to: segmentURL)
+
+            let files = try AppLog.logFiles()
+            guard let file = files.first(where: { $0.url.lastPathComponent == segmentURL.lastPathComponent }) else {
+                Issue.record("Segment log file was not listed.")
+                return
+            }
+            let content = try AppLog.fileLogContent(for: file)
+
+            #expect(content.contains("A") == true)
+            #expect(content.contains("B") == true)
+            #expect(content.contains("\u{FFFD}") == true)
+        }
+    }
+
     @Test func deleteFileLogRemovesCurrentLogFile() async throws {
         try await withTemporaryFileLogging { _ in
             AppLog.info(.service, "log before delete")

@@ -9,9 +9,32 @@ import AsyncDisplayKit
 import UIKit
 
 extension PostDetailViewController {
+    var commentAnchorIndex: [String: Comment] {
+        if let cachedCommentAnchorIndex { return cachedCommentAnchorIndex }
+        let index = CommentReplyReferenceResolver.commentIndex(among: comments)
+        cachedCommentAnchorIndex = index
+        return index
+    }
+
     var visiblePagination: PostDetailPagination? {
         guard let pagination, pagination.hasMultiplePages else { return nil }
         return pagination
+    }
+
+    private func isCurrentUserComment(_ comment: Comment) -> Bool {
+        guard let uid = currentAccountUID,
+              let profileURL = comment.authorProfileURL,
+              let commentUID = NodeSeekUserInfoStore.userID(from: profileURL) else {
+            return false
+        }
+        return uid == commentUID
+    }
+
+    private func threadedCommentRows() -> [(index: Int, depth: Int)] {
+        if let cachedThreadedRows { return cachedThreadedRows }
+        let result = comments.indices.map { (index: $0, depth: 0) }
+        cachedThreadedRows = result
+        return result
     }
 
     var detailRows: [DetailRow] {
@@ -28,7 +51,7 @@ extension PostDetailViewController {
         if displayMode == .pageSkeleton {
             rows.append(contentsOf: (0..<skeletonCommentRowCount).map(DetailRow.skeletonComment))
         } else {
-            rows.append(contentsOf: comments.indices.map(DetailRow.comment))
+            rows.append(contentsOf: threadedCommentRows().map { DetailRow.comment($0.index, $0.depth) })
         }
         return rows
     }
@@ -148,6 +171,9 @@ extension PostDetailViewController: ASTableDataSource, ASTableDelegate {
                     onImageTapped: { imageURLs, initialIndex in
                         self?.presentPhotoBrowser(imageURLs: imageURLs, initialIndex: initialIndex)
                     },
+                    onImageLongPressed: { imageURL in
+                        self?.presentImageActions(for: imageURL)
+                    },
                     onLinkTapped: { url in
                         self?.handleContentLinkTap(url)
                     },
@@ -169,16 +195,23 @@ extension PostDetailViewController: ASTableDataSource, ASTableDelegate {
                     onFavoriteTapped: {
                         self?.presenter.didTapFavorite()
                     },
+                    onVoteSubmitted: { optionIDs in
+                        self?.presenter.didTapVote(optionIDs: optionIDs)
+                    },
                     onReplyTapped: {
                         self?.handleReply(toPostHeader: header)
                     },
                     onCommentTapped: {
                         self?.presentCommentEditor()
                     },
+                    onEditTapped: {
+                        self?.presentDiscussionEditor()
+                    },
                     onContentCopyTapped: { content in
                         self?.presentPostBodyCopySheet(for: content)
                     },
                     showsReplyActions: self?.showsReplyEntry == true,
+                    showsDiscussionEditAction: self?.showsDiscussionEditAction == true,
                     onTextLayoutInvalidated: {
                         self?.scheduleAttachmentLayoutRefresh()
                     },
@@ -188,6 +221,15 @@ extension PostDetailViewController: ASTableDataSource, ASTableDelegate {
                     },
                     onImageHeightReduced: {
                         self?.scheduleHeaderReload()
+                    },
+                    onImageHeightIncreased: {
+                        self?.reloadHeaderWithScrollAnchor()
+                    },
+                    selectedMagicTabIndex: { key in
+                        self?.magicTabSelectedIndexes[key]
+                    },
+                    onMagicTabSelected: { key, index in
+                        self?.magicTabSelectedIndexes[key] = index
                     }
                 )
             }
@@ -206,22 +248,30 @@ extension PostDetailViewController: ASTableDataSource, ASTableDelegate {
             return {
                 PostDetailSkeletonCellNode(kind: .comment)
             }
-        case .comment(let commentIndex):
+        case .comment(let commentIndex, let depth):
             guard comments.indices.contains(commentIndex) else {
                 return { ASCellNode() }
             }
 
             let comment = comments[commentIndex]
             let renderedBody = commentRenderedCache[comment.id]
-            let replyReference = CommentReplyReferenceResolver.reference(for: comment, among: comments)
+            let replyReference = CommentReplyReferenceResolver.reference(for: comment, among: comments, index: commentAnchorIndex)
             let imageSizeProvider = makeCurrentImageSizeProvider()
             return { [weak self] in
                 CommentCellNode(
                     comment: comment,
                     renderedBody: renderedBody,
                     replyReference: replyReference,
+                    depth: depth,
+                    showsEditAction: self?.isCurrentUserComment(comment) == true,
+                    onEditTapped: { comment in
+                        self?.handleEditComment(comment)
+                    },
                     onImageTapped: { imageURLs, initialIndex in
                         self?.presentPhotoBrowser(imageURLs: imageURLs, initialIndex: initialIndex)
+                    },
+                    onImageLongPressed: { imageURL in
+                        self?.presentImageActions(for: imageURL)
                     },
                     onLinkTapped: { url in
                         self?.handleContentLinkTap(url)
@@ -268,7 +318,10 @@ extension PostDetailViewController: ASTableDataSource, ASTableDelegate {
                     },
                     onImageHeightReduced: {
                         self?.scheduleCommentReload(commentID: comment.id)
-                    }
+                    },
+                    onImageHeightIncreased: {
+                        self?.reloadCommentWithScrollAnchor(commentID: comment.id)
+                    },
                 )
             }
         }
@@ -295,35 +348,19 @@ extension PostDetailViewController: ASTableDataSource, ASTableDelegate {
         guard let indexPath = tableNode.indexPath(for: node) else { return }
         let rows = detailRows
         guard rows.indices.contains(indexPath.row),
-              case .comment(let commentIndex) = rows[indexPath.row] else { return }
+              case .comment(let commentIndex, _) = rows[indexPath.row] else { return }
         guard comments.indices.contains(commentIndex) else { return }
         scheduleCommentRenderIfNeeded(for: comments[commentIndex])
     }
 
     func shouldBatchFetch(for tableNode: ASTableNode) -> Bool {
-        canRequestCommentBatchFetch()
+        // Texture 的预取在首屏尚未被用户浏览时也会触发，快速进出详情会累积无效请求。
+        false
     }
 
     func tableNode(_ tableNode: ASTableNode, willBeginBatchFetchWith context: ASBatchContext) {
-        DispatchQueue.main.async { [weak self] in
-            guard let self else {
-                context.completeBatchFetching(true)
-                return
-            }
-
-            guard self.canRequestCommentBatchFetch() else {
-                AppLog.debug(.postDetail, "忽略详情评论 Texture 分页触发: comments=\(self.comments.count), lastRequested=\(self.lastBatchFetchRequestedCommentCount ?? -1)")
-                context.completeBatchFetching(true)
-                return
-            }
-
-            self.lastBatchFetchRequestedCommentCount = self.comments.count
-            AppLog.info(.postDetail, "Texture 提前触发详情评论分页: comments=\(self.comments.count), leadingScreens=\(self.leadingScreensForBatching)")
-            self.presenter.didApproachCommentEnd()
-            context.completeBatchFetching(true)
-        }
+        context.completeBatchFetching(true)
     }
-
     private func canRequestCommentBatchFetch() -> Bool {
         guard displayMode == .content else { return false }
         guard pagination?.nextPage != nil else { return false }
@@ -333,6 +370,24 @@ extension PostDetailViewController: ASTableDataSource, ASTableDelegate {
     }
 
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
+        handleFloatingControlsScrollActivity(scrollView)
         updateNavigationAuthorVisibility(contentOffsetY: scrollView.contentOffset.y, animated: true)
+        requestNextCommentPageIfNeeded(whileScrolling: scrollView)
+    }
+
+    private func requestNextCommentPageIfNeeded(whileScrolling scrollView: UIScrollView) {
+        guard canRequestCommentBatchFetch(), scrollView.contentOffset.y > 0 else { return }
+        guard Date() >= nextAutomaticCommentPageRequestDate else { return }
+        let visibleBottom = scrollView.contentOffset.y + scrollView.bounds.height - scrollView.adjustedContentInset.bottom
+        let remainingDistance = scrollView.contentSize.height - visibleBottom
+        // 距底约一屏即开始预加载下一页，翻页衔接无停顿。
+        guard remainingDistance <= 620 else { return }
+
+        lastBatchFetchRequestedCommentCount = comments.count
+        // 快速惯性滚动时，等本页插入后的布局稳定再请求下一页，避免请求、节点创建和图片
+        // 排版同时堆积在主线程。
+        nextAutomaticCommentPageRequestDate = Date().addingTimeInterval(0.55)
+        AppLog.info(.postDetail, "用户接近评论底部，加载下一页: comments=\(comments.count), remaining=\(Int(remainingDistance))")
+        presenter.didApproachCommentEnd()
     }
 }

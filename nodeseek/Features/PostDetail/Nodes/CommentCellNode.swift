@@ -16,8 +16,8 @@ enum PostDetailContentLayout {
     static var avatarSize: CGFloat { AppDisplayScaleSettings.scaled(40) }
     static var avatarCornerRadius: CGFloat { AppDisplayScaleSettings.scaled(8) }
     static var avatarSpacing: CGFloat { AppDisplayScaleSettings.scaled(10) }
-    static var reactionActionHeight: CGFloat { AppDisplayScaleSettings.scaled(30) }
-    static var reactionActionMinWidth: CGFloat { AppDisplayScaleSettings.scaled(48) }
+    static var reactionActionHeight: CGFloat { AppDisplayScaleSettings.scaled(36) }
+    static var reactionActionMinWidth: CGFloat { AppDisplayScaleSettings.scaled(60) }
     static var reactionIconReservedWidth: CGFloat { AppDisplayScaleSettings.scaled(16) }
     static var reactionTitleSpacing: CGFloat { AppDisplayScaleSettings.scaled(3) }
     static var reactionHorizontalWidthPadding: CGFloat { AppDisplayScaleSettings.scaled(16) }
@@ -39,16 +39,35 @@ struct CommentReplyReference: Equatable {
     let referencedComment: Comment
     let summary: String
 
+    var resolvedFloor: String {
+        let floor = referencedComment.floorText?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if floor.isEmpty == false { return floor }
+        if let anchorID = referencedComment.anchorID?.trimmingCharacters(in: .whitespacesAndNewlines),
+           anchorID.isEmpty == false,
+           anchorID.allSatisfy(\.isNumber) {
+            return "#\(anchorID)"
+        }
+        return ""
+    }
+
     var displayText: String {
         let author = AuthorDisplayPolicy.displayName(from: referencedComment.authorName) ?? "用户"
         let badges = referencedComment.authorBadgeTexts
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { $0.isEmpty == false }
-        let floor = referencedComment.floorText?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        let header = (["@\(author)"] + badges + [floor])
+        let header = (["@\(author)"] + badges + [resolvedFloor])
             .filter { $0.isEmpty == false }
             .joined(separator: "  ")
         return summary.isEmpty ? header : "\(header)\n\(summary)"
+    }
+
+    var flatDisplayText: String {
+        let author = AuthorDisplayPolicy.displayName(from: referencedComment.authorName) ?? "用户"
+        let relation = (["回复 @\(author)"] + [resolvedFloor])
+            .filter { $0.isEmpty == false }
+            .joined(separator: " · ")
+        let trimmedSummary = summary.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmedSummary.isEmpty ? relation : "\(relation)：\(trimmedSummary)"
     }
 }
 
@@ -63,12 +82,27 @@ enum CommentReplyReferenceResolver {
         options: [.caseInsensitive, .dotMatchesLineSeparators]
     )
 
-    static func reference(for comment: Comment, among comments: [Comment]) -> CommentReplyReference? {
+    private static let htmlImagePattern = try! NSRegularExpression(
+        pattern: #"<img\b[^>]*>"#,
+        options: [.caseInsensitive]
+    )
+
+    static func reference(
+        for comment: Comment,
+        among comments: [Comment],
+        index: [String: Comment]? = nil
+    ) -> CommentReplyReference? {
+        // 正文里带引用块时（站点的"引用某楼"就是 blockquote，叠楼是并列的多个），
+        // 整段原样交给渲染器显示，不出卡片：卡片只放得下第一级，summary() 还会把
+        // @ 压成纯文本、把整段摘要挤成一行被右边裁掉。
+        //
+        // 判定范围是整段而不是"开头"：真机截图里那条 #23 是先有一段
+        // `@Walker- #20` 的跳转段落、引用块排在它后面，只查开头会漏掉。
+        guard containsQuoteBlock(in: comment.contentHTML) == false else { return nil }
+        let lookup = index ?? Self.commentIndex(among: comments)
         for anchorID in referencedAnchorIDs(in: comment.contentHTML) {
-            guard let referencedComment = comments.first(where: {
-                normalizedAnchorID($0.anchorID) == anchorID
-                    || normalizedAnchorID($0.floorText) == anchorID
-            }), referencedComment.id != comment.id else {
+            guard let referencedComment = lookup[anchorID],
+                  referencedComment.id != comment.id else {
                 continue
             }
             return CommentReplyReference(
@@ -79,6 +113,93 @@ enum CommentReplyReferenceResolver {
         return nil
     }
 
+    /// 正文里有没有引用块。站点每引用一层就输出一个 blockquote，叠楼就是并列的多个；
+    /// 类名除了 blockquote 标签本身，还有 div.quote / div.reference 两种写法。
+    static func containsQuoteBlock(in contentHTML: String) -> Bool {
+        let lowered = contentHTML.lowercased()
+        if lowered.contains("<blockquote") { return true }
+        return lowered.range(
+            of: #"<(?:div|section)[^>]*class[^>]*(?:quote|reference)"#,
+            options: .regularExpression
+        ) != nil
+    }
+
+    /// 引用卡片已经承担了楼层上下文，正文开头重复的跳转链接只会占用阅读空间。
+    /// 仅移除指向已解析引用楼层的第一个链接，保留用户写在其后的所有内容。
+    static func contentHTMLRemovingLeadingReference(
+        from contentHTML: String,
+        reference: CommentReplyReference?
+    ) -> String {
+        guard let reference else { return contentHTML }
+
+        let targetAnchorIDs = [
+            normalizedAnchorID(reference.referencedComment.anchorID),
+            normalizedAnchorID(reference.referencedComment.floorText),
+            normalizedAnchorID(reference.resolvedFloor)
+        ].compactMap { $0 }
+        guard targetAnchorIDs.isEmpty == false else { return contentHTML }
+
+        let targets = Set(targetAnchorIDs)
+        return removingLeadingAnchorLink(
+            from: contentHTML,
+            matching: targets
+        )
+    }
+
+    private static func removingLeadingAnchorLink(
+        from contentHTML: String,
+        matching targetAnchorIDs: Set<String>? = nil
+    ) -> String {
+        let fullRange = NSRange(contentHTML.startIndex..., in: contentHTML)
+        guard let match = hrefPattern.firstMatch(in: contentHTML, options: [], range: fullRange),
+              let hrefRangeIndex = (1...3).first(where: { match.range(at: $0).location != NSNotFound }),
+              let hrefRange = Range(match.range(at: hrefRangeIndex), in: contentHTML),
+              let linkRange = Range(match.range(at: 0), in: contentHTML) else {
+            return contentHTML
+        }
+
+        let leadingMarkup = contentHTML[..<linkRange.lowerBound]
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard leadingMarkup.isEmpty || leadingMarkup.range(
+            of: #"^<(?:p|div)\b[^>]*>$"#,
+            options: .regularExpression
+        ) != nil,
+        let anchorID = normalizedAnchorID(fromHref: String(contentHTML[hrefRange])),
+        targetAnchorIDs?.contains(anchorID) ?? true else {
+            return contentHTML
+        }
+
+        var removalEnd = linkRange.upperBound
+        let remainder = contentHTML[removalEnd...]
+        if let breakRange = remainder.range(
+            of: #"^\s*<br\s*/?>\s*"#,
+            options: [.regularExpression, .caseInsensitive]
+        ) {
+            removalEnd = breakRange.upperBound
+        }
+        return String(contentHTML[..<linkRange.lowerBound]) + String(contentHTML[removalEnd...])
+    }
+
+    static func commentIndex(among comments: [Comment]) -> [String: Comment] {
+        var index: [String: Comment] = [:]
+        for comment in comments {
+            if let anchorID = normalizedAnchorID(comment.anchorID), index[anchorID] == nil {
+                index[anchorID] = comment
+            }
+            if let floorText = normalizedAnchorID(comment.floorText), index[floorText] == nil {
+                index[floorText] = comment
+            }
+        }
+        return index
+    }
+
+    private static func normalizedAnchorID(fromHref href: String) -> String? {
+        guard let fragment = URLComponents(string: href)?.fragment
+            ?? href.split(separator: "#", maxSplits: 1).dropFirst().first.map(String.init) else {
+            return nil
+        }
+        return normalizedAnchorID(fragment)
+    }
     static func referencedAnchorIDs(in contentHTML: String) -> [String] {
         let range = NSRange(contentHTML.startIndex..., in: contentHTML)
         var seen = Set<String>()
@@ -119,9 +240,10 @@ enum CommentReplyReferenceResolver {
     }
 
     private static func summary(from html: String) -> String {
-        let fullRange = NSRange(html.startIndex..., in: html)
+        let htmlWithoutReplyLink = removingLeadingAnchorLink(from: html)
+        let fullRange = NSRange(htmlWithoutReplyLink.startIndex..., in: htmlWithoutReplyLink)
         var text = nestedQuotePattern.stringByReplacingMatches(
-            in: html,
+            in: htmlWithoutReplyLink,
             options: [],
             range: fullRange,
             withTemplate: " "
@@ -139,9 +261,21 @@ enum CommentReplyReferenceResolver {
         let collapsed = text.components(separatedBy: .whitespacesAndNewlines)
             .filter { $0.isEmpty == false }
             .joined(separator: " ")
-        guard collapsed.count > 140 else { return collapsed }
-        let endIndex = collapsed.index(collapsed.startIndex, offsetBy: 140)
-        return "\(collapsed[..<endIndex])..."
+        guard collapsed.isEmpty == false else {
+            return mediaFallbackText(from: htmlWithoutReplyLink)
+        }
+        return collapsed
+    }
+    private static func mediaFallbackText(from html: String) -> String {
+        let range = NSRange(html.startIndex..., in: html)
+        let imageCount = htmlImagePattern.matches(in: html, options: [], range: range).count
+        if imageCount > 0 {
+            return imageCount > 1 ? "图片×\(imageCount)" : "图片"
+        }
+        if html.localizedCaseInsensitiveContains("<iframe") || html.localizedCaseInsensitiveContains("<video") {
+            return "视频"
+        }
+        return ""
     }
 }
 
@@ -167,6 +301,7 @@ final class CommentCellNode: ASCellNode, ThemeRefreshableNode {
 
     private var comment: Comment
     private let onImageTapped: ([URL], Int) -> Void
+    private let onImageLongPressed: (URL) -> Void
     private let onLinkTapped: (URL) -> Void
     private let onSignatureLinkCandidatesTapped: ([DetailLinkCandidate]) -> Void
     private let onAuthorTapped: (URL) -> Void
@@ -179,6 +314,9 @@ final class CommentCellNode: ASCellNode, ThemeRefreshableNode {
     private let onReplyReferenceTapped: (Comment) -> Void
     private let onTextLayoutInvalidated: () -> Void
     private let replyReference: CommentReplyReference?
+    private let depth: Int
+    private let showsEditAction: Bool
+    private let onEditTapped: (Comment) -> Void
     private let avatarLoader = AvatarImageLoader.shared
     private weak var avatarImageView: UIImageView?
     private var hasRequestedAvatar = false
@@ -202,6 +340,7 @@ final class CommentCellNode: ASCellNode, ThemeRefreshableNode {
     private let opposeButtonNode = ASButtonNode()
     private let replyButtonNode = ASButtonNode()
     private let quoteButtonNode = ASButtonNode()
+    private let editButtonNode = ASButtonNode()
     private let separatorNode = ASDisplayNode()
     private let replyReferenceBackgroundNode = ASDisplayNode()
     private let replyReferenceAccentNode = ASDisplayNode()
@@ -238,7 +377,11 @@ final class CommentCellNode: ASCellNode, ThemeRefreshableNode {
         comment: Comment,
         renderedBody: [RenderedContentBlock]?,
         replyReference: CommentReplyReference? = nil,
+        depth: Int = 0,
+        showsEditAction: Bool = false,
+        onEditTapped: @escaping (Comment) -> Void = { _ in },
         onImageTapped: @escaping ([URL], Int) -> Void,
+        onImageLongPressed: @escaping (URL) -> Void = { _ in },
         onLinkTapped: @escaping (URL) -> Void = { _ in },
         onSignatureLinkCandidatesTapped: @escaping ([DetailLinkCandidate]) -> Void = { _ in },
         onAuthorTapped: @escaping (URL) -> Void = { _ in },
@@ -252,11 +395,16 @@ final class CommentCellNode: ASCellNode, ThemeRefreshableNode {
         onTextLayoutInvalidated: @escaping () -> Void,
         imageSizeProvider: @escaping (URL) -> CGSize? = { _ in nil },
         onImageSizeResolved: @escaping (URL, CGSize) -> Void = { _, _ in },
-        onImageHeightReduced: @escaping () -> Void = {}
+        onImageHeightReduced: @escaping () -> Void = {},
+        onImageHeightIncreased: @escaping () -> Void = {}
     ) {
         self.comment = comment
         self.replyReference = replyReference
+        self.depth = depth
+        self.showsEditAction = showsEditAction
+        self.onEditTapped = onEditTapped
         self.onImageTapped = onImageTapped
+        self.onImageLongPressed = onImageLongPressed
         self.onLinkTapped = onLinkTapped
         self.onSignatureLinkCandidatesTapped = onSignatureLinkCandidatesTapped
         self.onAuthorTapped = onAuthorTapped
@@ -272,12 +420,14 @@ final class CommentCellNode: ASCellNode, ThemeRefreshableNode {
         self.bodyNodes = DetailContentBlockNodeFactory.makeNodes(
             from: renderedBody ?? [],
             onImageTapped: onImageTapped,
+            onImageLongPressed: onImageLongPressed,
             onLinkTapped: onLinkTapped,
             onSignatureLinkCandidatesTapped: onSignatureLinkCandidatesTapped,
             onTextLayoutInvalidated: onTextLayoutInvalidated,
             imageSizeProvider: imageSizeProvider,
             onImageSizeResolved: onImageSizeResolved,
-            onImageHeightReduced: onImageHeightReduced
+            onImageHeightReduced: onImageHeightReduced,
+            onImageHeightIncreased: onImageHeightIncreased
         )
         super.init()
         automaticallyManagesSubnodes = true
@@ -425,7 +575,7 @@ final class CommentCellNode: ASCellNode, ThemeRefreshableNode {
         )
 
         let stack = ASStackLayoutSpec.vertical()
-        stack.children = [rowContent, separatorNode]
+        stack.children = depth == 0 ? [rowContent, separatorNode] : [rowContent]
         return stack
     }
 
@@ -482,7 +632,7 @@ final class CommentCellNode: ASCellNode, ThemeRefreshableNode {
         timeNode.maximumNumberOfLines = 1
         timeNode.truncationMode = .byTruncatingTail
         timeNode.attributedText = NSAttributedString(
-            string: comment.createdAtText?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "",
+            string: Self.timeText(for: comment),
             attributes: [
                 .font: AppTypography.commentMetadataFont(),
                 .foregroundColor: UIColor.secondaryLabel
@@ -493,8 +643,8 @@ final class CommentCellNode: ASCellNode, ThemeRefreshableNode {
         floorNode.attributedText = NSAttributedString(
             string: comment.floorText?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "",
             attributes: [
-                .font: AppTypography.commentMetadataFont(),
-                .foregroundColor: UIColor.tertiaryLabel
+                .font: UIFont.systemFont(ofSize: AppDisplayScaleSettings.scaled(12), weight: .semibold),
+                .foregroundColor: UIColor.label
             ]
         )
 
@@ -503,6 +653,27 @@ final class CommentCellNode: ASCellNode, ThemeRefreshableNode {
         configureOpposeActionButton(count: comment.opposeCount, isClicked: comment.isOpposeClicked)
         configureActionButton(replyButtonNode, systemImageName: "arrowshape.turn.up.left", accessibilityLabel: "回复评论")
         configureActionButton(quoteButtonNode, systemImageName: "quote.bubble", accessibilityLabel: "引用评论")
+        configureActionButton(editButtonNode, systemImageName: "square.and.pencil", accessibilityLabel: "编辑评论")
+    }
+
+    /// 楼层行的时间：创建时间后面接站方记录的编辑时间。
+    /// 站点只在楼层真被编辑过时才渲染 `span.date-updated`，所以没编辑过的楼层
+    /// 一个字都不会多，不需要额外判断。
+    private static func timeText(for comment: Comment) -> String {
+        let created = comment.createdAtText?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        var editedPart: String?
+        if let editedAt = comment.editedAtText {
+            editedPart = "编辑于 \(editedAt)"
+        } else if let edited = comment.editedText?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  edited.isEmpty == false {
+            editedPart = edited
+        }
+        if let editor = comment.editedByName,
+           editor.caseInsensitiveCompare(comment.authorName) != .orderedSame {
+            editedPart = (editedPart ?? "已被编辑") + "（由 \(editor)）"
+        }
+        guard let editedPart else { return created }
+        return created.isEmpty ? editedPart : "\(created) · \(editedPart)"
     }
 
     private func configureLevelDaysBadge() {
@@ -546,24 +717,16 @@ final class CommentCellNode: ASCellNode, ThemeRefreshableNode {
         replyReferenceBackgroundNode.cornerRadius = AppDisplayScaleSettings.scaled(6)
         replyReferenceAccentNode.backgroundColor = .systemOrange
         replyReferenceAccentNode.cornerRadius = AppDisplayScaleSettings.scaled(1.5)
-        // 引用卡仅展示当前两人直接对话，避免相互 @ 时不断叠加引用层。
-        replyReferenceTextNode.maximumNumberOfLines = 2
-        replyReferenceTextNode.truncationMode = .byTruncatingTail
-        let text = NSMutableAttributedString(
+        // 引用内容由卡片完整展开，避免长回复在单行中被截断。
+        replyReferenceTextNode.maximumNumberOfLines = 0
+        replyReferenceTextNode.truncationMode = .byWordWrapping
+        let text = NSAttributedString(
             string: replyReference.displayText,
             attributes: [
-                .font: AppTypography.commentMetadataFont(),
-                .foregroundColor: UIColor.secondaryLabel
-            ]
-        )
-        let headerRange = (replyReference.displayText as NSString).range(of: "\n")
-        let titleLength = headerRange.location == NSNotFound ? text.length : headerRange.location
-        if titleLength > 0 {
-            text.addAttributes([
                 .font: UIFont.preferredFont(forTextStyle: .caption1).withSize(AppDisplayScaleSettings.scaled(13)),
                 .foregroundColor: UIColor.label
-            ], range: NSRange(location: 0, length: titleLength))
-        }
+            ]
+        )
         replyReferenceTextNode.attributedText = text
         replyReferenceTextNode.accessibilityLabel = "引用 \(replyReference.displayText)"
         replyReferenceButtonNode.isHidden = false
@@ -579,7 +742,7 @@ final class CommentCellNode: ASCellNode, ThemeRefreshableNode {
         let row = ASStackLayoutSpec.horizontal()
         row.spacing = AppDisplayScaleSettings.scaled(8)
         row.alignItems = .stretch
-        row.children = [replyReferenceAccentNode, replyReferenceTextNode]
+        row.children = [replyReferenceTextNode]
 
         let inset = ASInsetLayoutSpec(
             insets: UIEdgeInsets(
@@ -590,10 +753,14 @@ final class CommentCellNode: ASCellNode, ThemeRefreshableNode {
             ),
             child: row
         )
+        let content = ASBackgroundLayoutSpec(child: inset, background: replyReferenceBackgroundNode)
+        let card = ASStackLayoutSpec.horizontal()
+        card.spacing = 0
+        card.alignItems = .stretch
+        card.children = [replyReferenceAccentNode, content]
         replyReferenceButtonNode.style.flexGrow = 1
         replyReferenceButtonNode.style.flexShrink = 1
-        let content = ASBackgroundLayoutSpec(child: inset, background: replyReferenceBackgroundNode)
-        return ASOverlayLayoutSpec(child: content, overlay: replyReferenceButtonNode)
+        return ASOverlayLayoutSpec(child: card, overlay: replyReferenceButtonNode)
     }
 
     private func configureActions() {
@@ -606,6 +773,7 @@ final class CommentCellNode: ASCellNode, ThemeRefreshableNode {
         opposeButtonNode.addTarget(self, action: #selector(opposeTapped), forControlEvents: .touchUpInside)
         replyButtonNode.addTarget(self, action: #selector(replyTapped), forControlEvents: .touchUpInside)
         quoteButtonNode.addTarget(self, action: #selector(quoteTapped), forControlEvents: .touchUpInside)
+        editButtonNode.addTarget(self, action: #selector(editTapped), forControlEvents: .touchUpInside)
         replyReferenceButtonNode.addTarget(self, action: #selector(replyReferenceTapped), forControlEvents: .touchUpInside)
     }
 
@@ -649,7 +817,7 @@ final class CommentCellNode: ASCellNode, ThemeRefreshableNode {
         let actionStack = ASStackLayoutSpec.horizontal()
         actionStack.spacing = PostDetailContentLayout.reactionActionSpacing
         actionStack.alignItems = .center
-        actionStack.children = [
+        var actionChildren: [ASLayoutElement] = [
             spacer,
             likeButtonNode,
             chickenLegButtonNode,
@@ -657,6 +825,10 @@ final class CommentCellNode: ASCellNode, ThemeRefreshableNode {
             quoteButtonNode,
             replyButtonNode
         ]
+        if showsEditAction {
+            actionChildren.append(editButtonNode)
+        }
+        actionStack.children = actionChildren
         return actionStack
     }
 
@@ -681,9 +853,10 @@ final class CommentCellNode: ASCellNode, ThemeRefreshableNode {
         }
         button.setImage(image, for: .normal)
         button.backgroundColor = UIColor.secondarySystemBackground.withAlphaComponent(0.55)
+        button.style.flexShrink = 0
         button.cornerRadius = PostDetailContentLayout.reactionActionHeight / 2
         button.borderWidth = 1 / UIScreen.main.scale
-        let displayCount = count.flatMap { $0 > 0 ? $0 : nil }
+        let displayCount = count.map { max(0, $0) }
         button.contentSpacing = displayCount == nil ? 0 : PostDetailContentLayout.reactionTitleSpacing
         button.contentEdgeInsets = PostDetailContentLayout.reactionContentEdgeInsets
         if let displayCount {
@@ -719,7 +892,7 @@ final class CommentCellNode: ASCellNode, ThemeRefreshableNode {
     }
 
     private static func chickenLegActionColor(isClicked: Bool) -> UIColor {
-        isClicked ? .systemOrange : UIColor.secondaryLabel.withAlphaComponent(PostDetailContentLayout.inactiveReactionAlpha)
+        isClicked ? UIColor(red: 1.0, green: 0.6235, blue: 0.0392, alpha: 1.0) : UIColor.secondaryLabel
     }
 
     private static func opposeActionColor(isClicked: Bool) -> UIColor {
@@ -753,7 +926,10 @@ final class CommentCellNode: ASCellNode, ThemeRefreshableNode {
             accessibilityLabel: "加鸡腿",
             count: count,
             color: Self.chickenLegActionColor(isClicked: isClicked),
-            customImage: ReactionIconRenderer.chickenLeg(pointSize: PostDetailContentLayout.reactionSymbolPointSize)
+            customImage: ReactionIconRenderer.chickenLeg(
+                pointSize: PostDetailContentLayout.reactionSymbolPointSize,
+                isFilled: isClicked
+            )
         )
     }
 
@@ -932,6 +1108,10 @@ final class CommentCellNode: ASCellNode, ThemeRefreshableNode {
 
     @objc private func quoteTapped() {
         onQuoteTapped(comment)
+    }
+
+    @objc private func editTapped() {
+        onEditTapped(comment)
     }
 
     @objc private func replyReferenceTapped() {

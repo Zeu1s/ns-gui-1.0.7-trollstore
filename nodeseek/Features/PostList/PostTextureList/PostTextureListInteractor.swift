@@ -14,6 +14,8 @@ final class PostTextureListInteractor: PostTextureListHostInteractorInput {
     weak var presenter: PostTextureListHostInteractorOutput?
     private let service: NodeSeekService
     private let sessionStore: NodeSeekSessionStore
+    private var activeLoadTask: Task<Void, Never>?
+    private var loadGeneration = 0
     
     // MARK: - Initialization
     init(
@@ -34,36 +36,38 @@ final class PostTextureListInteractor: PostTextureListHostInteractorInput {
     }
 
     private func load(page: Int, category: PostListCategoryItem, sortMode: PostListSortMode, isLoadMore: Bool) {
-        Task {
+        loadGeneration &+= 1
+        let generation = loadGeneration
+        activeLoadTask?.cancel()
+        activeLoadTask = Task { [weak self] in
+            guard let self else { return }
             AppLog.info(.postList, "开始加载帖子列表，category=\(category.rawValue), sort=\(sortMode.rawValue), page=\(page), isLoadMore=\(isLoadMore)")
             do {
-                let posts = try await loadPosts(page: page, category: category, sortMode: sortMode)
+                let posts = try await self.loadPosts(page: page, category: category, sortMode: sortMode)
+                guard Task.isCancelled == false, self.loadGeneration == generation else { return }
                 AppLog.info(.postList, "帖子列表加载成功，category=\(category.rawValue), sort=\(sortMode.rawValue), page=\(page), 数量: \(posts.count)")
-                await MainActor.run {
-                    if isLoadMore {
-                        presenter?.didLoadMorePosts(posts, page: page, category: category, sortMode: sortMode)
-                    } else {
-                        presenter?.didLoadPosts(posts, category: category, sortMode: sortMode)
-                    }
+                if isLoadMore {
+                    self.presenter?.didLoadMorePosts(posts, page: page, category: category, sortMode: sortMode)
+                } else {
+                    self.presenter?.didLoadPosts(posts, category: category, sortMode: sortMode)
                 }
             } catch {
+                guard Task.isCancelled == false, self.loadGeneration == generation else { return }
                 AppLog.error(.postList, "帖子列表加载失败，category=\(category.rawValue), sort=\(sortMode.rawValue), page=\(page): \(error.localizedDescription)")
-                await MainActor.run {
-                    if isLoadMore {
-                        presenter?.didFailLoadMorePosts(error: error.localizedDescription, page: page, category: category, sortMode: sortMode)
-                    } else {
-                        presenter?.didFailLoadPosts(error: error.localizedDescription, category: category, sortMode: sortMode)
-                    }
+                if isLoadMore {
+                    self.presenter?.didFailLoadMorePosts(error: error.localizedDescription, page: page, category: category, sortMode: sortMode)
+                } else {
+                    self.presenter?.didFailLoadPosts(error: error.localizedDescription, category: category, sortMode: sortMode)
                 }
             }
         }
     }
-
     private func loadPosts(page: Int, category: PostListCategoryItem, sortMode: PostListSortMode) async throws -> [PostSummary] {
         AppLog.info(.postList, "列表请求开始，category=\(category.rawValue), sort=\(sortMode.rawValue), page=\(page)")
         let result = try await service.loadPostList(page: page, category: category, sortMode: sortMode)
         switch result {
         case .value(let posts):
+            await PostSummaryResolver.shared.store(posts)
             await sessionStore.recordSuccess()
             AppLog.info(.postList, "列表请求拿到有效结果，category=\(category.rawValue), sort=\(sortMode.rawValue), page=\(page)")
             return posts

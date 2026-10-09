@@ -8,9 +8,18 @@
 import Foundation
 import Kanna
 
-enum NodeSeekParserError: Error {
+enum NodeSeekParserError: LocalizedError {
     case notImplemented
     case postDetailNotFound
+
+    var errorDescription: String? {
+        switch self {
+        case .notImplemented:
+            return "当前页面暂不支持此操作。"
+        case .postDetailNotFound:
+            return "帖子内容暂时无法解析，请重试或在浏览器打开。"
+        }
+    }
 }
 
 struct KannaNodeSeekParser: NodeSeekParser {
@@ -148,7 +157,7 @@ struct KannaNodeSeekParser: NodeSeekParser {
         let avatarURL = URL(string: avatarPath, relativeTo: baseURL)?.absoluteURL
         let profileURL = URL(string: profilePath, relativeTo: baseURL)?.absoluteURL
         let stats = [
-            intValue(in: user, keys: ["rank"]).map { "等级 Lv \($0)" },
+            intValue(in: user, keys: ["rank"]).map { "等级 Lv \(min(6, max(0, $0)))" },
             intValue(in: user, keys: ["coin"]).map { "鸡腿 \($0)" },
             intValue(in: user, keys: ["stardust"]).map { "星辰 \($0)" }
         ].compactMap(\.self)
@@ -214,6 +223,15 @@ struct KannaNodeSeekParser: NodeSeekParser {
             }
 
             append(post, to: &posts, seenIDs: &seenIDs)
+        }
+
+        if posts.isEmpty {
+            // 站内 /search?q= 已被站点 302 到 Google site: 搜索（浏览器实测），
+            // 返回页是 Google 结果布局：标题 h3 + cite 显示真实 nodeseek 路径。
+            let googlePosts = parseGoogleSearchResults(document: document)
+            if googlePosts.isEmpty == false {
+                return googlePosts
+            }
         }
 
         for titleNode in document.xpath(XPathRules.fallbackPostLinks) {
@@ -310,6 +328,75 @@ struct KannaNodeSeekParser: NodeSeekParser {
         }
         return URL(string: "/space/\(uid)", relativeTo: baseURL)?.absoluteURL
     }
+
+    /// 解析 Google site: 搜索结果页（站内 /search 被 302 到 Google）。
+    /// 结构：每个结果是一个含 h3（标题）的 <a href="https://www.google.com/goto?url=...">，
+    /// 真实 nodeseek 路径显示在结果块内 <cite>（"https://www.nodeseek.com › post-656474-1"）。
+    /// goto 链接无法直接还原目标，从 cite 文本提取 post-ID 构造站内 URL。
+    private func parseGoogleSearchResults(document: HTMLDocument) -> [PostSummary] {
+        // 非 Google 结果页直接放弃。
+        guard document.title?.contains("Google") == true
+            || document.at_xpath("//h1[contains(text(), 'Google')]") != nil
+            || document.at_xpath("//*[contains(@class, 'GyAeWb')]") != nil else {
+            return []
+        }
+
+        var posts: [PostSummary] = []
+        var seenIDs = Set<String>()
+
+        for anchor in document.xpath("//a[h3]") {
+            guard let title = anchor.at_xpath(".//h3")?.text?.normalizedNonEmpty,
+                  title.isEmpty == false else {
+                continue
+            }
+            // 从结果块内的 cite 提取真实路径；cite 不一定在 <a> 内部，
+            // 向上找最近的公共容器（Kanna 用 parent 而非 parentElement）。
+            var citeText = anchor.at_xpath(".//cite")?.text ?? ""
+            if citeText.isEmpty {
+                var cursor: Kanna.XMLElement? = anchor.parent as? Kanna.XMLElement
+                while citeText.isEmpty, let current = cursor {
+                    citeText = current.at_xpath(".//cite")?.text ?? ""
+                    cursor = current.parent as? Kanna.XMLElement
+                    if current.parent is HTMLDocument { break }
+                }
+            }
+            // "https://www.nodeseek.com › post-656474-1" → postID=656474, page=1
+            // 注意不能用"合并全部数字"的方式：页码数字会拼进 ID。
+            guard let postIDMatch = citeText.range(of: #"post-(\d+)(?:-(\d+))?"#,
+                                                   options: .regularExpression) else {
+                continue
+            }
+            let matched = String(citeText[postIDMatch])
+            let parts = matched.split(separator: "-")
+            guard parts.count >= 2, let postID = Int(parts[1]), postID > 0 else {
+                continue
+            }
+            let page = parts.count >= 3 ? max(Int(parts[2]) ?? 1, 1) : 1
+
+            let url = URL(string: "/post-\(postID)-\(page)", relativeTo: baseURL)?.absoluteURL ?? baseURL
+            let id = String(postID)
+            guard seenIDs.insert(id).inserted else { continue }
+
+            posts.append(PostSummary(
+                id: id,
+                title: title,
+                url: url,
+                authorName: "NodeSeek",
+                nodeName: nil,
+                replyCount: 0,
+                viewCount: 0,
+                createdAtText: nil,
+                lastActivityText: nil,
+                isPinned: false,
+                isLocked: false,
+                avatarURL: nil,
+                authorProfileURL: nil,
+                authorBadgeTexts: []
+            ))
+        }
+        return posts
+    }
+
     private func parsePostListAuthorBadgeTexts(in item: Kanna.XMLElement) -> [String] {
         var seen = Set<String>()
         return item.xpath(XPathRules.postAuthorBadges).compactMap { node in
@@ -352,6 +439,7 @@ struct KannaNodeSeekParser: NodeSeekParser {
         let document = try HTML(html: html, encoding: .utf8)
         let restrictedNotice = postDetailRestrictedNotice(in: document)
         let reactionConfiguration = parsePostReactionConfiguration(in: document)
+        let vote = parsePostVote(in: document)
 
         let parsedTitle = document.at_xpath(XPathRules.postDetailTitleLink)?.text?.normalizedNonEmpty
             ?? document.at_xpath(XPathRules.postDetailTitleFallback)?.text?.normalizedNonEmpty
@@ -377,8 +465,19 @@ struct KannaNodeSeekParser: NodeSeekParser {
         }.flatMap { URL(string: $0, relativeTo: baseURL)?.absoluteURL }
         let authorProfileURL = bodyItem.flatMap { parseUserProfileURL(in: $0) }
         let createdAtText = bodyItem.flatMap { firstText(in: $0, xpaths: [XPathRules.contentCreatedAt]) }
+        let editedAtText = bodyItem.flatMap { item -> String? in
+            NodeSeekEditedAt.timestamp(
+                fromTitle: firstAttribute(in: item, xpaths: [XPathRules.contentUpdatedAt], attribute: "title")
+            ).map { "编辑于 \($0)" }
+        }
         let categoryText = bodyItem.flatMap { firstText(in: $0, xpaths: [XPathRules.contentCategory]) }
-        let metadataText = [createdAtText, categoryText].compactMap(\.self).joined(separator: " · ").trimmedNonEmpty
+        let metadataText = [createdAtText, editedAtText, categoryText].compactMap(\.self).joined(separator: " · ").trimmedNonEmpty
+
+        // 新版帖子页把完整 postData（views/categoryWord/rank/title 等）以 Base64
+        // 放在 <script id="temp-script">，前端 JSON.parse(b64DecodeUnicode(...)) 注入 __config__。
+        let detailExtras = decodePostDataExtras(in: html)
+        let viewCountFromDetail = detailExtras?.views
+        let categoryWord = detailExtras?.categoryWord
         let contentHTML = postDetailContentHTML(bodyItem: bodyItem, document: document)
         let signatureHTML = contentSignatureHTML(in: bodyItem)
         let requiredReadingLevel = document
@@ -398,10 +497,13 @@ struct KannaNodeSeekParser: NodeSeekParser {
         }
         let bodyLikeCount = bodyItem.flatMap { parseReactionCount(in: $0, kind: .like) }
             ?? bodyReactionConfiguration?.likeCount
+            ?? reactionConfiguration?.likeCount
         let bodyChickenLegCount = bodyItem.flatMap { parseReactionCount(in: $0, kind: .chickenLeg) }
             ?? bodyReactionConfiguration?.chickenLegCount
+            ?? reactionConfiguration?.chickenLegCount
         let bodyOpposeCount = bodyItem.flatMap { parseReactionCount(in: $0, kind: .oppose) }
             ?? bodyReactionConfiguration?.opposeCount
+            ?? reactionConfiguration?.opposeCount
         let bodyFavoriteCount = bodyItem.flatMap { parseReactionCount(in: $0, kind: .favorite) }
             ?? reactionConfiguration?.collectionCount
         let authorBadgeTexts = bodyItem.map { parseAuthorBadgeTexts(in: $0) } ?? []
@@ -422,6 +524,8 @@ struct KannaNodeSeekParser: NodeSeekParser {
             metadataText: metadataText,
             contentHTML: contentHTML,
             signatureHTML: signatureHTML,
+            viewCountFromDetail: viewCountFromDetail,
+            categoryWord: categoryWord,
             likeCount: bodyLikeCount,
             isLikeClicked: bodyItem.map { parseReactionClicked(in: $0, kind: .like) } ?? false,
             chickenLegCount: bodyChickenLegCount,
@@ -431,10 +535,63 @@ struct KannaNodeSeekParser: NodeSeekParser {
             favoriteCount: bodyFavoriteCount,
             isFavoriteCollected: isFavoriteCollected,
             isRestricted: restrictedNotice != nil,
+            vote: vote,
             comments: comments,
             page: page,
             pagination: pagination,
             isLastPage: document.at_xpath(XPathRules.postDetailNextPage) == nil
+        )
+    }
+
+    private func parsePostVote(in document: HTMLDocument) -> PostVote? {
+        guard let root = document.at_xpath(XPathRules.postVoteRoot) else { return nil }
+        let inputs = Array(root.xpath(".//input[@type='radio' or @type='checkbox']"))
+        guard inputs.isEmpty == false else { return nil }
+
+        let options = inputs.enumerated().compactMap { index, input -> PostVoteOption? in
+            let identifier = input["value"]?.trimmedNonEmpty
+                ?? input["data-option-id"]?.trimmedNonEmpty
+                ?? input["data-vote-option-id"]?.trimmedNonEmpty
+                ?? "index-\(index)"
+            let label = input.at_xpath("ancestor::label[1]")
+            let text = label?.text?.normalizedNonEmpty
+                ?? input["aria-label"]?.trimmedNonEmpty
+                ?? "选项 \(index + 1)"
+            let voteCount = label?.text.flatMap { text -> Int? in
+                guard let range = text.range(of: #"\d+\s*(票|votes?)"#, options: .regularExpression) else {
+                    return nil
+                }
+                return Self.firstInteger(in: String(text[range]))
+            }
+            return PostVoteOption(
+                id: identifier,
+                title: text,
+                voteCount: voteCount,
+                isSelected: input["checked"] != nil
+            )
+        }
+        guard options.isEmpty == false else { return nil }
+
+        let rootText = root.text?.normalizedNonEmpty ?? ""
+        let title = root.at_xpath(".//*[contains(@class, 'vote-title') or contains(@class, 'vote-question') or self::h1 or self::h2 or self::h3][1]")?.text?.normalizedNonEmpty ?? "投票"
+        let totalVotes = rootText.range(of: #"\d+\s*(人参与|票|votes?)"#, options: .regularExpression)
+            .flatMap { Self.firstInteger(in: String(rootText[$0])) }
+        let isClosed = rootText.contains("投票结束") || rootText.contains("已截止") || rootText.contains("已关闭")
+        let canSubmit = root.xpath(".//button | .//input[@type='submit']").contains { node in
+            let text = node.text?.normalizedNonEmpty ?? node["value"]?.trimmedNonEmpty ?? ""
+            return (text.contains("投票") || text.contains("提交")) && node["disabled"] == nil
+        } && isClosed == false
+        let statusText = rootText.contains("已投票") ? "已投票" : (isClosed ? "投票已结束" : nil)
+
+        return PostVote(
+            id: root["data-vote-id"]?.trimmedNonEmpty ?? root["data-id"]?.trimmedNonEmpty,
+            title: title,
+            allowsMultipleSelection: inputs.contains { $0["type"]?.lowercased() == "checkbox" } || rootText.contains("多选"),
+            totalVoteCount: totalVotes,
+            statusText: statusText,
+            isClosed: isClosed,
+            canSubmit: canSubmit,
+            options: options
         )
     }
 
@@ -627,6 +784,12 @@ struct KannaNodeSeekParser: NodeSeekParser {
                 xpaths: [XPathRules.contentCreatedAt],
                 attribute: "title"
             ),
+            editedText: firstText(in: item, xpaths: [XPathRules.contentUpdatedAt]),
+            editedTitleText: firstAttribute(
+                in: item,
+                xpaths: [XPathRules.contentUpdatedAt],
+                attribute: "title"
+            ),
             contentHTML: item.at_xpath(XPathRules.contentArticle)?.innerHTML?.trimmedNonEmpty ?? "",
             signatureHTML: contentSignatureHTML(in: item),
             isHot: item.at_xpath(XPathRules.contentHotBadge) != nil,
@@ -759,6 +922,9 @@ struct KannaNodeSeekParser: NodeSeekParser {
     }
 
     private struct PostReactionConfiguration {
+        let likeCount: Int?
+        let chickenLegCount: Int?
+        let opposeCount: Int?
         let collectionCount: Int?
         let collected: Bool?
         let commentsByID: [String: CommentReactionConfiguration]
@@ -834,15 +1000,44 @@ struct KannaNodeSeekParser: NodeSeekParser {
             }
         }
 
-        let collectionCount = intValue(in: postData, keys: ["collectionCount"])
-        let collected = boolValue(in: postData, keys: ["collected"])
-        guard collectionCount != nil
+        let postReactionSources = [
+            postData,
+            postData["post"] as? [String: Any],
+            postData["comment"] as? [String: Any],
+            postData["firstComment"] as? [String: Any],
+            postData["first_comment"] as? [String: Any]
+        ].compactMap { dictionary in
+            dictionary
+        }
+        func reactionCount(_ keys: [String]) -> Int? {
+            postReactionSources.lazy.compactMap { dictionary in
+                intValue(in: dictionary, keys: keys)
+            }.first
+        }
+        func reactionState(_ keys: [String]) -> Bool? {
+            postReactionSources.lazy.compactMap { dictionary in
+                boolValue(in: dictionary, keys: keys)
+            }.first
+        }
+
+        let likeCount = reactionCount(["upvoteCount", "upvote_count", "like_count"])
+        let chickenLegCount = reactionCount(["likeCount", "chickenLegCount", "chicken_count", "coinCount"])
+        let opposeCount = reactionCount(["dislikeCount", "dislike_count", "opposeCount", "downvoteCount"])
+        let collectionCount = reactionCount(["collectionCount", "collection_count", "favoriteCount"])
+        let collected = reactionState(["collected", "isCollected", "is_collected"])
+        guard likeCount != nil
+            || chickenLegCount != nil
+            || opposeCount != nil
+            || collectionCount != nil
             || collected != nil
             || comments.isEmpty == false else {
             return nil
         }
 
         return PostReactionConfiguration(
+            likeCount: likeCount,
+            chickenLegCount: chickenLegCount,
+            opposeCount: opposeCount,
             collectionCount: collectionCount,
             collected: collected,
             commentsByID: commentsByID,
@@ -996,4 +1191,29 @@ private extension Kanna.XMLElement {
             .split(whereSeparator: { $0.isWhitespace })
             .contains { $0 == className }
     }
+}
+
+
+/// 帖子页内联 temp-script（Base64 postData）的回填字段。
+struct PostDataExtras {
+    let views: Int?
+    let categoryWord: String?
+}
+
+fileprivate func decodePostDataExtras(in html: String) -> PostDataExtras? {
+    guard let regex = try? NSRegularExpression(pattern: "<script id=\"temp-script\"[^>]*>([A-Za-z0-9+/=\\s]+)</script>") else { return nil }
+    let nshtml = html as NSString
+    guard let match = regex.firstMatch(in: html, options: [], range: NSRange(location: 0, length: nshtml.length)),
+          match.numberOfRanges > 1 else {
+        return nil
+    }
+    var base64 = nshtml.substring(with: match.range(at: 1))
+    base64 = base64.components(separatedBy: CharacterSet.whitespacesAndNewlines).joined()
+    guard let data = Data(base64Encoded: base64),
+          let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+        return nil
+    }
+    let views = (json["views"] as? NSNumber)?.intValue
+    let categoryWord = json["categoryWord"] as? String
+    return PostDataExtras(views: views, categoryWord: categoryWord)
 }

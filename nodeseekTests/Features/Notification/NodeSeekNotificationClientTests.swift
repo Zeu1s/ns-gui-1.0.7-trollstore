@@ -11,6 +11,36 @@ import Testing
 
 @Suite(.serialized)
 struct NodeSeekNotificationClientTests {
+    @Test func rendersSystemMessageMarkdownLinksForNativeNavigation() throws {
+        let rendered = NodeSeekPrivateMessageMarkdownRenderer.render(
+            "您的[评论](https://www.nodeseek.com/post-856579-3#27)被用户[Grey](https://www.nodeseek.com/space/8257)投喂鸡腿"
+        )
+
+        #expect(rendered.hasLinks)
+        #expect(rendered.attributedText.string == "您的评论被用户Grey投喂鸡腿")
+
+        var links: [String] = []
+        let range = NSRange(location: 0, length: rendered.attributedText.length)
+        rendered.attributedText.enumerateAttribute(.link, in: range) { value, _, _ in
+            if let url = value as? URL {
+                links.append(url.absoluteString)
+            }
+        }
+        #expect(links == [
+            "https://www.nodeseek.com/post-856579-3#27",
+            "https://www.nodeseek.com/space/8257"
+        ])
+    }
+
+    @Test func keepsMarkdownImageSyntaxOutOfMessageLinkRendering() {
+        let rendered = NodeSeekPrivateMessageMarkdownRenderer.render(
+            "![截图](https://image.example.com/report.png)"
+        )
+
+        #expect(rendered.hasLinks == false)
+        #expect(rendered.attributedText.string == "![截图](https://image.example.com/report.png)")
+    }
+
     @Test func loadsAtMeNotificationsFromJSONAPI() async throws {
         let counter = CookiePrepareCounter()
         let client = makeClient(
@@ -50,6 +80,140 @@ struct NodeSeekNotificationClientTests {
         #expect(record.avatarURL.absoluteString == "https://www.nodeseek.com/avatar/24060.png")
         #expect(record.profileURL.absoluteString == "https://www.nodeseek.com/space/24060")
         #expect(record.postSummary.url.absoluteString == "https://www.nodeseek.com/post-763505-1")
+    }
+
+    @Test func readsReplyPreviewFromAlternativeContentFields() async throws {
+        let client = makeClient(
+            responseBody: """
+            {
+              "success": true,
+              "data": [
+                {
+                  "id": 3056862,
+                  "viewed": 0,
+                  "comment_id": 10503772,
+                  "floor_id": 12,
+                  "created_at": "2026-06-06T03:50:41.000Z",
+                  "commenter_id": 24061,
+                  "post_title": "带正文的通知",
+                  "post_id": 763506,
+                  "first_comment_id": 10501641,
+                  "commenter_name": "kiya",
+                  "reply_content": "<p>回复正文 <img src=\"https://example.com/report.png\"></p>"
+                }
+              ]
+            }
+            """
+        )
+
+        let records = try await client.loadAtMe()
+        let record = try #require(records.first)
+
+        #expect(record.content == "<p>回复正文 <img src=\"https://example.com/report.png\"></p>")
+        #expect(UserCommentPreview.text(from: record.content ?? "") == "回复正文")
+    }
+
+    @Test func resolvesNotificationPreviewByCommentIDBeforeFloorFallback() {
+        let record = NodeSeekNotificationRecord(
+            id: 3056863,
+            viewed: 0,
+            commentID: 10503773,
+            floorID: 12,
+            createdAt: Date(timeIntervalSince1970: 1_000),
+            commenterID: 24061,
+            title: "通知标题",
+            postID: 763507,
+            firstCommentID: 10501642,
+            commenterName: "kiya"
+        )
+        let detail = PostDetail(
+            id: "763507",
+            title: "通知标题",
+            authorName: "作者",
+            avatarURL: nil,
+            metadataText: nil,
+            contentHTML: "",
+            comments: [
+                Comment(
+                    id: "10503772",
+                    anchorID: "12",
+                    authorName: "其他用户",
+                    avatarURL: nil,
+                    floorText: "12 楼",
+                    createdAtText: nil,
+                    contentHTML: "<p>不应匹配</p>"
+                ),
+                Comment(
+                    id: "comment-10503773",
+                    anchorID: "11",
+                    authorName: "kiya",
+                    avatarURL: nil,
+                    floorText: "11 楼",
+                    createdAtText: nil,
+                    contentHTML: "<p>目标回复</p>"
+                )
+            ]
+        )
+
+        #expect(NodeSeekNotificationContentResolver.content(in: detail, for: record) == "<p>目标回复</p>")
+    }
+
+    @Test func derivesCommentPageFromActualSecondPageFloor() {
+        let secondPage = PostDetail(
+            id: "763508",
+            title: "通知标题",
+            authorName: "作者",
+            avatarURL: nil,
+            metadataText: nil,
+            contentHTML: "",
+            comments: [
+                Comment(
+                    id: "10503774",
+                    anchorID: "21",
+                    authorName: "kiya",
+                    avatarURL: nil,
+                    floorText: "21 楼",
+                    createdAtText: nil,
+                    contentHTML: "<p>目标回复</p>"
+                ),
+                Comment(
+                    id: "10503775",
+                    anchorID: "40",
+                    authorName: "其他用户",
+                    avatarURL: nil,
+                    floorText: "40 楼",
+                    createdAtText: nil,
+                    contentHTML: "<p>另一条回复</p>"
+                )
+            ]
+        )
+
+        let commentsPerPage = try #require(
+            NodeSeekNotificationContentResolver.commentsPerPage(inSecondPage: secondPage)
+        )
+        #expect(commentsPerPage == 20)
+        #expect(NodeSeekNotificationContentResolver.page(for: 12, commentsPerPage: commentsPerPage) == 1)
+        #expect(NodeSeekNotificationContentResolver.page(for: 21, commentsPerPage: commentsPerPage) == 2)
+        #expect(NodeSeekNotificationContentResolver.page(for: 99, commentsPerPage: commentsPerPage) == 5)
+    }
+
+    @Test func notificationReplyUsesThePageWhereContentWasResolved() {
+        let record = NodeSeekNotificationRecord(
+            id: 3056865,
+            viewed: 0,
+            commentID: 10503775,
+            floorID: 21,
+            createdAt: Date(timeIntervalSince1970: 1_000),
+            commenterID: 24061,
+            title: "通知标题",
+            postID: 763509,
+            firstCommentID: 10501644,
+            resolvedCommentPage: 2,
+            commenterName: "kiya"
+        )
+
+        #expect(record.commentPage == 3)
+        #expect(record.targetCommentPage == 2)
     }
 
     @Test func loadsUnreadCount() async throws {
@@ -171,6 +335,72 @@ struct NodeSeekNotificationClientTests {
         #expect(record.participantID(currentUserID: 31037) == 24060)
         #expect(record.participantName(currentUserID: 31037) == "kiya")
         #expect(record.conversationWebURL(currentUserID: 31037).absoluteString == "https://www.nodeseek.com/notification#/message?mode=talk&to=24060")
+    }
+
+    @Test func loadsNestedMessageListAndIgnoresMalformedLegacyRecord() async throws {
+        let client = makeClient(
+            responseBody: """
+            {
+              "success": true,
+              "data": {
+                "message_list": [
+                  {
+                    "receiver_id": "31037",
+                    "sender_id": "24060",
+                    "max_id": "920",
+                    "content": null,
+                    "created_at": "2026-06-05T12:59:10.000Z",
+                    "viewed": false,
+                    "sender_name": "kiya",
+                    "receiver_name": "mistj"
+                  },
+                  42
+                ]
+              }
+            }
+            """
+        )
+
+        let records = try await client.loadMessageConversations()
+
+        #expect(records.count == 1)
+        #expect(records.first?.receiverID == 31037)
+        #expect(records.first?.content == "")
+        #expect(records.first?.isViewed == false)
+    }
+
+    @Test func keepsOnlyLatestMessageForEachConversation() {
+        let older = NodeSeekMessageConversationRecord(
+            receiverID: 31037,
+            senderID: 24060,
+            maxID: 920,
+            content: "较早消息",
+            createdAt: Date(timeIntervalSince1970: 1_000),
+            viewed: 0,
+            senderName: "kiya",
+            receiverName: "mistj"
+        )
+        let latestOutgoing = NodeSeekMessageConversationRecord(
+            receiverID: 24060,
+            senderID: 31037,
+            maxID: 921,
+            content: "最新消息",
+            createdAt: Date(timeIntervalSince1970: 2_000),
+            viewed: 0,
+            senderName: "mistj",
+            receiverName: "kiya"
+        )
+
+        let conversations = NodeSeekMessageConversationRecord.latestConversations(
+            from: [older, latestOutgoing],
+            currentUserID: 31037
+        )
+
+        #expect(conversations.count == 1)
+        #expect(conversations.first?.maxID == 921)
+        #expect(conversations.first?.content == "最新消息")
+        #expect(conversations.first?.isViewed == true)
+        #expect(conversations.first?.participantName(currentUserID: 31037) == "kiya")
     }
 }
 

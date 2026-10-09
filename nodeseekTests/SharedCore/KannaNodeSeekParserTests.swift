@@ -237,6 +237,26 @@ struct KannaNodeSeekParserTests {
         #expect(post.avatarURL == nil)
     }
 
+    @Test func ignoresPostLinksInPageFooterWhenParsingPostList() throws {
+        let html = """
+        <main>
+          <div>
+            <a href="/post-456-1">正常帖子</a>
+          </div>
+        </main>
+        <footer>
+          <a href="/post-6797-1">商家申请规则</a>
+          <a href="/post-6800-1">Premium Provider</a>
+          <a href="/post-361666-1">广告合作</a>
+        </footer>
+        """
+        let parser = KannaNodeSeekParser(baseURL: URL(string: "https://www.nodeseek.com")!)
+
+        let posts = try parser.parsePostList(html: html)
+
+        #expect(posts.map(\.title) == ["正常帖子"])
+    }
+
     @Test func parsesCommentReactionCountsFromDetailCommentMenuDOM() throws {
         let html = """
         <div class="nsk-post">

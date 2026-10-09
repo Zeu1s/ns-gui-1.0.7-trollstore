@@ -40,6 +40,17 @@ final class PostTextureListHostViewController: UIViewController {
         presenter.viewDidLoad()
     }
 
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        // 页面切换被手势打断后，UIPageViewController 可能不再触发首次加载回调。
+        // 在真正可见时再兜底一次，避免板块停留在空白页。
+        presenter.ensureFirstPageLoaded()
+    }
+
+    func ensureFirstPageLoaded() {
+        loadViewIfNeeded()
+        presenter.ensureFirstPageLoaded()
+    }
     var currentSortMode: PostListSortMode {
         presenter.currentSortMode
     }

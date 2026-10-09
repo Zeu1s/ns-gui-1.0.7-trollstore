@@ -11,6 +11,7 @@ final class FloatingControlContainerView: UIView, FloatingViewProtocol, Floating
     let component = FloatingViewProtocolComponent()
 
     var onAdsorbedEdgeChanged: ((FloatingAdsorbableEdges) -> Void)?
+    var onDragBegan: (() -> Void)?
 
     private let positionStorageKey: String?
     private let positionStore: FloatingControlPositionStoring
@@ -32,6 +33,7 @@ final class FloatingControlContainerView: UIView, FloatingViewProtocol, Floating
         adsorbPriority = .horizontalHigher
         isAutoPartiallyHide = false
         floatingDelegate = self
+
     }
 
     required init?(coder: NSCoder) {
@@ -94,6 +96,10 @@ final class FloatingControlContainerView: UIView, FloatingViewProtocol, Floating
 
     func floatingViewDidBeginDragging(panGestureRecognizer: UIPanGestureRecognizer) {
         usesCustomPosition = true
+        if transform != .identity {
+            transform = .identity
+        }
+        onDragBegan?()
     }
 
     func floatingViewDidEndDragging(panGestureRecognizer: UIPanGestureRecognizer) {

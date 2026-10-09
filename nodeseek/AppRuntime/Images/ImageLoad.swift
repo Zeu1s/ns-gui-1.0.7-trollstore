@@ -41,4 +41,5 @@ struct ImageLoadRequest {
     func toOriginalPayload() -> DetailOriginalPayloadRequest {
         DetailOriginalPayloadRequest(url: url)
     }
+
 }

@@ -195,6 +195,32 @@ struct DetailImageLoaderTests {
         #expect((inlineImage?.size.height ?? 0) > 100)
     }
 
+    @Test func normalizesCheckPlaceTextAndRemovesHighlightBlocks() {
+        let normalized = String(
+            data: SVGImageNormalizer.normalizedData(from: Self.makeCheckPlaceReportSVGData()),
+            encoding: .utf8
+        )
+
+        #expect(normalized?.contains("<text x=\"0px\" y=\"7px\">") == true)
+        #expect(normalized?.contains("font-family=\"Menlo\"") == false)
+        #expect(normalized?.contains("<g class=\"bg\"") == false)
+        #expect(normalized?.contains("<rect x=\"92.4px\" y=\"532px\" width=\"50.4px\" height=\"14px\"") == false)
+    }
+
+    @Test func convertsSVGReportToPNGBeforePhotoLibrarySave() throws {
+        let sourceData = Self.makeCheckPlaceReportSVGData()
+        let payload = DetailOriginalFilePayload(
+            data: sourceData,
+            mimeType: "image/svg+xml",
+            suggestedFileExtension: "svg"
+        )
+
+        let photoData = try #require(DetailPhotoLibraryAssetData.data(from: payload))
+
+        #expect(SVGContentInspector.looksLikeSVG(photoData) == false)
+        #expect(UIImage(data: photoData) != nil)
+    }
+
     @Test func inlineLoadRendersReportLikeSVGWithoutThumbnailCacheRegardlessPath() async throws {
         let url = try #require(URL(string: "https://report.check.place/net/31G5DHSHP.svg"))
         let sourceData = Self.makeCheckPlaceReportSVGData(width: "82ch", height: "42em")

@@ -54,12 +54,12 @@ extension PostListViewController: PostPageContainerViewControllerDelegate {
         didFailInitialLoadFor category: PostListCategoryItem
     ) {
         guard selectedCategory == category,
-              let visibleCategory = containerView.currentCategory else {
+              containerView.currentCategory == category else {
             return
         }
-        selectedCategory = visibleCategory
-        applySelectedCategory(visibleCategory, syncPage: false, pageAnimated: false)
-        presenter.didSelectCategory(visibleCategory)
+        DispatchQueue.main.async { [weak containerView] in
+            containerView?.recoverVisiblePageIfNeeded()
+        }
     }
 
     func postPageContainerViewControllerDidRequestLeadingSideMenu(_ containerView: PostPageContainerViewController) {

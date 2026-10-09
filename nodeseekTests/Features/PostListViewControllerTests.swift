@@ -129,7 +129,7 @@ struct PostListViewControllerTests {
         #expect(presenter.viewWillAppearCount == 1)
         viewController.renderNotificationUnreadBadge(isVisible: true)
         #expect(badgeView.isHidden == false)
-        #expect(menuButton.accessibilityValue == "有未读通知")
+        #expect(menuButton.accessibilityValue == "1 条未读通知")
 
         NotificationCenter.default.post(name: UIApplication.willEnterForegroundNotification, object: nil)
         #expect(presenter.didEnterForegroundCount == 1)
@@ -164,9 +164,13 @@ struct PostListViewControllerTests {
         #expect(historyButton.titleLabel?.font.pointSize == 14)
         #expect(unreadBadge.isHidden == true)
 
-        viewController.renderNotificationUnreadBadge(isVisible: true)
+        viewController.renderNotificationUnreadBadge(
+            unreadCount: NodeSeekNotificationUnreadCount(message: 4, atMe: 5, reply: 3, all: 12)
+        )
         #expect(unreadBadge.isHidden == false)
-        #expect(messageButton.accessibilityValue == "有未读消息")
+        let unreadBadgeLabel = try #require(unreadBadge as? UILabel)
+        #expect(unreadBadgeLabel.text == "12")
+        #expect(messageButton.accessibilityValue == "12 条未读消息")
 
         historyButton.sendActions(for: .touchUpInside)
         messageButton.sendActions(for: .touchUpInside)
@@ -443,7 +447,6 @@ struct PostListViewControllerTests {
         let favoritesEntryButton = try #require(viewController.view.firstButton(accessibilityIdentifier: "post-list-side-menu-extension-favorites-button"))
         let newDiscussionButton = try #require(viewController.view.firstButton(accessibilityIdentifier: "post-list-side-menu-new-discussion-button"))
         let checkInButton = try #require(viewController.view.firstButton(accessibilityIdentifier: "post-list-side-menu-check-in-button"))
-        let notificationButton = try #require(viewController.view.firstButton(accessibilityIdentifier: "post-list-side-menu-notification-button"))
         let searchButton = try #require(viewController.view.firstButton(accessibilityIdentifier: "post-list-side-menu-search-button"))
         let recentVisitedButton = try #require(viewController.view.firstButton(accessibilityIdentifier: "post-list-side-menu-recent-visited-button"))
         let settingsButton = try #require(viewController.view.firstButton(accessibilityIdentifier: "post-list-side-menu-settings-button"))
@@ -470,8 +473,6 @@ struct PostListViewControllerTests {
         #expect(newDiscussionButton.configuration?.image != nil)
         #expect(checkInButton.configuration?.title == "签到")
         #expect(checkInButton.configuration?.image != nil)
-        #expect(notificationButton.configuration?.title == "通知")
-        #expect(notificationButton.configuration?.image != nil)
         #expect(searchButton.configuration?.title == "搜一搜")
         #expect(searchButton.configuration?.image != nil)
         #expect(recentVisitedButton.configuration?.title == "最近浏览")
@@ -491,8 +492,7 @@ struct PostListViewControllerTests {
         #expect(accountHeaderButton.frame.contains(avatar.frame))
         #expect(recentVisitedButton.frame.maxY < settingsButton.frame.minY)
         #expect(searchButton.frame.maxY < recentVisitedButton.frame.minY)
-        #expect(notificationButton.frame.maxY < searchButton.frame.minY)
-        #expect(checkInButton.frame.maxY < notificationButton.frame.minY)
+        #expect(checkInButton.frame.maxY < searchButton.frame.minY)
         #expect(newDiscussionButton.frame.maxY < checkInButton.frame.minY)
         #expect(settingsButton.frame.maxY < viewController.view.bounds.maxY)
 
@@ -760,32 +760,19 @@ struct PostListViewControllerTests {
         #expect(loginTapCount == 0)
     }
 
-    @Test func loggedInSideMenuNotificationButtonUsesUnreadCountAndRoutesToNotificationPage() async throws {
+    @Test func loggedInSideMenuDoesNotShowNotificationEntry() async throws {
         let defaults = try #require(UserDefaults(suiteName: "post-list-side-menu-\(UUID().uuidString)"))
         let store = CurrentAccountStore(userDefaults: defaults, storageKey: "account")
-        let notificationURL = try #require(URL(string: "https://www.nodeseek.com/notification"))
         await store.save(
             AccountResponse(
                 displayName: "mistj",
-                isLoggedIn: true,
-                notification: AccountNotification(
-                    url: notificationURL,
-                    iconColorCSS: "rgb(243, 17, 17)"
-                )
+                isLoggedIn: true
             )
-        )
-        let notificationClient = StubNotificationClient(
-            unreadCount: NodeSeekNotificationUnreadCount(message: 0, atMe: 1, reply: 0, all: 1)
         )
         let viewController = PostListSideMenuViewController(
             currentAccountStore: store,
-            accountRefresher: StubCurrentAccountRefresher(),
-            notificationClient: notificationClient
+            accountRefresher: StubCurrentAccountRefresher()
         )
-        var routedNotificationURL: URL?
-        viewController.onNotificationTapped = { url in
-            routedNotificationURL = url
-        }
 
         let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
         window.rootViewController = viewController
@@ -796,44 +783,7 @@ struct PostListViewControllerTests {
             viewController.view.firstLabel(accessibilityIdentifier: "post-list-side-menu-name-label")?.text == "mistj"
         }
 
-        let button = try #require(viewController.view.firstButton(accessibilityIdentifier: "post-list-side-menu-notification-button"))
-        viewController.show(animated: false)
-        #expect(button.configuration?.title == "通知")
-        #expect(button.configuration?.baseForegroundColor == .label)
-        let lightTrait = UITraitCollection(userInterfaceStyle: .light)
-        try await waitUntil {
-            guard let transformer = button.configuration?.imageColorTransformer else { return false }
-            let iconColor = transformer(UIColor.label).resolvedColor(with: lightTrait)
-            return iconColor.isClose(to: UIColor.systemRed.resolvedColor(with: lightTrait))
-        }
-
-        NodeSeekNotificationUnreadCountEvent.post(.zero)
-        try await waitUntil {
-            guard let transformer = button.configuration?.imageColorTransformer else { return false }
-            let iconColor = transformer(UIColor.label).resolvedColor(with: lightTrait)
-            return iconColor.isClose(to: UIColor.label.resolvedColor(with: lightTrait))
-        }
-
-        await notificationClient.setUnreadCount(.zero)
-        NodeSeekNotificationUnreadCountEvent.post(
-            NodeSeekNotificationUnreadCount(message: 1, atMe: 0, reply: 0, all: 1)
-        )
-        try await waitUntil {
-            guard let transformer = button.configuration?.imageColorTransformer else { return false }
-            let iconColor = transformer(UIColor.label).resolvedColor(with: lightTrait)
-            return iconColor.isClose(to: UIColor.systemRed.resolvedColor(with: lightTrait))
-        }
-
-        viewController.show(animated: false)
-        try await waitUntil {
-            guard let transformer = button.configuration?.imageColorTransformer else { return false }
-            let iconColor = transformer(UIColor.label).resolvedColor(with: lightTrait)
-            return iconColor.isClose(to: UIColor.label.resolvedColor(with: lightTrait))
-        }
-
-        button.sendActions(for: .touchUpInside)
-
-        #expect(routedNotificationURL == notificationURL)
+        #expect(viewController.view.firstButton(accessibilityIdentifier: "post-list-side-menu-notification-button") == nil)
     }
 }
 

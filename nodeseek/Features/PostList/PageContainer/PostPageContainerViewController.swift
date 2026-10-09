@@ -23,10 +23,12 @@ final class PostPageContainerViewController: UIPageViewController {
     var categories: [PostListCategoryItem] = []
     var hostViewControllers: [PostListCategoryItem: PostTextureListHostViewController] = [:]
     private(set) var currentCategory: PostListCategoryItem?
-    private var pendingCategory: PostListCategoryItem?
     weak var pagingScrollView: UIScrollView?
     var maximumLeadingBoundaryPullDistance: CGFloat = 0
     private let visitedStore: VisitedPostStoreProtocol
+    private var isPagingTransitioning = false
+    private var pendingCategorySelection: (category: PostListCategoryItem, animated: Bool, notifyDelegate: Bool)?
+    private var needsVisiblePageRecovery = false
 
     init(
         visitedStore: VisitedPostStoreProtocol
@@ -77,7 +79,6 @@ final class PostPageContainerViewController: UIPageViewController {
 
     func setCurrentCategory(_ category: PostListCategoryItem, animated: Bool) {
         guard categories.contains(category) else { return }
-        guard currentCategory != category else { return }
         setCurrentCategory(category, animated: animated, notifyDelegate: false)
     }
 
@@ -113,14 +114,20 @@ final class PostPageContainerViewController: UIPageViewController {
     }
 
     func recoverVisiblePageIfNeeded() {
-        guard let category = currentCategory ?? categories.first else { return }
-        guard pendingCategory == nil else {
-            // 目标板块首屏未完成时必须保持锁定；提前解锁会让显示页与选中板块失步。
-            pagingScrollView?.isScrollEnabled = false
+        guard categories.isEmpty == false else { return }
+        guard isPagingTransitioning == false else {
+            // 页面正在由手势接管时不能再次 setViewControllers。等分页器完成后，
+            // 使用它最终实际展示的控制器恢复，防止出现标题与内容页不同步的白屏。
+            needsVisiblePageRecovery = true
             return
         }
-        setCurrentCategory(category, animated: false, notifyDelegate: false)
-        pagingScrollView?.isScrollEnabled = true
+        if let visibleHost = viewControllers?.first as? PostTextureListHostViewController,
+           categories.contains(visibleHost.category) {
+            currentCategory = visibleHost.category
+            visibleHost.ensureFirstPageLoaded()
+        } else if let category = currentCategory ?? categories.first {
+            setCurrentCategory(category, animated: false, notifyDelegate: false)
+        }
         view.setNeedsLayout()
     }
 
@@ -142,24 +149,21 @@ final class PostPageContainerViewController: UIPageViewController {
 
     private func setCurrentCategory(_ category: PostListCategoryItem, animated: Bool, notifyDelegate: Bool) {
         guard let targetVC = hostViewControllers[category] else { return }
-        if currentCategory == category,
-           viewControllers?.first === targetVC {
+        guard isPagingTransitioning == false else {
+            pendingCategorySelection = (category, animated, notifyDelegate)
             return
         }
-
-        // Keep the currently rendered page on screen while a never-opened category
-        // fetches its first page. Showing its skeleton here causes a visible flash.
-        if currentCategory != nil, !targetVC.isReadyForDisplay {
-            pendingCategory = category
-            targetVC.loadViewIfNeeded()
-            pagingScrollView?.isScrollEnabled = false
+        // 先创建目标页面的骨架，页面切换不再依赖异步首屏请求的完成时机。
+        targetVC.ensureFirstPageLoaded()
+        if viewControllers?.first === targetVC {
+            currentCategory = category
             return
         }
-        pendingCategory = nil
         pagingScrollView?.isScrollEnabled = true
 
+        let visibleCategory = (viewControllers?.first as? PostTextureListHostViewController)?.category ?? currentCategory
         let direction: UIPageViewController.NavigationDirection = {
-            guard let current = currentCategory,
+            guard let current = visibleCategory,
                   let fromIndex = categories.firstIndex(of: current),
                   let toIndex = categories.firstIndex(of: category) else {
                 return .forward
@@ -168,18 +172,63 @@ final class PostPageContainerViewController: UIPageViewController {
         }()
 
         currentCategory = category
+        isPagingTransitioning = animated
+        pagingScrollView?.isScrollEnabled = animated == false
         setViewControllers([targetVC], direction: direction, animated: animated) { [weak self] completed in
             guard let self else { return }
-            if notifyDelegate, completed || !animated {
-                self.eventDelegate?.postPageContainerViewController(self, didScrollTo: category)
+            self.isPagingTransitioning = false
+            self.pagingScrollView?.isScrollEnabled = true
+            if let visibleHost = self.viewControllers?.first as? PostTextureListHostViewController {
+                // 转场若被新的手势打断，状态必须回到分页器实际显示的页面。
+                self.currentCategory = visibleHost.category
             }
+            if notifyDelegate, completed || !animated {
+                self.eventDelegate?.postPageContainerViewController(
+                    self,
+                    didScrollTo: self.currentCategory ?? category
+                )
+            }
+            self.applyPendingCategorySelectionIfNeeded()
+            self.recoverVisiblePageAfterPagingIfNeeded()
         }
     }
 
     func updateCurrentCategoryAfterPaging(_ category: PostListCategoryItem) {
         currentCategory = category
-        pendingCategory = nil
         pagingScrollView?.isScrollEnabled = true
+    }
+
+    func beginPagingTransition() {
+        isPagingTransitioning = true
+    }
+
+    func finishPagingTransition() {
+        isPagingTransitioning = false
+        pagingScrollView?.isScrollEnabled = true
+        if let visibleHost = viewControllers?.first as? PostTextureListHostViewController,
+           categories.contains(visibleHost.category) {
+            currentCategory = visibleHost.category
+        }
+        applyPendingCategorySelectionIfNeeded()
+        recoverVisiblePageAfterPagingIfNeeded()
+    }
+
+    private func applyPendingCategorySelectionIfNeeded() {
+        guard let pendingCategorySelection else { return }
+        self.pendingCategorySelection = nil
+        setCurrentCategory(
+            pendingCategorySelection.category,
+            animated: pendingCategorySelection.animated,
+            notifyDelegate: pendingCategorySelection.notifyDelegate
+        )
+    }
+
+    private func recoverVisiblePageAfterPagingIfNeeded() {
+        guard needsVisiblePageRecovery else { return }
+        needsVisiblePageRecovery = false
+        DispatchQueue.main.async { [weak self] in
+            self?.recoverVisiblePageIfNeeded()
+        }
     }
 }
 
@@ -193,21 +242,10 @@ extension PostPageContainerViewController: PostTextureListHostPresenterDelegate 
     }
 
     func postTextureListHostDidLoadFirstPage(category: PostListCategoryItem) {
-        let shouldRevealPendingCategory = pendingCategory == category
-        if shouldRevealPendingCategory {
-            pendingCategory = nil
-            setCurrentCategory(category, animated: false, notifyDelegate: false)
-        }
         eventDelegate?.postPageContainerViewController(self, didLoadFirstPageFor: category)
-        if shouldRevealPendingCategory {
-            eventDelegate?.postPageContainerViewController(self, didScrollTo: category)
-        }
     }
 
     func postTextureListHostDidFailInitialLoad(category: PostListCategoryItem) {
-        guard pendingCategory == category else { return }
-        pendingCategory = nil
-        pagingScrollView?.isScrollEnabled = true
         eventDelegate?.postPageContainerViewController(self, didFailInitialLoadFor: category)
     }
 }

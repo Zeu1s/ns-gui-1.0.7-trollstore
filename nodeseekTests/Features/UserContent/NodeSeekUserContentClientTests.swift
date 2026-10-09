@@ -68,6 +68,39 @@ struct NodeSeekUserContentClientTests {
         ])
     }
 
+    @Test func loadsCommentsFromNestedPostAndReplyFields() async throws {
+        let client = makeClient(
+            responseBody: """
+            {
+              "success": true,
+              "comments": [
+                {
+                  "post": { "id": 715246, "title": "嵌套回复主题" },
+                  "reply": {
+                    "rank": 2,
+                    "floor_id": 27,
+                    "content": "![图](https://example.com/report.png)"
+                  }
+                }
+              ]
+            }
+            """
+        )
+
+        let records = try await client.loadComments(uid: 31037, page: 1)
+
+        #expect(records == [
+            UserCommentRecord(
+                postID: 715246,
+                title: "嵌套回复主题",
+                rank: 2,
+                floorID: 27,
+                text: "![图](https://example.com/report.png)"
+            )
+        ])
+        #expect(records.first?.displayText == "用户发送图片")
+    }
+
     @Test func loadsDiscussionsFromJSONAPI() async throws {
         let client = makeClient(
             responseBody: """
@@ -128,6 +161,125 @@ struct NodeSeekUserContentClientTests {
         ])
     }
 
+    @Test func loadsDiscussionsWithNestedPostStatistics() async throws {
+        let client = makeClient(
+            responseBody: """
+            {
+              "success": true,
+              "discussions": [
+                {
+                  "post": {
+                    "title": "嵌套统计主题帖",
+                    "id": 9002,
+                    "statistics": { "n_view": "4096", "n_comment": 28 }
+                  }
+                }
+              ]
+            }
+            """
+        )
+
+        let records = try await client.loadDiscussions(uid: 31037, page: 1)
+
+        #expect(records == [
+            UserDiscussionRecord(rank: 0, title: "嵌套统计主题帖", postID: 9002, viewCount: 4096, replyCount: 28)
+        ])
+    }
+
+    @Test func nestedStatisticsWinOverOuterPlaceholderValues() async throws {
+        let client = makeClient(
+            responseBody: """
+            {
+              "success": true,
+              "discussions": [
+                {
+                  "title": "真实统计优先", "post_id": 9010, "view_count": 0, "reply_count": 0,
+                  "post": {
+                    "statistics": { "viewCount": "1.2K", "replyCount": "36" }
+                  }
+                }
+              ]
+            }
+            """
+        )
+
+        let records = try await client.loadDiscussions(uid: 31037, page: 1)
+
+        #expect(records == [
+            UserDiscussionRecord(rank: 0, title: "真实统计优先", postID: 9010, viewCount: 1200, replyCount: 36)
+        ])
+    }
+
+    @Test func deeplyWrappedStatisticsWinOverAllPlaceholderValues() async throws {
+        let client = makeClient(
+            responseBody: """
+            {
+              "success": true,
+              "data": {
+                "payload": {
+                  "discussions": [
+                    {
+                      "title": "多层统计主题", "post_id": 9011, "views": 0, "comments": 0,
+                      "post_data": {
+                        "statistics": {
+                          "metrics": { "view_count": "8,901", "reply_count": "47" }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+            """
+        )
+
+        let records = try await client.loadDiscussions(uid: 31037, page: 1)
+
+        #expect(records == [
+            UserDiscussionRecord(rank: 0, title: "多层统计主题", postID: 9011, viewCount: 8901, replyCount: 47)
+        ])
+    }
+
+    @Test func loadsDiscussionsWithNestedLatestReplyAndNodeMetadata() async throws {
+        let client = makeClient(
+            responseBody: """
+            {
+              "success": true,
+              "discussions": [
+                {
+                  "post": {
+                    "id": 9012,
+                    "title": "完整的主题帖元信息",
+                    "viewNum": "8,888",
+                    "replyNum": 19,
+                    "node": { "nodeName": "日常" }
+                  },
+                  "lastReply": {
+                    "createdAt": "昨天 18:20",
+                    "user": { "member_name": "最后回复者", "member_id": 9527 }
+                  }
+                }
+              ]
+            }
+            """
+        )
+
+        let records = try await client.loadDiscussions(uid: 31037, page: 1)
+
+        #expect(records == [
+            UserDiscussionRecord(
+                rank: 0,
+                title: "完整的主题帖元信息",
+                postID: 9012,
+                viewCount: 8888,
+                replyCount: 19,
+                lastActivityText: "昨天 18:20",
+                lastReplyAuthorName: "最后回复者",
+                lastReplyAuthorID: 9527,
+                nodeName: "日常"
+            )
+        ])
+    }
     @Test func loadsCollectionsWithStatistics() async throws {
         let client = makeClient(
             responseBody: """
@@ -144,6 +296,69 @@ struct NodeSeekUserContentClientTests {
 
         #expect(records == [
             UserCollectionRecord(title: "收藏贴", postID: 700, rank: 0, viewCount: 2000, replyCount: 30)
+        ])
+    }
+
+    @Test func loadsCollectionsWithNestedPostStatistics() async throws {
+        let client = makeClient(
+            responseBody: """
+            {
+              "success": true,
+              "collections": [
+                {
+                  "username": "收藏者",
+                  "post": {
+                    "title": "嵌套统计收藏贴",
+                    "id": 701,
+                    "statistics": {
+                      "n_view": "2401",
+                      "n_comment": 31
+                    }
+                  }
+                }
+              ]
+            }
+            """
+        )
+
+        let records = try await client.loadCollections(page: 1, uid: 31037)
+
+        #expect(records == [
+            UserCollectionRecord(title: "嵌套统计收藏贴", postID: 701, rank: 0, viewCount: 2401, replyCount: 31)
+        ])
+    }
+
+    @Test func loadsCollectionsWithNestedAuthorProfile() async throws {
+        let client = makeClient(
+            responseBody: """
+            {
+              "success": true,
+              "collections": [
+                {
+                  "post": {
+                    "id": 702,
+                    "title": "带作者资料的收藏贴",
+                    "member": {
+                      "username": "真实作者",
+                      "avatar_url": "/avatar/702.png"
+                    }
+                  }
+                }
+              ]
+            }
+            """
+        )
+
+        let records = try await client.loadCollections(page: 1, uid: 31037)
+
+        #expect(records == [
+            UserCollectionRecord(
+                title: "带作者资料的收藏贴",
+                postID: 702,
+                rank: 0,
+                authorName: "真实作者",
+                avatarURL: URL(string: "https://www.nodeseek.com/avatar/702.png")
+            )
         ])
     }
 }

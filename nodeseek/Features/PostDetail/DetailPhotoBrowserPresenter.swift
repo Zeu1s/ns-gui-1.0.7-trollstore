@@ -11,6 +11,7 @@ import UIKit
 
 final class DetailPhotoBrowserPresenter: NSObject, JXPhotoBrowserDelegate {
     private let imageURLs: [URL]
+    private weak var presentedBrowser: JXPhotoBrowserViewController?
 
     init(imageURLs: [URL]) {
         self.imageURLs = imageURLs
@@ -33,7 +34,19 @@ final class DetailPhotoBrowserPresenter: NSObject, JXPhotoBrowserDelegate {
         }
         browser.addOverlay(actionOverlay)
 
+        // 长按图片同样唤出操作菜单（复制/保存/分享）。
+        let longPress = UILongPressGestureRecognizer(target: self, action: #selector(browserLongPressed(_:)))
+        browser.view.addGestureRecognizer(longPress)
+
+        presentedBrowser = browser
         browser.present(from: viewController)
+    }
+
+    @objc
+    private func browserLongPressed(_ recognizer: UILongPressGestureRecognizer) {
+        guard recognizer.state == .began,
+              let browser = presentedBrowser else { return }
+        presentActionMenu(from: browser, sourceView: browser.view)
     }
 
     func numberOfItems(in browser: JXPhotoBrowserViewController) -> Int {
@@ -45,10 +58,12 @@ final class DetailPhotoBrowserPresenter: NSObject, JXPhotoBrowserDelegate {
         cellForItemAt index: Int,
         at indexPath: IndexPath
     ) -> JXPhotoBrowserAnyCell {
-        browser.dequeueReusableCell(
+        let cell = browser.dequeueReusableCell(
             withReuseIdentifier: JXZoomImageCell.reuseIdentifier,
             for: indexPath
-        ) as! JXZoomImageCell
+        )
+        guard let zoomCell = cell as? JXZoomImageCell else { return cell }
+        return zoomCell
     }
 
     func photoBrowser(_ browser: JXPhotoBrowserViewController, willDisplay cell: JXPhotoBrowserAnyCell, at index: Int) {
@@ -80,6 +95,10 @@ final class DetailPhotoBrowserPresenter: NSObject, JXPhotoBrowserDelegate {
         }
 
         let alert = UIAlertController(title: nil, message: nil, preferredStyle: .actionSheet)
+        alert.addAction(UIAlertAction(title: "复制图片", style: .default) { [weak self, weak browser] _ in
+            guard let self, let browser else { return }
+            self.copyCurrentImage(from: browser)
+        })
         alert.addAction(UIAlertAction(title: "分享图片", style: .default) { [weak self, weak browser, weak sourceView] _ in
             guard let self, let browser, let sourceView else { return }
             self.shareCurrentImage(from: browser, sourceView: sourceView)
@@ -122,6 +141,34 @@ final class DetailPhotoBrowserPresenter: NSObject, JXPhotoBrowserDelegate {
         }
     }
 
+    private func copyCurrentImage(from browser: JXPhotoBrowserViewController) {
+        guard imageURLs.indices.contains(browser.pageIndex) else {
+            showMessage("当前图片无效", in: browser)
+            return
+        }
+
+        let imageURL = imageURLs[browser.pageIndex]
+        ImageLoad.url(imageURL).toOriginalPayload().load { [weak self, weak browser] result in
+            DispatchQueue.main.async {
+                guard let self, let browser else { return }
+                switch result {
+                case .success(let payload):
+                    if let photoData = DetailPhotoLibraryAssetData.data(from: payload) {
+                        UIPasteboard.general.setData(photoData, forPasteboardType: "public.image")
+                        self.showMessage("已复制图片", in: browser)
+                    } else if let image = UIImage(data: payload.data) {
+                        UIPasteboard.general.image = image
+                        self.showMessage("已复制图片", in: browser)
+                    } else {
+                        self.showMessage("图片转换失败，暂时无法复制", in: browser)
+                    }
+                case .failure:
+                    self.showMessage("图片加载失败，暂时无法复制", in: browser)
+                }
+            }
+        }
+    }
+
     private func saveCurrentImage(from browser: JXPhotoBrowserViewController) {
         guard imageURLs.indices.contains(browser.pageIndex) else {
             showMessage("当前图片无效", in: browser)
@@ -152,6 +199,10 @@ final class DetailPhotoBrowserPresenter: NSObject, JXPhotoBrowserDelegate {
     }
 
     private func saveToPhotoLibrary(payload: DetailOriginalFilePayload, browser: JXPhotoBrowserViewController) {
+        guard let photoData = DetailPhotoLibraryAssetData.data(from: payload) else {
+            showMessage("图片转换失败，暂时无法保存", in: browser)
+            return
+        }
         PHPhotoLibrary.requestAuthorization(for: .addOnly) { [weak self, weak browser] status in
             guard let self, let browser else { return }
             guard status == .authorized || status == .limited else {
@@ -163,7 +214,7 @@ final class DetailPhotoBrowserPresenter: NSObject, JXPhotoBrowserDelegate {
 
             PHPhotoLibrary.shared().performChanges {
                 let request = PHAssetCreationRequest.forAsset()
-                request.addResource(with: .photo, data: payload.data, options: nil)
+                request.addResource(with: .photo, data: photoData, options: nil)
             } completionHandler: { [weak self, weak browser] success, _ in
                 DispatchQueue.main.async {
                     guard let self, let browser else { return }
@@ -179,5 +230,16 @@ final class DetailPhotoBrowserPresenter: NSObject, JXPhotoBrowserDelegate {
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { [weak alert] in
             alert?.dismiss(animated: true)
         }
+    }
+}
+
+/// 相册不接受 SVG 作为 `.photo` 资源。报告预览已被渲染为位图，保存时复用同一
+/// 渲染链将 SVG 转为 PNG；其他图片仍保留原始文件数据。
+enum DetailPhotoLibraryAssetData {
+    static func data(from payload: DetailOriginalFilePayload) -> Data? {
+        guard SVGContentInspector.looksLikeSVG(payload.data, mimeType: payload.mimeType) else {
+            return payload.data
+        }
+        return ImageRenderer.image(data: payload.data, mimeType: payload.mimeType)?.pngData()
     }
 }

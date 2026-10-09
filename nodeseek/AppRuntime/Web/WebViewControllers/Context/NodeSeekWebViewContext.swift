@@ -14,11 +14,19 @@ final class NodeSeekWebViewContext {
 
     init(
         additionalUserScripts: [WKUserScript] = [],
+        allowsPageZoom: Bool = false,
         cookieSession: NodeSeekCookieSessionManaging? = nil
     ) {
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = .default()
-        let userScripts = [WebViewAccessibilityScriptFactory.makeDisplayScaleScript()] + additionalUserScripts
+        let userScripts = [
+            WebViewAccessibilityScriptFactory.makeResponsiveViewportScript(
+                allowsUserZoom: allowsPageZoom
+            ),
+            WebViewAccessibilityScriptFactory.makeDisplayScaleScript(
+                allowsUserZoom: allowsPageZoom
+            )
+        ] + additionalUserScripts
         configuration.userContentController = NodeSeekWebThemeSupport.makeUserContentController(
             additionalScripts: userScripts
         )
@@ -27,6 +35,7 @@ final class NodeSeekWebViewContext {
             store: configuration.websiteDataStore.httpCookieStore
         )
         self.webView = NoBounceWebView(frame: .zero, configuration: configuration)
+        self.webView.scrollView.pinchGestureRecognizer?.isEnabled = allowsPageZoom
         self.cookieSession = cookieSession ?? NodeSeekCookieSession(webCookieStore: webCookieStore)
     }
 

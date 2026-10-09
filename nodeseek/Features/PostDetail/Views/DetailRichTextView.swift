@@ -24,6 +24,7 @@ final class DetailRichTextView: DTAttributedTextContentView, DTAttributedTextCon
     }
 
     private var imageTapHandler: (([URL], Int) -> Void)?
+    private var imageLongPressHandler: ((URL) -> Void)?
     private var linkTapHandler: ((URL) -> Void)?
     private var signatureLinkCandidatesTapHandler: (([DetailLinkCandidate]) -> Void)?
     private var layoutInvalidatedHandler: (() -> Void)?
@@ -96,6 +97,7 @@ final class DetailRichTextView: DTAttributedTextContentView, DTAttributedTextCon
     func configure(
         _ attributedText: NSAttributedString?,
         onImageTapped: (([URL], Int) -> Void)?,
+        onImageLongPressed: ((URL) -> Void)? = nil,
         onLinkTapped: ((URL) -> Void)? = nil,
         onSignatureLinkCandidatesTapped: (([DetailLinkCandidate]) -> Void)? = nil,
         onLayoutInvalidated: (() -> Void)?,
@@ -103,6 +105,7 @@ final class DetailRichTextView: DTAttributedTextContentView, DTAttributedTextCon
     ) {
         pendingRelayoutWorkItem?.cancel()
         imageTapHandler = onImageTapped
+        imageLongPressHandler = onImageLongPressed
         linkTapHandler = onLinkTapped
         signatureLinkCandidatesTapHandler = onSignatureLinkCandidatesTapped
         layoutInvalidatedHandler = onLayoutInvalidated
@@ -222,6 +225,9 @@ final class DetailRichTextView: DTAttributedTextContentView, DTAttributedTextCon
             },
             onImageTapped: { [weak self] tappedURL in
                 self?.handleImageTap(tappedURL)
+            },
+            onImageLongPressed: { [weak self] tappedURL in
+                self?.handleImageLongPress(tappedURL)
             }
         )
         imageView.contentMode = contentMode(
@@ -332,6 +338,8 @@ final class DetailRichTextView: DTAttributedTextContentView, DTAttributedTextCon
             if let uiColor = color as? UIColor {
                 return uiColor
             }
+            // CF 类型的 as! 是不做检查的桥接转换，不会 trap；对 CGColor 写 as?
+            // 反而编译不过（conditional downcast to CoreFoundation type will always succeed）。
             return UIColor(cgColor: color as! CGColor)
         }
         return nil
@@ -530,6 +538,14 @@ final class DetailRichTextView: DTAttributedTextContentView, DTAttributedTextCon
         abs(currentSize.width - newSize.width) >= 0.5 || abs(currentSize.height - newSize.height) >= 0.5
     }
 
+    private func handleImageLongPress(_ tappedURL: URL) {
+        guard let handler = imageLongPressHandler,
+              let resolvedURL = ImageURLResolver.resolve(tappedURL) else {
+            return
+        }
+        handler(resolvedURL)
+    }
+
     private func handleImageTap(_ tappedURL: URL) {
         guard let onImageTapped = imageTapHandler,
               let resolvedTappedURL = ImageURLResolver.resolve(tappedURL) else {
@@ -541,19 +557,17 @@ final class DetailRichTextView: DTAttributedTextContentView, DTAttributedTextCon
         onImageTapped(urls, index)
     }
 
-    private func handleLinkTap(button: DetailLinkOverlayButton, tappedURL: URL, at point: CGPoint) {
+    private func handleLinkTap(button: DetailLinkOverlayButton, tappedURL: URL, at _: CGPoint) {
         guard isSignatureLinkOverlay(button) else {
             linkTapHandler?(tappedURL)
             return
         }
 
-        let candidates = signatureLinkCandidates(near: point)
-        if candidates.count > 1 {
-            if let signatureLinkCandidatesTapHandler {
-                signatureLinkCandidatesTapHandler(candidates)
-            } else {
-                linkTapHandler?(tappedURL)
-            }
+        let candidates = signatureLinkCandidates()
+        // 签名档链接一律先出选择框，单个也一样：签名是别人贴的，
+        // 直接跳转会让人没机会看清目标域名。
+        if candidates.isEmpty == false, let signatureLinkCandidatesTapHandler {
+            signatureLinkCandidatesTapHandler(candidates)
             return
         }
 
@@ -577,8 +591,15 @@ final class DetailRichTextView: DTAttributedTextContentView, DTAttributedTextCon
         return Self.linkURL(from: attributedString.attribute(.link, at: location, effectiveRange: nil)) == button.url
     }
 
+    private func signatureLinkCandidates() -> [DetailLinkCandidate] {
+        signatureLinkCandidates(from: signatureLinkOverlayButtons())
+    }
+
     private func signatureLinkCandidates(near point: CGPoint) -> [DetailLinkCandidate] {
-        let buttons = signatureLinkOverlayButtons(near: point)
+        signatureLinkCandidates(from: signatureLinkOverlayButtons(near: point))
+    }
+
+    private func signatureLinkCandidates(from buttons: [DetailLinkOverlayButton]) -> [DetailLinkCandidate] {
         guard buttons.isEmpty == false else { return [] }
 
         var candidates: [DetailLinkCandidate] = []

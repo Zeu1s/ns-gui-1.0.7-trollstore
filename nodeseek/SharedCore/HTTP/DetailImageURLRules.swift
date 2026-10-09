@@ -70,7 +70,7 @@ enum DetailImageURLRules {
 
         let components = url.pathComponents.filter { $0 != "/" }
         guard components.count == 2,
-              ["ip", "hardware"].contains(components[0]),
+              components[0].isEmpty == false,
               components[1].isEmpty == false
         else {
             return false
@@ -132,7 +132,7 @@ enum DetailImageURLRules {
     }
 
     private static let checkPlaceReportSVGURLRegex = try! NSRegularExpression(
-        pattern: #"https?://report\.check\.place/(?:ip|hardware)/[A-Za-z0-9_-]+\.svg\b"#,
+        pattern: #"https?://report\.check\.place/[A-Za-z0-9_-]+/[A-Za-z0-9_-]+\.svg\b"#,
         options: [.caseInsensitive]
     )
 

@@ -53,7 +53,7 @@ struct DetailImageLayoutTests {
         )
 
         #expect(presentation.size.width == 320)
-        #expect(presentation.size.height > 320)
+        #expect(presentation.size.height == 180)
         #expect(presentation.mode == .aspectFit)
     }
 
@@ -101,16 +101,21 @@ struct DetailImageLayoutTests {
         #expect(presentation.targetPointSide == 800)
     }
 
-    @Test func checkPlaceReportURLIsRecognized() throws {
+    @Test func checkPlaceReportURLsAreRecognizedAcrossReportCategories() throws {
         let reportURL = try #require(URL(string: "https://report.check.place/ip/NPR7IUKQC.svg"))
         let hardwareURL = try #require(URL(string: "https://report.check.place/hardware/abc_123.svg"))
-        let otherURL = try #require(URL(string: "https://report.check.place/other/NPR7IUKQC.svg"))
+        let networkURL = try #require(URL(string: "https://report.check.place/net/31G5DHSHP.svg"))
+        let routeURL = try #require(URL(string: "https://report.check.place/route/31G5DHSHP.svg"))
+        let nestedURL = try #require(URL(string: "https://report.check.place/net/archive/31G5DHSHP.svg"))
         let unsupportedSchemeURL = try #require(URL(string: "ftp://report.check.place/ip/NPR7IUKQC.svg"))
 
         #expect(DetailImageURLRules.isCheckPlaceReportSVG(reportURL))
         #expect(DetailImageURLRules.isCheckPlaceReportSVG(hardwareURL))
-        #expect(DetailImageURLRules.isCheckPlaceReportSVG(otherURL) == false)
+        #expect(DetailImageURLRules.isCheckPlaceReportSVG(networkURL))
+        #expect(DetailImageURLRules.isCheckPlaceReportSVG(routeURL))
+        #expect(DetailImageURLRules.isCheckPlaceReportSVG(nestedURL) == false)
         #expect(DetailImageURLRules.isCheckPlaceReportSVG(unsupportedSchemeURL) == false)
+        #expect(DetailImageURLRules.checkPlaceReportSVGURLs(in: "\(networkURL.absoluteString) \(routeURL.absoluteString)") == [networkURL, routeURL])
     }
 
     @Test func likelyImageURLRecognizesImageEndpointWithoutFileExtension() throws {
@@ -120,8 +125,8 @@ struct DetailImageLayoutTests {
         #expect(DetailImageURLRules.imageURLs(in: "汇率图：\(url.absoluteString)。") == [url])
     }
 
-    @Test func imageKindResolutionClassifiesCheckPlaceReportsByURLPath() throws {
-        let reportURL = try #require(URL(string: "https://report.check.place/ip/NPR7IUKQC.svg"))
+    @Test func imageKindResolutionClassifiesCheckPlaceReportsByURLStructure() throws {
+        let reportURL = try #require(URL(string: "https://report.check.place/net/NPR7IUKQC.svg"))
 
         #expect(DetailImageKind.resolved(isSticker: false, imageURL: reportURL) == .report)
     }

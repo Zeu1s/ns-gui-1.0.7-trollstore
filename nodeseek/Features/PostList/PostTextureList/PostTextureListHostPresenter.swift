@@ -65,9 +65,16 @@ final class PostTextureListHostPresenter: PostTextureListHostPresenterProtocol {
     }
 
     func reloadFirstPage() {
-        resetAndLoadFirstPage()
+        guard hasLoadedFirstPage == false else {
+            refreshFirstPageKeepingContent()
+            return
+        }
+        loadFirstPageIfNeeded()
     }
 
+    func ensureFirstPageLoaded() {
+        loadFirstPageIfNeeded()
+    }
     func refreshFirstPageKeepingContent() {
         guard hasLoadedFirstPage else {
             loadFirstPageIfNeeded()
@@ -110,9 +117,8 @@ final class PostTextureListHostPresenter: PostTextureListHostPresenterProtocol {
     }
 
     func didRequestFirstPageRetry() {
-        resetAndLoadFirstPage()
+        reloadFirstPage()
     }
-
     func didApproachBottom(at index: Int, totalCount: Int) {
         loadMoreIfNeeded(currentIndex: index, totalCount: totalCount)
     }
@@ -289,8 +295,33 @@ private extension PostTextureListHostPresenter {
     func scheduleTemporaryFailureRetryIfNeeded(error: String) -> Bool {
         guard temporaryFailureRetryCount < 1 else { return false }
         let normalizedError = error.lowercased()
-        guard normalizedError.contains("503") || normalizedError.contains("service unavailable") else {
+        let isTemporaryFailure = normalizedError.contains("503")
+            || normalizedError.contains("429")
+            || normalizedError.contains("service unavailable")
+            || normalizedError.contains("cloudflare")
+            || normalizedError.contains("too many requests")
+            || normalizedError.contains("请求过于频繁")
+            || normalizedError.contains("限流")
+            || normalizedError.contains("network connection was lost")
+            || normalizedError.contains("network is offline")
+            || normalizedError.contains("timed out")
+            || normalizedError.contains("not connected to the internet")
+        guard isTemporaryFailure else {
             return false
+        }
+
+        // Cloudflare 封禁是 IP 级且持续的：立即自动重试只会加重封禁。
+        // 命中 cloudflare / 429 / too many requests 时不自动重试，等用户手动下拉。
+        let isRateOrChallenge = normalizedError.contains("cloudflare")
+            || normalizedError.contains("429")
+            || normalizedError.contains("too many requests")
+            || normalizedError.contains("403")
+            || normalizedError.contains("blocked")
+            || normalizedError.contains("限流")
+            || normalizedError.contains("请求过于频繁")
+        if isRateOrChallenge {
+            AppLog.warning(.postList, "命中 Cloudflare/限流，暂停自动重试避免加重封禁: category=\(category.rawValue)")
+            return true
         }
 
         temporaryFailureRetryCount += 1
@@ -301,8 +332,9 @@ private extension PostTextureListHostPresenter {
         }
         temporaryFailureRetryWorkItem?.cancel()
         temporaryFailureRetryWorkItem = workItem
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.7, execute: workItem)
-        AppLog.warning(.postList, "帖子列表遇到 503，保留当前内容并自动重试一次: category=\(category.rawValue)")
+        let retryDelay: TimeInterval = 3.0
+        DispatchQueue.main.asyncAfter(deadline: .now() + retryDelay, execute: workItem)
+        AppLog.warning(.postList, "帖子列表遇到临时网络错误，保留当前内容并自动重试一次: category=\(category.rawValue)")
         return true
     }
 

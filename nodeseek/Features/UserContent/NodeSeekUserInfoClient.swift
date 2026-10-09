@@ -5,6 +5,22 @@
 
 import Foundation
 
+nonisolated struct NodeSeekFollowState: Equatable, Sendable {
+    let isFollowing: Bool
+    let isMutual: Bool
+
+    static let notFollowing = NodeSeekFollowState(isFollowing: false, isMutual: false)
+
+    init(isFollowing: Bool, isMutual: Bool) {
+        self.isFollowing = isFollowing || isMutual
+        self.isMutual = isMutual
+    }
+
+    func updatingFollowing(_ isFollowing: Bool) -> NodeSeekFollowState {
+        NodeSeekFollowState(isFollowing: isFollowing, isMutual: isFollowing && isMutual)
+    }
+}
+
 nonisolated struct NodeSeekUserInfo: Equatable, Sendable {
     let userID: Int
     let username: String?
@@ -18,6 +34,7 @@ nonisolated struct NodeSeekUserInfo: Equatable, Sendable {
     let nComment: Int
     let follows: Int
     let fans: Int
+    let followState: NodeSeekFollowState
 
     init(
         userID: Int,
@@ -31,7 +48,8 @@ nonisolated struct NodeSeekUserInfo: Equatable, Sendable {
         nPost: Int,
         nComment: Int,
         follows: Int = 0,
-        fans: Int = 0
+        fans: Int = 0,
+        followState: NodeSeekFollowState = .notFollowing
     ) {
         self.userID = userID
         self.username = username
@@ -45,10 +63,11 @@ nonisolated struct NodeSeekUserInfo: Equatable, Sendable {
         self.nComment = nComment
         self.follows = follows
         self.fans = fans
+        self.followState = followState
     }
 
     var badgeText: String {
-        "Lv \(level) · \(joinDays)天"
+        "Lv \(level)·\(joinDays)天"
     }
 }
 
@@ -137,10 +156,22 @@ final class NodeSeekUserInfoClient: NodeSeekUserInfoLoading {
         let createdAt = Self.parseDate(detail.createdAt)
         let joinDays = Self.joinDays(from: createdAt)
         let coin = max(0, detail.coin ?? 0)
-        let level = detail.rank ?? Self.computedLevel(coin: coin)
+        let level = min(6, max(0, detail.rank ?? Self.computedLevel(coin: coin)))
+        let isFollowing = detail.isFollowing?.value
+            ?? detail.isFan?.value
+            ?? detail.hasFollowed?.value
+            ?? detail.isFollowed?.value
+            ?? false
+        let isFollowedBy = detail.isFollowedBy?.value
+            ?? detail.isFans?.value
+            ?? false
+        let isMutual = detail.isMutual?.value
+            ?? detail.isMutualFollowing?.value
+            ?? (isFollowing && isFollowedBy)
+        let followState = NodeSeekFollowState(isFollowing: isFollowing, isMutual: isMutual)
         return NodeSeekUserInfo(
             userID: userID,
-            username: detail.username,
+            username: detail.preferredDisplayName,
             createdAt: createdAt,
             bio: detail.bio,
             joinDays: joinDays,
@@ -150,7 +181,8 @@ final class NodeSeekUserInfoClient: NodeSeekUserInfoLoading {
             nPost: max(0, detail.nPost ?? 0),
             nComment: max(0, detail.nComment ?? 0),
             follows: max(0, detail.follows ?? 0),
-            fans: max(0, detail.fans ?? 0)
+            fans: max(0, detail.fans ?? 0),
+            followState: followState
         )
     }
 
@@ -184,6 +216,10 @@ private struct UserInfoResponse: Decodable {
 
     struct Detail: Decodable {
         let username: String?
+        let nickname: String?
+        let nickName: String?
+        let memberName: String?
+        let name: String?
         let bio: String?
         let createdAt: String?
         let coin: Int?
@@ -193,5 +229,43 @@ private struct UserInfoResponse: Decodable {
         let follows: Int?
         let fans: Int?
         let rank: Int?
+        let isFollowing: LossyBool?
+        let isFollowed: LossyBool?
+        let isFollowedBy: LossyBool?
+        let isFan: LossyBool?
+        let isFans: LossyBool?
+        let hasFollowed: LossyBool?
+        let isMutual: LossyBool?
+        let isMutualFollowing: LossyBool?
+
+        var preferredDisplayName: String? {
+            [nickname, nickName, memberName, name, username]
+                .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .first(where: { $0.isEmpty == false })
+        }
+    }
+}
+
+private struct LossyBool: Decodable {
+    let value: Bool
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        if let value = try? container.decode(Bool.self) {
+            self.value = value
+            return
+        }
+        if let value = try? container.decode(Int.self) {
+            self.value = value != 0
+            return
+        }
+        if let value = try? container.decode(String.self) {
+            self.value = ["1", "true", "yes", "on"].contains(value.lowercased())
+            return
+        }
+        throw DecodingError.typeMismatch(
+            Bool.self,
+            .init(codingPath: decoder.codingPath, debugDescription: "Expected a boolean-compatible relationship value.")
+        )
     }
 }

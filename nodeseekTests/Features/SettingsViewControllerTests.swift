@@ -22,7 +22,6 @@ struct SettingsViewControllerTests {
             let textSizeSettings = AppTextSizeSettings(userDefaults: textSizeDefaults, storageKey: "text-size")
             let displayScaleDefaults = try #require(UserDefaults(suiteName: "settings-display-scale-\(UUID().uuidString)"))
             let displayScaleSettings = AppDisplayScaleSettings(userDefaults: displayScaleDefaults, storageKey: "display-scale")
-            let searchEntrySettings = makeSettingsPostListSearchEntrySettings()
             let viewController = SettingsViewController(
                 cacheManager: FakeSettingsCacheManager(cacheByteSize: 4_096),
                 sessionManager: FakeSettingsSessionManager(),
@@ -31,14 +30,13 @@ struct SettingsViewControllerTests {
                 nodeImageAPIKeyStore: FakeNodeImageAPIKeyStore(),
                 textSizeSettings: textSizeSettings,
                 displayScaleSettings: displayScaleSettings,
-                searchEntrySettings: searchEntrySettings,
                 categoryPreferenceStore: categoryStore,
                 autoCheckInSummaryProvider: { "未开启" }
             )
             viewController.loadViewIfNeeded()
             viewController.view.frame = CGRect(x: 0, y: 0, width: 390, height: 844)
             viewController.view.layoutIfNeeded()
-            try await waitUntil { viewController.tableView.numberOfRows(inSection: 5) == 1 }
+            try await waitUntil { viewController.tableView.numberOfRows(inSection: 5) == 3 }
 
             let tableView = try #require(viewController.tableView)
             #expect(viewController.title == "设置")
@@ -48,7 +46,7 @@ struct SettingsViewControllerTests {
             #expect(tableView.numberOfRows(inSection: 2) == 1)
             #expect(tableView.numberOfRows(inSection: 3) == 1)
             #expect(tableView.numberOfRows(inSection: 4) == 1)
-            #expect(tableView.numberOfRows(inSection: 5) == 1)
+            #expect(tableView.numberOfRows(inSection: 5) == 3)
             #expect(tableView.dataSource?.tableView?(tableView, titleForHeaderInSection: 0) == "阅读")
             #expect(tableView.dataSource?.tableView?(tableView, titleForHeaderInSection: 1) == "功能")
             #expect(tableView.dataSource?.tableView?(tableView, titleForHeaderInSection: 2) == "存储")
@@ -99,9 +97,17 @@ struct SettingsViewControllerTests {
                 tableView,
                 cellForRowAt: IndexPath(row: 0, section: 4)
             ))
-            let logoutCell = try #require(tableView.dataSource?.tableView(
+            let accountProfileCell = try #require(tableView.dataSource?.tableView(
                 tableView,
                 cellForRowAt: IndexPath(row: 0, section: 5)
+            ))
+            let logoutCell = try #require(tableView.dataSource?.tableView(
+                tableView,
+                cellForRowAt: IndexPath(row: 2, section: 5)
+            ))
+            let systemSettingsCell = try #require(tableView.dataSource?.tableView(
+                tableView,
+                cellForRowAt: IndexPath(row: 1, section: 5)
             ))
 
             #expect(cacheCell.textLabel?.text == "清除缓存")
@@ -132,6 +138,11 @@ struct SettingsViewControllerTests {
             #expect(debugCell.accessoryType == .disclosureIndicator)
             #expect(aboutCell.textLabel?.text == "关于")
             #expect(aboutCell.accessoryType == .disclosureIndicator)
+            #expect(accountProfileCell.textLabel?.text == "个人信息")
+            #expect(accountProfileCell.detailTextLabel?.text == "头像、Bio、签名与 Readme")
+            #expect(accountProfileCell.accessoryType == .disclosureIndicator)
+            #expect(systemSettingsCell.textLabel?.text == "NodeSeek 系统设置")
+            #expect(systemSettingsCell.detailTextLabel?.text == "安全、双因素验证、联系方式等")
             #expect(logoutCell.textLabel?.text == "退出登录")
             #expect(logoutCell.textLabel?.textColor == .systemRed)
         }
@@ -197,43 +208,6 @@ struct SettingsViewControllerTests {
 
         #expect(defaults.object(forKey: "home-search-entry") == nil)
         #expect(searchEntrySettings.showsTopSearchEntry == false)
-    }
-
-    @Test func togglingPostListSearchEntrySwitchPersistsPreferenceAndPostsNotification() throws {
-        let suiteName = "settings-home-search-entry-\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suiteName))
-        defer { defaults.removePersistentDomain(forName: suiteName) }
-        let searchEntrySettings = PostListSearchEntrySettings(userDefaults: defaults, storageKey: "home-search-entry")
-        let viewController = SettingsViewController(
-            cacheManager: FakeSettingsCacheManager(cacheByteSize: 0),
-            sessionManager: FakeSettingsSessionManager(),
-            nodeImageAPIKeyStore: FakeNodeImageAPIKeyStore(),
-            searchEntrySettings: searchEntrySettings
-        )
-        var notificationCount = 0
-        let observer = NotificationCenter.default.addObserver(
-            forName: PostListSearchEntrySettings.didChangeNotification,
-            object: searchEntrySettings,
-            queue: nil
-        ) { _ in
-            notificationCount += 1
-        }
-        defer { NotificationCenter.default.removeObserver(observer) }
-        viewController.loadViewIfNeeded()
-
-        let cell = try #require(viewController.tableView.dataSource?.tableView(
-            viewController.tableView,
-            cellForRowAt: IndexPath(row: 1, section: 0)
-        ))
-        #expect(cell.textLabel?.text == "首页搜索入口")
-        let searchEntrySwitch = try #require(cell.accessoryView as? UISwitch)
-        #expect(searchEntrySwitch.isOn == false)
-
-        searchEntrySwitch.isOn = true
-        searchEntrySwitch.sendActions(for: .valueChanged)
-
-        #expect(searchEntrySettings.showsTopSearchEntry == true)
-        #expect(notificationCount == 1)
     }
 
     @Test func textSizeSliderPersistsOffsetAndUpdatesPreview() throws {
@@ -638,17 +612,65 @@ struct SettingsViewControllerTests {
             }
         )
         viewController.loadViewIfNeeded()
-        try await waitUntil { viewController.tableView.numberOfRows(inSection: 5) == 1 }
+        try await waitUntil { viewController.tableView.numberOfRows(inSection: 5) == 3 }
 
         viewController.tableView.delegate?.tableView?(
             viewController.tableView,
-            didSelectRowAt: IndexPath(row: 0, section: 5)
+            didSelectRowAt: IndexPath(row: 2, section: 5)
         )
         try await Task.sleep(nanoseconds: 100_000_000)
 
         #expect(cacheManager.clearCount == 0)
         #expect(sessionManager.logoutCount == 1)
         #expect(logoutCallbackCount == 1)
+    }
+
+    @Test func selectingAccountProfilePushesEditableProfileScreen() async throws {
+        let defaults = try #require(UserDefaults(suiteName: "settings-account-profile-\(UUID().uuidString)"))
+        let accountStore = CurrentAccountStore(userDefaults: defaults, storageKey: "account")
+        await accountStore.save(AccountResponse(
+            displayName: "mistj",
+            isLoggedIn: true,
+            profileURL: URL(string: "https://www.nodeseek.com/space/31037")
+        ))
+        let viewController = SettingsViewController(
+            cacheManager: FakeSettingsCacheManager(cacheByteSize: 0),
+            sessionManager: FakeSettingsSessionManager(),
+            currentAccountStore: accountStore,
+            nodeImageAPIKeyStore: FakeNodeImageAPIKeyStore()
+        )
+        let navigationController = UINavigationController(rootViewController: viewController)
+        viewController.loadViewIfNeeded()
+        try await waitUntil { viewController.tableView.numberOfRows(inSection: 5) == 3 }
+
+        viewController.tableView.delegate?.tableView?(
+            viewController.tableView,
+            didSelectRowAt: IndexPath(row: 0, section: 5)
+        )
+
+        #expect(navigationController.topViewController is NodeSeekAccountProfileViewController)
+    }
+
+    @Test func selectingNodeSeekSystemSettingsPushesSystemSettingsList() async throws {
+        let defaults = try #require(UserDefaults(suiteName: "settings-system-list-\(UUID().uuidString)"))
+        let accountStore = CurrentAccountStore(userDefaults: defaults, storageKey: "account")
+        await accountStore.save(AccountResponse(displayName: "mistj", isLoggedIn: true))
+        let viewController = SettingsViewController(
+            cacheManager: FakeSettingsCacheManager(cacheByteSize: 0),
+            sessionManager: FakeSettingsSessionManager(),
+            currentAccountStore: accountStore,
+            nodeImageAPIKeyStore: FakeNodeImageAPIKeyStore()
+        )
+        let navigationController = UINavigationController(rootViewController: viewController)
+        viewController.loadViewIfNeeded()
+        try await waitUntil { viewController.tableView.numberOfRows(inSection: 5) == 3 }
+
+        viewController.tableView.delegate?.tableView?(
+            viewController.tableView,
+            didSelectRowAt: IndexPath(row: 1, section: 5)
+        )
+
+        #expect(navigationController.topViewController is NodeSeekSystemSettingsViewController)
     }
 
     @Test func selectingDebugPushesDebugSettingsScreen() throws {
@@ -762,6 +784,27 @@ struct SettingsViewControllerTests {
         #expect(selectedTarget?.page == 1)
     }
 
+    @Test func togglingMonitoringSwitchUpdatesRuntimeConfig() async throws {
+        try await withFileLoggingConfigIsolation {
+            NodeSeekDebugConfig.enableFileLogging = false
+            let viewController = SettingsViewController(
+                cacheManager: FakeSettingsCacheManager(cacheByteSize: 0),
+                sessionManager: FakeSettingsSessionManager()
+            )
+            viewController.loadViewIfNeeded()
+
+            let cell = try #require(viewController.tableView.dataSource?.tableView(
+                viewController.tableView,
+                cellForRowAt: IndexPath(row: 2, section: 1)
+            ))
+            #expect(cell.accessibilityIdentifier == "settings-monitoring-cell")
+            let monitoringSwitch = try #require(cell.accessoryView as? UISwitch)
+            monitoringSwitch.isOn = true
+            monitoringSwitch.sendActions(for: .valueChanged)
+
+            #expect(NodeSeekDebugConfig.enableFileLogging == true)
+        }
+    }
     @Test func togglingFileLoggingSwitchUpdatesRuntimeConfig() async throws {
         try await withFileLoggingConfigIsolation {
             NodeSeekDebugConfig.enableFileLogging = false
@@ -945,11 +988,6 @@ private func withFileLoggingConfigIsolation(_ body: () async throws -> Void) asy
     }
 }
 
-private func makeSettingsPostListSearchEntrySettings() -> PostListSearchEntrySettings {
-    let suiteName = "settings-post-list-search-entry-\(UUID().uuidString)"
-    let defaults = UserDefaults(suiteName: suiteName)!
-    return PostListSearchEntrySettings(userDefaults: defaults, storageKey: "shows-top-search-entry")
-}
 
 @MainActor
 private final class AutoCheckInSummaryBox {

@@ -45,27 +45,12 @@ extension PostDetailViewController {
     }
 
     func presentNodeImageKeyInput() {
-        let alert = UIAlertController(
-            title: "填写 NodeImage API Key",
-            message: "输入已有的 API Key 后即可上传图片。",
-            preferredStyle: .alert
-        )
-        alert.addTextField { field in
-            field.placeholder = "X-API-Key"
-            field.textContentType = .password
-            field.autocapitalizationType = .none
-            field.autocorrectionType = .no
-        }
-        alert.addAction(UIAlertAction(title: "取消", style: .cancel))
-        alert.addAction(UIAlertAction(title: "保存", style: .default) { [weak self, weak alert] _ in
+        presentNodeImageAuthorization { [weak self] apiKey in
             guard let self else { return }
-            let apiKey = NodeImageAPIKeyNormalizer.normalized(alert?.textFields?.first?.text ?? "")
-            guard apiKey.isEmpty == false else { return }
             self.nodeImageAPIKeyStore.save(apiKey: apiKey)
             self.showToast(message: "NodeImage 已保存")
             self.presentImagePicker()
-        })
-        present(alert, animated: true)
+        }
     }
 
     func presentImagePicker() {
@@ -154,6 +139,24 @@ extension PostDetailViewController {
                 self?.setReplyImageUploadSubmitting(false)
             }
         }
+    }
+
+    /// 由输入框的粘贴操作触发；未授权时保留默认粘贴行为并提示用户。
+    func uploadPastedReplyImage(_ image: UIImage) -> Bool {
+        guard nodeImageAPIKeyStore.apiKey()?.isEmpty == false else {
+            showError(message: "请先完成 NodeImage 授权。")
+            return false
+        }
+        guard let data = image.jpegData(compressionQuality: 0.9) else {
+            showError(message: "图片编码失败。")
+            return false
+        }
+        uploadPickedImage(
+            data: data,
+            fileName: "nodeseek-paste-\(Int(Date().timeIntervalSince1970)).jpg",
+            mimeType: "image/jpeg"
+        )
+        return true
     }
 
     func setReplyImageUploadSubmitting(_ isSubmitting: Bool) {

@@ -23,6 +23,7 @@ final class PostBodyCellNode: ASCellNode, ThemeRefreshableNode {
 
     private var content: PostDetailHeaderContent
     private let onImageTapped: ([URL], Int) -> Void
+    private let onImageLongPressed: (URL) -> Void
     private let onLinkTapped: (URL) -> Void
     private let onSignatureLinkCandidatesTapped: ([DetailLinkCandidate]) -> Void
     private let onAuthorTapped: (URL) -> Void
@@ -32,9 +33,11 @@ final class PostBodyCellNode: ASCellNode, ThemeRefreshableNode {
     private let onFavoriteTapped: () -> Void
     private let onReplyTapped: () -> Void
     private let onCommentTapped: () -> Void
+    private let onEditTapped: () -> Void
     private let onContentCopyTapped: (PostDetailHeaderContent) -> Void
     private let onTextLayoutInvalidated: () -> Void
     private let showsReplyActions: Bool
+    private let showsDiscussionEditAction: Bool
     private let avatarLoader = AvatarImageLoader.shared
     private weak var avatarImageView: UIImageView?
     private var hasRequestedAvatar = false
@@ -57,7 +60,9 @@ final class PostBodyCellNode: ASCellNode, ThemeRefreshableNode {
     private let favoriteButtonNode = ASButtonNode()
     private let replyButtonNode = ASButtonNode()
     private let commentButtonNode = ASButtonNode()
+    private let editButtonNode = ASButtonNode()
     private let bodyNodes: [ASDisplayNode]
+    private let voteNode: PostVoteCardNode?
     private let themeTraitObserver = ThemeTraitObserver()
     private var hasReactionActions: Bool {
         [
@@ -68,7 +73,7 @@ final class PostBodyCellNode: ASCellNode, ThemeRefreshableNode {
         ].contains { $0 != nil }
     }
     private var hasFooterActions: Bool {
-        hasReactionActions || showsReplyActions
+        hasReactionActions || showsReplyActions || showsDiscussionEditAction
     }
 
     private lazy var avatarNode: ASDisplayNode = {
@@ -96,6 +101,7 @@ final class PostBodyCellNode: ASCellNode, ThemeRefreshableNode {
         content: PostDetailHeaderContent,
         renderedContent: [RenderedContentBlock]?,
         onImageTapped: @escaping ([URL], Int) -> Void,
+        onImageLongPressed: @escaping (URL) -> Void = { _ in },
         onLinkTapped: @escaping (URL) -> Void = { _ in },
         onSignatureLinkCandidatesTapped: @escaping ([DetailLinkCandidate]) -> Void = { _ in },
         onAuthorTapped: @escaping (URL) -> Void = { _ in },
@@ -103,17 +109,24 @@ final class PostBodyCellNode: ASCellNode, ThemeRefreshableNode {
         onChickenLegTapped: @escaping () -> Void = {},
         onOpposeTapped: @escaping () -> Void = {},
         onFavoriteTapped: @escaping () -> Void = {},
+        onVoteSubmitted: @escaping ([String]) -> Void = { _ in },
         onReplyTapped: @escaping () -> Void = {},
         onCommentTapped: @escaping () -> Void = {},
+        onEditTapped: @escaping () -> Void = {},
         onContentCopyTapped: @escaping (PostDetailHeaderContent) -> Void = { _ in },
         showsReplyActions: Bool = true,
+        showsDiscussionEditAction: Bool = false,
         onTextLayoutInvalidated: @escaping () -> Void,
         imageSizeProvider: @escaping (URL) -> CGSize? = { _ in nil },
         onImageSizeResolved: @escaping (URL, CGSize) -> Void = { _, _ in },
-        onImageHeightReduced: @escaping () -> Void = {}
+        onImageHeightReduced: @escaping () -> Void = {},
+        onImageHeightIncreased: @escaping () -> Void = {},
+        selectedMagicTabIndex: @escaping (String) -> Int? = { _ in nil },
+        onMagicTabSelected: @escaping (String, Int) -> Void = { _, _ in }
     ) {
         self.content = content
         self.onImageTapped = onImageTapped
+        self.onImageLongPressed = onImageLongPressed
         self.onLinkTapped = onLinkTapped
         self.onSignatureLinkCandidatesTapped = onSignatureLinkCandidatesTapped
         self.onAuthorTapped = onAuthorTapped
@@ -123,20 +136,32 @@ final class PostBodyCellNode: ASCellNode, ThemeRefreshableNode {
         self.onFavoriteTapped = onFavoriteTapped
         self.onReplyTapped = onReplyTapped
         self.onCommentTapped = onCommentTapped
+        self.onEditTapped = onEditTapped
         self.onContentCopyTapped = onContentCopyTapped
         self.showsReplyActions = showsReplyActions
+        self.showsDiscussionEditAction = showsDiscussionEditAction
         self.onTextLayoutInvalidated = onTextLayoutInvalidated
         self.authorBadgeNodes = content.authorBadgeTexts.map { Self.makeAuthorBadgeNode(text: $0) }
         self.bodyNodes = DetailContentBlockNodeFactory.makeNodes(
             from: renderedContent ?? [],
             onImageTapped: onImageTapped,
+            onImageLongPressed: onImageLongPressed,
             onLinkTapped: onLinkTapped,
             onSignatureLinkCandidatesTapped: onSignatureLinkCandidatesTapped,
             onTextLayoutInvalidated: onTextLayoutInvalidated,
             imageSizeProvider: imageSizeProvider,
             onImageSizeResolved: onImageSizeResolved,
-            onImageHeightReduced: onImageHeightReduced
+            onImageHeightReduced: onImageHeightReduced,
+            onImageHeightIncreased: onImageHeightIncreased,
+            magicTabSelectionKeyPrefix: "post-\(content.postID)",
+            selectedMagicTabIndex: selectedMagicTabIndex,
+            onMagicTabSelected: onMagicTabSelected
         )
+        if let vote = content.vote {
+            self.voteNode = PostVoteCardNode(vote: vote, onSubmit: onVoteSubmitted)
+        } else {
+            self.voteNode = nil
+        }
         super.init()
         automaticallyManagesSubnodes = true
         selectionStyle = .none
@@ -220,6 +245,9 @@ final class PostBodyCellNode: ASCellNode, ThemeRefreshableNode {
             contentStack.children = bodyNodes
             stack.children?.append(contentStack)
         }
+        if let voteNode {
+            stack.children?.append(voteNode)
+        }
         if hasFooterActions {
             stack.children?.append(makeFooterActionStack())
         }
@@ -263,6 +291,7 @@ final class PostBodyCellNode: ASCellNode, ThemeRefreshableNode {
         configureFavoriteActionButton(count: content.favoriteCount, isCollected: content.isFavoriteCollected)
         configureActionButton(replyButtonNode, systemImageName: "arrowshape.turn.up.left", accessibilityLabel: "回复楼主")
         configureActionButton(commentButtonNode, systemImageName: "text.bubble", accessibilityLabel: "评论帖子")
+        configureActionButton(editButtonNode, systemImageName: "square.and.pencil", accessibilityLabel: "编辑帖子")
         configureLevelDaysBadge()
     }
 
@@ -367,10 +396,14 @@ final class PostBodyCellNode: ASCellNode, ThemeRefreshableNode {
         favoriteButtonNode.addTarget(self, action: #selector(favoriteTapped), forControlEvents: .touchUpInside)
         replyButtonNode.addTarget(self, action: #selector(replyTapped), forControlEvents: .touchUpInside)
         commentButtonNode.addTarget(self, action: #selector(commentTapped), forControlEvents: .touchUpInside)
+        editButtonNode.addTarget(self, action: #selector(editTapped), forControlEvents: .touchUpInside)
     }
 
     private func installBodyContextMenus() {
         for bodyNode in bodyNodes {
+            // 图片块自带长按菜单（保存/复制/分享），不能被 cell 级系统
+            // 上下文菜单抢占——否则图片长按永远弹不出目标菜单。
+            if bodyNode is DetailImageBlockNode { continue }
             installBodyContextMenu(on: bodyNode.view)
         }
     }
@@ -403,6 +436,9 @@ final class PostBodyCellNode: ASCellNode, ThemeRefreshableNode {
                 commentButtonNode
             ])
         }
+        if showsDiscussionEditAction {
+            actionChildren.append(editButtonNode)
+        }
         actionStack.children = actionChildren
         return actionStack
     }
@@ -428,9 +464,10 @@ final class PostBodyCellNode: ASCellNode, ThemeRefreshableNode {
         }
         button.setImage(image, for: .normal)
         button.backgroundColor = UIColor.secondarySystemBackground.withAlphaComponent(0.55)
+        button.style.flexShrink = 0
         button.cornerRadius = PostDetailContentLayout.reactionActionHeight / 2
         button.borderWidth = 1 / UIScreen.main.scale
-        let displayCount = count.flatMap { $0 > 0 ? $0 : nil }
+        let displayCount = count.map { max(0, $0) }
         button.contentSpacing = displayCount == nil ? 0 : PostDetailContentLayout.reactionTitleSpacing
         button.contentEdgeInsets = PostDetailContentLayout.reactionContentEdgeInsets
         if let displayCount {
@@ -447,7 +484,7 @@ final class PostBodyCellNode: ASCellNode, ThemeRefreshableNode {
                 for: .normal
             )
             button.style.preferredSize = CGSize(
-                width: Self.actionButtonWidth(for: countText, font: font),
+                width: Self.actionButtonWidth(for: countText, font: font, image: image),
                 height: PostDetailContentLayout.reactionActionHeight
             )
             button.accessibilityLabel = "\(accessibilityLabel) \(displayCount)"
@@ -481,15 +518,17 @@ final class PostBodyCellNode: ASCellNode, ThemeRefreshableNode {
         return "\(integerPart).\(decimalPart)\(unit)"
     }
 
-    private static func actionButtonWidth(for countText: String, font: UIFont) -> CGFloat {
+    private static func actionButtonWidth(for countText: String, font: UIFont, image: UIImage?) -> CGFloat {
         let textWidth = (countText as NSString).size(withAttributes: [.font: font]).width
+        let iconWidth = max(PostDetailContentLayout.reactionIconReservedWidth, image?.size.width ?? 0)
         return max(
             PostDetailContentLayout.reactionActionMinWidth,
             ceil(
-                PostDetailContentLayout.reactionIconReservedWidth
+                iconWidth
                     + PostDetailContentLayout.reactionTitleSpacing
                     + textWidth
                     + PostDetailContentLayout.reactionHorizontalWidthPadding
+                    + 8
             )
         )
     }
@@ -503,7 +542,7 @@ final class PostBodyCellNode: ASCellNode, ThemeRefreshableNode {
     }
 
     private static func chickenLegActionColor(isClicked: Bool) -> UIColor {
-        isClicked ? .systemOrange : UIColor.secondaryLabel.withAlphaComponent(PostDetailContentLayout.inactiveReactionAlpha)
+        isClicked ? UIColor(red: 1.0, green: 0.6235, blue: 0.0392, alpha: 1.0) : UIColor.secondaryLabel
     }
 
     private static func opposeActionColor(isClicked: Bool) -> UIColor {
@@ -537,7 +576,10 @@ final class PostBodyCellNode: ASCellNode, ThemeRefreshableNode {
             accessibilityLabel: "加鸡腿",
             count: count,
             color: Self.chickenLegActionColor(isClicked: isClicked),
-            customImage: ReactionIconRenderer.chickenLeg(pointSize: PostDetailContentLayout.reactionSymbolPointSize)
+            customImage: ReactionIconRenderer.chickenLeg(
+                pointSize: PostDetailContentLayout.reactionSymbolPointSize,
+                isFilled: isClicked
+            )
         )
     }
 
@@ -612,6 +654,10 @@ final class PostBodyCellNode: ASCellNode, ThemeRefreshableNode {
         onCommentTapped()
     }
 
+    @objc private func editTapped() {
+        onEditTapped()
+    }
+
     private func requestAvatarIfNeeded() {
         guard hasDisplayableAuthor else { return }
         guard !hasRequestedAvatar else { return }
@@ -648,7 +694,8 @@ final class PostBodyCellNode: ASCellNode, ThemeRefreshableNode {
                 commentButtonNode
             ].map { $0.accessibilityLabel ?? "" }
             : []
-        return reactionLabels + replyLabels
+        let editLabels = showsDiscussionEditAction ? [editButtonNode.accessibilityLabel ?? ""] : []
+        return reactionLabels + replyLabels + editLabels
     }
 
     var debugReactionActionTitles: [String?] {
@@ -720,6 +767,10 @@ final class PostBodyCellNode: ASCellNode, ThemeRefreshableNode {
     func debugTapCommentAction() {
         commentTapped()
     }
+
+    func debugTapEditAction() {
+        editTapped()
+    }
 }
 
 extension PostBodyCellNode: UIContextMenuInteractionDelegate {
@@ -767,6 +818,7 @@ final class DetailRichTextNode: ASDisplayNode {
     private let attributedText: NSMutableAttributedString
     private let attributedTextLock = NSLock()
     private let onImageTapped: ([URL], Int) -> Void
+    private let onImageLongPressed: (URL) -> Void
     private let onLinkTapped: (URL) -> Void
     private let onSignatureLinkCandidatesTapped: ([DetailLinkCandidate]) -> Void
     private let onLayoutInvalidated: () -> Void
@@ -781,6 +833,7 @@ final class DetailRichTextNode: ASDisplayNode {
         imageSizeProvider: @escaping (URL) -> CGSize? = { _ in nil },
         onImageSizeResolved: @escaping (URL, CGSize) -> Void = { _, _ in },
         onImageTapped: @escaping ([URL], Int) -> Void,
+        onImageLongPressed: @escaping (URL) -> Void = { _ in },
         onLinkTapped: @escaping (URL) -> Void = { _ in },
         onSignatureLinkCandidatesTapped: @escaping ([DetailLinkCandidate]) -> Void = { _ in },
         onLayoutInvalidated: @escaping () -> Void
@@ -790,6 +843,7 @@ final class DetailRichTextNode: ASDisplayNode {
         self.imageSizeProvider = imageSizeProvider
         self.onImageSizeResolved = onImageSizeResolved
         self.onImageTapped = onImageTapped
+        self.onImageLongPressed = onImageLongPressed
         self.onLinkTapped = onLinkTapped
         self.onSignatureLinkCandidatesTapped = onSignatureLinkCandidatesTapped
         self.onLayoutInvalidated = onLayoutInvalidated
@@ -808,6 +862,7 @@ final class DetailRichTextNode: ASDisplayNode {
         richTextView.configure(
             attributedText,
             onImageTapped: onImageTapped,
+            onImageLongPressed: onImageLongPressed,
             onLinkTapped: onLinkTapped,
             onSignatureLinkCandidatesTapped: onSignatureLinkCandidatesTapped,
             onLayoutInvalidated: onLayoutInvalidated,

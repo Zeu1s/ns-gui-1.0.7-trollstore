@@ -11,7 +11,9 @@ import UIKit
 final class DetailImageBlockNode: ASDisplayNode {
     private let onLayoutInvalidated: () -> Void
     private let onImageHeightReduced: () -> Void
+    private let onImageHeightIncreased: () -> Void
     private let onImageSizeResolved: (URL, CGSize) -> Void
+    private let onImageLongPressed: (URL) -> Void
     private let imageURL: URL
     private var imageKind: DetailImageKind
     private let animateAppearance: Bool
@@ -26,27 +28,40 @@ final class DetailImageBlockNode: ASDisplayNode {
         resolvedKind: DetailImageKind? = nil,
         animateAppearance: Bool = false,
         onImageTapped: @escaping ([URL], Int) -> Void,
+        onImageLongPressed: @escaping (URL) -> Void = { _ in },
         onImageSizeResolved: @escaping (URL, CGSize) -> Void = { _, _ in },
         onImageHeightReduced: @escaping () -> Void = {},
+        onImageHeightIncreased: @escaping () -> Void = {},
         onLayoutInvalidated: @escaping () -> Void
     ) {
         self.onLayoutInvalidated = onLayoutInvalidated
         self.onImageHeightReduced = onImageHeightReduced
+        self.onImageHeightIncreased = onImageHeightIncreased
         self.onImageSizeResolved = onImageSizeResolved
+        self.onImageLongPressed = onImageLongPressed
         self.imageURL = imageBlock.url
         self.imageKind = resolvedKind ?? DetailImageKind.resolved(isSticker: false, imageURL: imageBlock.url)
         self.animateAppearance = animateAppearance
+        // 复用已知尺寸能避免报告图片从占位高度反复切换到真实高度。
         self.loadedImageSize = initialImageSize.width > 0 && initialImageSize.height > 0 ? initialImageSize : .zero
         super.init()
+        let initialImageKind = self.imageKind
+        // 终端报告本身已经有完整深色画布，不参与正文逐行淡入，避免在加载完成时产生二次闪动。
+        let shouldAnimateAppearance = animateAppearance && initialImageKind != .report
         setViewBlock { [weak self] in
             DetailImageBlockView(
                 imageBlock: imageBlock,
-                animateAppearance: animateAppearance,
+                initialImageKind: initialImageKind,
+                animateAppearance: shouldAnimateAppearance,
                 onImageLoaded: { imageSize, resolvedKind in
                     self?.updateLoadedImageSize(imageSize, resolvedKind: resolvedKind)
                 },
                 onImageTapped: {
                     onImageTapped(imageURLs, imageIndex)
+                },
+                onImageLongPressed: { [weak self] in
+                    guard let self else { return }
+                    self.onImageLongPressed(self.imageURL)
                 }
             )
         }
@@ -84,34 +99,48 @@ final class DetailImageBlockNode: ASDisplayNode {
         guard previousLayout != nextLayout else { return }
         invalidateCalculatedLayout()
         setNeedsLayout()
-        if nextLayout.height < previousLayout.height - Self.heightReductionThreshold {
+        let increased = nextLayout.height > previousLayout.height + Self.heightReductionThreshold
+        let reduced = nextLayout.height < previousLayout.height - Self.heightReductionThreshold
+        if reduced {
             onImageHeightReduced()
+        } else if increased {
+            // 高度增长需要宿主 reloadRows 才能更新行高缓存，仅 relayoutItems 不生效，
+            // 表现为"点进去显示不完整，手动来回切换后才恢复"。
+            // 这里不再附带 onLayoutInvalidated()：两条路径同时走会各自做一次
+            // 偏移补偿，互相抢着改 contentOffset。
+            onImageHeightIncreased()
         } else {
             onLayoutInvalidated()
         }
     }
 }
 
-private final class DetailImageBlockView: UIView {
+private final class DetailImageBlockView: UIView, UIContextMenuInteractionDelegate, UIGestureRecognizerDelegate {
     private let imageBlock: RenderedImageBlock
     private let animateAppearance: Bool
+    private let imageURL: URL
     private let onImageLoaded: (CGSize, DetailImageKind?) -> Void
     private let onImageTapped: () -> Void
+    private let onImageLongPressed: () -> Void
     private let imageView = UIImageView()
     private var hasStartedLoad = false
     private var resolvedImageKind: DetailImageKind
 
     init(
         imageBlock: RenderedImageBlock,
+        initialImageKind: DetailImageKind,
         animateAppearance: Bool = false,
         onImageLoaded: @escaping (CGSize, DetailImageKind?) -> Void,
-        onImageTapped: @escaping () -> Void
+        onImageTapped: @escaping () -> Void,
+        onImageLongPressed: @escaping () -> Void = {}
     ) {
         self.imageBlock = imageBlock
+        self.imageURL = imageBlock.url
         self.animateAppearance = animateAppearance
         self.onImageLoaded = onImageLoaded
         self.onImageTapped = onImageTapped
-        self.resolvedImageKind = DetailImageKind.resolved(isSticker: false, imageURL: nil)
+        self.onImageLongPressed = onImageLongPressed
+        self.resolvedImageKind = initialImageKind
         super.init(frame: .zero)
         configureView()
     }
@@ -144,6 +173,11 @@ private final class DetailImageBlockView: UIView {
         imageView.isUserInteractionEnabled = true
         imageView.accessibilityLabel = imageBlock.altText
         imageView.addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(handleTap)))
+        let longPress = UILongPressGestureRecognizer(target: self, action: #selector(handleLongPress))
+        longPress.delegate = self
+        imageView.addGestureRecognizer(longPress)
+        // 系统上下文菜单兜底：长按手势被父级交互抢占时仍有保存/复制/分享入口。
+        imageView.addInteraction(UIContextMenuInteraction(delegate: self))
         addSubview(imageView)
     }
 
@@ -161,7 +195,10 @@ private final class DetailImageBlockView: UIView {
                         self.resolvedImageKind = resolvedKind
                     }
                     self.imageView.image = image
-                    self.onImageLoaded(image.size, result.resolvedKind)
+                    self.onImageLoaded(
+                        image.size,
+                        result.resolvedKind
+                    )
                     self.setNeedsLayout()
                     if self.animateAppearance, self.imageView.alpha < 1 {
                         UIView.animate(
@@ -179,6 +216,36 @@ private final class DetailImageBlockView: UIView {
     @objc
     private func handleTap() {
         onImageTapped()
+    }
+
+    @objc
+    private func handleLongPress() {
+        onImageLongPressed()
+    }
+}
+
+extension DetailImageBlockView {
+    override func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+        // 长按与系统上下文菜单并存：都允许开始，谁先满足谁响应。
+        super.gestureRecognizerShouldBegin(gestureRecognizer)
+    }
+
+    func contextMenuInteraction(
+        _ interaction: UIContextMenuInteraction,
+        configurationForMenuAtLocation location: CGPoint
+    ) -> UIContextMenuConfiguration? {
+        let notifyLongPress = self.onImageLongPressed
+        return UIContextMenuConfiguration(
+            identifier: nil,
+            previewProvider: nil,
+            actionProvider: { _ in
+                UIMenu(children: [
+                    UIAction(title: "保存到相册", image: UIImage(systemName: "square.and.arrow.down")) { _ in
+                        notifyLongPress()
+                    }
+                ])
+            }
+        )
     }
 }
 

@@ -34,6 +34,7 @@ extension PostDetailViewController: PostDetailViewProtocol {
     }
 
     func showLoading() {
+        hideRestrictedPostIfNeeded()
         loginButton.isHidden = true
         replyButton.isHidden = true
         hideLoadingMoreComments()
@@ -64,8 +65,33 @@ extension PostDetailViewController: PostDetailViewProtocol {
     func showError(message: String) {
         cancelPendingInitialContentReveal()
         hideLoadingSkeleton()
-        let alert = UIAlertController(title: "错误", message: message, preferredStyle: .alert)
-        alert.addAction(UIAlertAction(title: "确定", style: .default))
+        let alert = UIAlertController(title: "加载失败", message: message, preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: "重试", style: .default) { [weak self] _ in
+            self?.refreshTapped()
+        })
+        if sourcePostURL != nil {
+            alert.addAction(UIAlertAction(title: "在浏览器打开", style: .default) { [weak self] _ in
+                self?.openInBrowserTapped()
+            })
+        }
+        alert.addAction(UIAlertAction(title: "取消", style: .cancel))
+        present(alert, animated: true)
+    }
+
+    /// 帖子已删除/私有化/页码无效：重试无意义，返回为主操作。
+    func showPostUnavailable(message: String) {
+        cancelPendingInitialContentReveal()
+        hideLoadingSkeleton()
+        let alert = UIAlertController(title: "帖子无法查看", message: message, preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: "返回", style: .default) { [weak self] _ in
+            guard let self else { return }
+            navigationController?.popViewController(animated: true)
+        })
+        if sourcePostURL != nil {
+            alert.addAction(UIAlertAction(title: "在浏览器打开", style: .default) { [weak self] _ in
+                self?.openInBrowserTapped()
+            })
+        }
         present(alert, animated: true)
     }
 
@@ -104,10 +130,40 @@ extension PostDetailViewController: PostDetailViewProtocol {
         showToast(message: "正在处理")
     }
 
+    func showRestrictedPost(message: String) {
+        cancelPendingInitialContentReveal()
+        hideLoadingSkeleton()
+        loadingIndicator.stopAnimating()
+        tableNode.view.isHidden = true
+        restrictedPostMessageLabel.text = message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? "本帖已经被用户设为私有，您没有阅读权限"
+            : message
+        restrictedPostOverlay.isHidden = false
+        floatingReplyButtonContainer.isHidden = true
+        replyButtonAnchorView.isHidden = true
+        replyButton.isHidden = true
+        navigationItem.titleView = nil
+        title = "私有帖子"
+    }
+
+    func hideRestrictedPostIfNeeded() {
+        guard restrictedPostOverlay.isHidden == false else { return }
+        restrictedPostOverlay.isHidden = true
+        tableNode.view.isHidden = false
+        navigationItem.titleView = navigationAuthorTitleView
+        title = nil
+        updateReplyButtonVisibility()
+    }
     func render(detail: PostDetail) {
         title = nil
         loginButton.isHidden = true
-        showsReplyEntry = detail.isRestricted == false
+        if detail.isRestricted {
+            showsReplyEntry = false
+            showRestrictedPost(message: detail.contentHTML)
+            return
+        }
+        hideRestrictedPostIfNeeded()
+        showsReplyEntry = true
         let targetPage = max(1, detail.page)
         if shouldPrepareInitialContentReveal {
             prepareInitialContentReveal(for: detail, targetPage: targetPage)
@@ -162,6 +218,7 @@ extension PostDetailViewController: PostDetailViewProtocol {
             shouldScrollToTop: shouldScrollToTop,
             shouldScheduleMissingRender: true
         )
+        presentDiscussionEditorIfNeeded()
     }
 
     func appendCommentPage(detail: PostDetail) {
@@ -171,30 +228,56 @@ extension PostDetailViewController: PostDetailViewProtocol {
         }
 
         let oldCommentCount = comments.count
-        let hasHeader = currentHeaderContent != nil
-        let commentRowOffset = hasHeader ? 2 : 0
         currentPage = max(currentPage, detail.page)
         pagination = detail.pagination
         comments.append(contentsOf: detail.comments)
         loadedCommentPageRanges[detail.page] = oldCommentCount..<comments.count
-        var insertedRows: [IndexPath] = []
-        if hasHeader, oldCommentCount == 0, comments.isEmpty == false {
-            // 初次有评论时，需要补上 header 与评论之间的分割行。
-            insertedRows.append(IndexPath(row: 1, section: 0))
-        }
-        insertedRows.append(contentsOf: (oldCommentCount..<comments.count).map { commentIndex in
-            IndexPath(row: commentRowOffset + commentIndex, section: 0)
-        })
-
-        if insertedRows.isEmpty {
-            return
-        }
-
-        tableNode.performBatch(animated: false, updates: { [weak self] in
-            self?.tableNode.insertRows(at: insertedRows, with: .none)
-        })
-        AppLog.debug(.postDetail, "详情评论局部插入完成: inserted=\(insertedRows.count), totalComments=\(comments.count)")
+        let oldRowCount = detailRows.count
+        // 预热必须在清缓存前启动：串行解析整页评论的 HTML 与节点创建
+        // 是翻页卡顿的主因，提前到插入之前可以让大部分工作与用户滚动并行。
         preheatCommentRender(for: detail.comments)
+        cachedThreadedRows = nil
+        cachedCommentAnchorIndex = nil
+        let newRowCount = detailRows.count
+        // 行级插入保留滚动位置与已挂载节点。插入动作顺延到下一个 runloop，
+        // 避免与当前滚动手势同帧竞争主线程（用户感知为“滑到下一页顿一下”）。
+        // 行级插入保留滚动位置与已挂载节点。插入顺延到下一个 runloop：
+        // 预取完成常与用户惯性滚动同帧，Texture 的批量更新需要同步构建
+        // 整页新行节点，同帧执行会让滚动顿挫一下。
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.isViewLoaded else { return }
+            let offsetBeforeInsert = self.tableNode.view.contentOffset.y
+            // 插入动作被顺延了一个 runloop，这期间各楼层的异步渲染可能又把行数改了。
+            // 拿旧的区间去 insertRows 会撞上跟 reloadRows 同一类异常
+            // （ASCollectionInvalidUpdateException），所以数对不上就整表重载。
+            guard newRowCount == self.detailRows.count,
+                  self.tableKnownRowCount ?? oldRowCount == oldRowCount else {
+                AppLog.info(
+                    .postDetail,
+                    "详情评论插入退化为整表重载: 计划=\(oldRowCount)→\(newRowCount), 当前=\(self.detailRows.count), 表内记录=\(self.tableKnownRowCount ?? -1)"
+                )
+                self.reloadTableData()
+                return
+            }
+            self.tableNode.performBatch(animated: false, updates: {
+                if newRowCount > oldRowCount {
+                    self.tableNode.insertRows(
+                        at: (oldRowCount..<newRowCount).map { IndexPath(row: $0, section: 0) },
+                        with: .none
+                    )
+                } else {
+                    self.tableNode.reloadData()
+                }
+            })
+            self.tableKnownRowCount = newRowCount
+            // 用来判断"翻页后位置乱跳"到底出在插入本身，还是之后各楼层
+            // 异步渲染完成时那串偏移修正。偏移动了才会跳。
+            AppLog.info(
+                .postDetail,
+                "详情评论插入后偏移: before=\(Int(offsetBeforeInsert)), after=\(Int(self.tableNode.view.contentOffset.y)), delta=\(Int(self.tableNode.view.contentOffset.y - offsetBeforeInsert))"
+            )
+        }
+        AppLog.debug(.postDetail, "详情评论追加持平完成: appended=\(detail.comments.count), totalComments=\(comments.count), rows=\(oldRowCount)->\(newRowCount)")
         updateLoadMoreCommentsFooter()
         updateReplyButtonVisibility()
     }
@@ -214,28 +297,19 @@ extension PostDetailViewController: PostDetailViewProtocol {
         let oldComments = Array(comments[oldRange])
         let newComments = detail.comments
         let commonCount = min(oldComments.count, newComments.count)
-        let hasHeader = currentHeaderContent != nil
-        let oldTotalCount = comments.count
-        let commentRowOffset = hasHeader ? 2 : 0
-        let reloadRows = (0..<commonCount).compactMap { offset -> IndexPath? in
+        for offset in 0..<commonCount {
             let oldComment = oldComments[offset]
             let newComment = newComments[offset]
-            guard oldComment != newComment else { return nil }
-            comments[oldRange.lowerBound + offset] = newComments[offset]
+            guard oldComment != newComment else { continue }
+            comments[oldRange.lowerBound + offset] = newComment
             if oldComment.contentHTML != newComment.contentHTML || oldComment.signatureHTML != newComment.signatureHTML {
                 commentRenderedCache[newComment.id] = nil
                 renderedCommentIDs.remove(newComment.id)
                 commentRenderInFlight.remove(newComment.id)
             }
-            return IndexPath(row: commentRowOffset + oldRange.lowerBound + offset, section: 0)
         }
 
-        var deleteRows: [IndexPath] = []
-        var insertRows: [IndexPath] = []
         if oldComments.count > newComments.count {
-            deleteRows = (newComments.count..<oldComments.count).map { offset in
-                IndexPath(row: commentRowOffset + oldRange.lowerBound + offset, section: 0)
-            }
             for comment in oldComments[newComments.count..<oldComments.count] {
                 commentRenderedCache[comment.id] = nil
                 renderedCommentIDs.remove(comment.id)
@@ -245,35 +319,17 @@ extension PostDetailViewController: PostDetailViewProtocol {
         } else if newComments.count > oldComments.count {
             let inserted = Array(newComments[oldComments.count..<newComments.count])
             comments.insert(contentsOf: inserted, at: oldRange.upperBound)
-            insertRows = (oldComments.count..<newComments.count).map { offset in
-                IndexPath(row: commentRowOffset + oldRange.lowerBound + offset, section: 0)
-            }
         }
 
         loadedCommentPageRanges[detail.page] = oldRange.lowerBound..<(oldRange.lowerBound + newComments.count)
         shiftLoadedCommentPageRanges(after: detail.page, delta: newComments.count - oldComments.count)
         pagination = detail.pagination
         currentPage = max(currentPage, detail.page)
-
-        if hasHeader, oldTotalCount > 0, comments.isEmpty {
-            deleteRows.append(IndexPath(row: 1, section: 0))
-        } else if hasHeader, oldTotalCount == 0, comments.isEmpty == false {
-            insertRows.insert(IndexPath(row: 1, section: 0), at: 0)
-        }
-
-        tableNode.performBatch(animated: false, updates: { [weak self] in
-            guard let self else { return }
-            if deleteRows.isEmpty == false {
-                self.tableNode.deleteRows(at: deleteRows, with: .none)
-            }
-            if insertRows.isEmpty == false {
-                self.tableNode.insertRows(at: insertRows, with: .none)
-            }
-            if reloadRows.isEmpty == false {
-                self.tableNode.reloadRows(at: reloadRows, with: .none)
-            }
-        })
-        AppLog.debug(.postDetail, "详情评论当前页局部刷新完成: page=\(detail.page), reload=\(reloadRows.count), insert=\(insertRows.count), delete=\(deleteRows.count), totalComments=\(comments.count)")
+        cachedThreadedRows = nil
+        cachedCommentAnchorIndex = nil
+        tableNode.reloadData()
+        tableKnownRowCount = tableNode(self.tableNode, numberOfRowsInSection: 0)
+        AppLog.debug(.postDetail, "详情评论当前页刷新后整表刷新完成: page=\(detail.page), comments=\(comments.count)")
         preheatCommentRender(for: newComments)
         updateLoadMoreCommentsFooter()
         updateReplyButtonVisibility()
@@ -284,6 +340,41 @@ extension PostDetailViewController: PostDetailViewProtocol {
             guard let self else { return }
             self.scrollToCurrentPageAnchor(anchorID)
             self.showToast(message: "已定位到我的回复")
+        }
+    }
+
+    func snapshotReadingPosition() {
+        readingOffsetBeforeReply = tableNode.view.contentOffset.y
+    }
+
+    /// 回到回帖前的位置。内容高度可能因为新评论变长，所以按当前 contentSize 夹一下，
+    /// 否则会设成一个越界偏移被 UITableView 自己再夹一次、表现成又跳一下。
+    func restoreReadingPosition() {
+        guard let offset = readingOffsetBeforeReply else { return }
+        readingOffsetBeforeReply = nil
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            let tableView = self.tableNode.view
+            let inset = tableView.adjustedContentInset
+            let topLimit = -inset.top
+            let bottomLimit = max(
+                topLimit,
+                tableView.contentSize.height - tableView.bounds.height + inset.bottom
+            )
+            tableView.setContentOffset(
+                CGPoint(x: 0, y: min(max(offset, topLimit), bottomLimit)),
+                animated: false
+            )
+        }
+    }
+
+    func scrollToLatestComment() {
+        DispatchQueue.main.async { [weak self] in
+            guard let self,
+                  let row = self.detailRows.lastIndex(where: { if case .comment = $0 { return true }; return false }) else {
+                return
+            }
+            self.tableNode.scrollToRow(at: IndexPath(row: row, section: 0), at: .bottom, animated: true)
         }
     }
 
@@ -320,7 +411,7 @@ extension PostDetailViewController: PostDetailViewProtocol {
         comments[commentIndex] = comments[commentIndex].updatingLikeReaction(count: count, isClicked: isClicked)
 
         guard let row = detailRows.firstIndex(where: {
-            if case .comment(let index) = $0 {
+            if case .comment(let index, _) = $0 {
                 return index == commentIndex
             }
             return false
@@ -340,7 +431,7 @@ extension PostDetailViewController: PostDetailViewProtocol {
         comments[commentIndex] = comments[commentIndex].updatingChickenLegReaction(count: count, isClicked: isClicked)
 
         guard let row = detailRows.firstIndex(where: {
-            if case .comment(let index) = $0 {
+            if case .comment(let index, _) = $0 {
                 return index == commentIndex
             }
             return false
@@ -360,7 +451,7 @@ extension PostDetailViewController: PostDetailViewProtocol {
         comments[commentIndex] = comments[commentIndex].updatingOpposeReaction(count: count, isClicked: isClicked)
 
         guard let row = detailRows.firstIndex(where: {
-            if case .comment(let index) = $0 {
+            if case .comment(let index, _) = $0 {
                 return index == commentIndex
             }
             return false
@@ -388,6 +479,7 @@ extension PostDetailViewController: PostDetailViewProtocol {
             && lhs.metadataText == rhs.metadataText
             && lhs.contentHTML == rhs.contentHTML
             && lhs.signatureHTML == rhs.signatureHTML
+            && lhs.vote == rhs.vote
     }
 
     private var shouldPrepareInitialContentReveal: Bool {
@@ -443,9 +535,18 @@ extension PostDetailViewController: PostDetailViewProtocol {
             var renderedCommentCache: [String: [RenderedContentBlock]] = [:]
             var renderedCommentIDs = Set<String>()
 
+            let commentIndex = CommentReplyReferenceResolver.commentIndex(among: detail.comments)
             for comment in detail.comments {
+                let reference = CommentReplyReferenceResolver.reference(
+                    for: comment,
+                    among: detail.comments,
+                    index: commentIndex
+                )
                 let renderedContent = Self.makeRenderedContent(
-                    html: comment.contentHTML,
+                    html: CommentReplyReferenceResolver.contentHTMLRemovingLeadingReference(
+                        from: comment.contentHTML,
+                        reference: reference
+                    ),
                     signatureHTML: comment.signatureHTML,
                     baseURL: baseURL,
                     maxImageWidth: commentWidth,
@@ -515,14 +616,30 @@ extension PostDetailViewController: PostDetailViewProtocol {
         currentPage = targetPage
         hasRenderedDetailContent = true
         displayMode = .content
+        // 真机日志里两次卡死都紧跟在"帖子详情加载成功"之后，也就是卡在这段
+        // 主线程渲染里，但这段现在一声不响，只能看出"停在这儿了"看不出停在哪一步。
+        // 每一步各打一行：哪一步只有开始没有结束，就是它挂住了。
+        let renderStartedAt = Date()
+        AppLog.info(.postDetail, "详情主线程渲染开始: page=\(targetPage), comments=\(comments.count)")
         configureHeader(headerContent, renderedContent: renderedHeaderContent)
+        AppLog.info(
+            .postDetail,
+            "详情主线程渲染: 头部正文=\(AppLog.elapsedMilliseconds(since: renderStartedAt))ms"
+        )
         self.pagination = pagination
         self.comments = comments
+        cachedThreadedRows = nil
+        cachedCommentAnchorIndex = nil
         loadedCommentPageRanges = [targetPage: 0..<comments.count]
         commentRenderedCache = commentRenderSnapshot.cache
         renderedCommentIDs = commentRenderSnapshot.renderedIDs
         commentRenderInFlight.removeAll(keepingCapacity: true)
+        let tableStartedAt = Date()
         reloadTableData()
+        AppLog.info(
+            .postDetail,
+            "详情主线程渲染: 表格=\(AppLog.elapsedMilliseconds(since: tableStartedAt))ms 总计=\(AppLog.elapsedMilliseconds(since: renderStartedAt))ms"
+        )
         if shouldScrollToTop {
             let targetRow = pageCompletionScrollRow()
             #if DEBUG
@@ -618,6 +735,8 @@ extension PostDetailViewController: PostDetailViewProtocol {
         configureHeader(headerContent, renderedContent: nil)
         pagination = nil
         comments = []
+        cachedThreadedRows = nil
+        cachedCommentAnchorIndex = nil
         commentRenderedCache.removeAll(keepingCapacity: true)
         renderedCommentIDs.removeAll(keepingCapacity: true)
         commentRenderInFlight.removeAll(keepingCapacity: true)

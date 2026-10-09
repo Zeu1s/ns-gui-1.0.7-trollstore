@@ -14,9 +14,16 @@ protocol PostListViewProtocol: AnyObject {
     func openDetailTestURLFromPasteboard()
     #endif
     func renderNotificationUnreadBadge(isVisible: Bool)
+    func renderNotificationUnreadBadge(unreadCount: NodeSeekNotificationUnreadCount)
     func renderCategories(_ categories: [PostListCategoryItem], selected: PostListCategoryItem)
     func renderSortMode(_ sortMode: PostListSortMode)
     func reloadSelectedCategory()
+}
+
+extension PostListViewProtocol {
+    func renderNotificationUnreadBadge(unreadCount: NodeSeekNotificationUnreadCount) {
+        renderNotificationUnreadBadge(isVisible: unreadCount.all > 0)
+    }
 }
 
 // MARK: - Presenter Protocol (View -> Presenter)
@@ -32,6 +39,7 @@ protocol PostListPresenterProtocol: AnyObject {
     func didTapAccountProfile(profileURL: URL)
     func didTapNewDiscussion()
     func didTapCheckIn()
+    func didTapLottery()
     func didTapNotification(url: URL)
     func didTapRecentVisited()
     func didTapUserDiscussions()
@@ -62,6 +70,7 @@ protocol PostListRouterProtocol: AnyObject {
     func navigateToUserProfile(profileURL: URL)
     func navigateToNewDiscussion()
     func navigateToCheckIn(boardURL: URL)
+    func navigateToLottery(lotteryURL: URL)
     func navigateToNotification(notificationURL: URL)
     func navigateToRecentVisitedPosts(visitedStore: VisitedPostStoreProtocol)
     func navigateToUserDiscussions()

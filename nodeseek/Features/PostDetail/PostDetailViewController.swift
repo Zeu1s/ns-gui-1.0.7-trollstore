@@ -103,8 +103,8 @@ enum PostDetailLinkResolver {
             return isHTTPURL(resolvedURL) ? .safari(resolvedURL) : .externalApp(resolvedURL)
         }
 
-        if let redirectTargetURL = decodedHTTPRedirectTarget(from: resolvedURL) {
-            return .safari(redirectTargetURL)
+        if let redirectTargetURL = decodedRedirectTarget(from: resolvedURL) {
+            return isHTTPURL(redirectTargetURL) ? .safari(redirectTargetURL) : .externalApp(redirectTargetURL)
         }
 
         if isNodeSeekRedirector(resolvedURL) {
@@ -121,7 +121,7 @@ enum PostDetailLinkResolver {
         }
 
         let path = resolvedURL.path
-        if isUserProfilePath(path) {
+        if isUserProfilePath(path) || NodeSeekUserIDResolver.uid(from: resolvedURL) != nil {
             return .userProfile(resolvedURL)
         }
 
@@ -150,14 +150,13 @@ enum PostDetailLinkResolver {
         url.path == "/jump"
     }
 
-    private static func decodedHTTPRedirectTarget(from url: URL) -> URL? {
+    private static func decodedRedirectTarget(from url: URL) -> URL? {
         guard isNodeSeekRedirector(url),
               let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
               let rawTarget = components.queryItems?.first(where: { $0.name == "to" })?.value?
                   .trimmingCharacters(in: .whitespacesAndNewlines),
               rawTarget.isEmpty == false,
-              let targetURL = URL(string: rawTarget),
-              isHTTPURL(targetURL) else {
+              let targetURL = URL(string: rawTarget) else {
             return nil
         }
         return targetURL
@@ -205,7 +204,12 @@ enum PostDetailLinkResolver {
 
     private static func isUserProfilePath(_ path: String) -> Bool {
         let components = path.split(separator: "/", omittingEmptySubsequences: true)
-        guard components.count == 2, components[0] == "space" else { return false }
+        if components.count == 1, components[0] == "member" {
+            return true
+        }
+        guard components.count == 2 else { return false }
+        let first = components[0]
+        guard first == "space" || first == "user" else { return false }
         return components[1].isEmpty == false
     }
 
@@ -237,11 +241,18 @@ class PostDetailViewController: UIViewController {
     var pagination: PostDetailPagination?
     var headerRenderedContent: [RenderedContentBlock]?
     var comments: [Comment] = []
+    var currentAccountUID: Int?
+    var cachedThreadedRows: [(index: Int, depth: Int)]?
+    var cachedCommentAnchorIndex: [String: Comment]?
     var loadedCommentPageRanges: [Int: Range<Int>] = [:]
+    var myRepliesButton: UIBarButtonItem?
+    var myReplyPages: [Int] = []
+    var myReplyLatestAnchorID: String?
     var commentRenderedCache: [String: [RenderedContentBlock]] = [:]
     var renderedCommentIDs: Set<String> = []
     var commentRenderInFlight: Set<String> = []
     var detailImageSizeCache: [URL: CGSize] = [:]
+    var magicTabSelectedIndexes: [String: Int] = [:]
     var renderGeneration: Int = 0
     let sourcePostURL: URL?
     var photoBrowserPresenter: DetailPhotoBrowserPresenter?
@@ -250,9 +261,17 @@ class PostDetailViewController: UIViewController {
     var initialContentRevealWorkItem: DispatchWorkItem?
     var pendingInitialContentRevealGeneration: Int?
     var pendingInitialAnchorID: String?
+    /// 打开回复框时的滚动位置，提交成功后回到这里而不是跳到新评论所在页。
+    var readingOffsetBeforeReply: CGFloat?
+    /// 上一次真正交给表格去数的行数。`reloadRows` 是批量更新，两次之间数据源
+    /// 行数变过就会抛 ASCollectionInvalidUpdateException，靠这个值提前判出来。
+    var tableKnownRowCount: Int?
     var pendingReloadIndexPaths: Set<IndexPath> = []
     var displayMode: DisplayMode = .skeleton
     var hasRenderedDetailContent = false
+    var shouldOpenDiscussionEditorAfterInitialRender = false
+    var hasPresentedDiscussionEditor = false
+    var showsDiscussionEditAction = false
     var showsReplyEntry = false
     let stickerCookieSession = NodeSeekCookieSession()
     var replyComposerMode: CommentComposerMode = .plain
@@ -260,6 +279,7 @@ class PostDetailViewController: UIViewController {
     var replyStickerPickerHeightConstraint: NSLayoutConstraint?
     let leadingScreensForBatching: CGFloat = 2.0
     var lastBatchFetchRequestedCommentCount: Int?
+    var nextAutomaticCommentPageRequestDate = Date.distantPast
     var actionConfirmationPresenter: PostDetailActionConfirmationPresenter = { viewController, context, onConfirm in
         let alert = UIAlertController(
             title: context.title,
@@ -308,7 +328,7 @@ class PostDetailViewController: UIViewController {
         case header
         case entryHint
         case postRepliesDivider
-        case comment(Int)
+        case comment(Int, Int)
         case skeletonComment(Int)
     }
 
@@ -411,8 +431,8 @@ class PostDetailViewController: UIViewController {
 
     let floatingReplyPanel: UIView = {
         let view = UIView()
-        view.backgroundColor = .label
-        view.alpha = 0.30
+        view.backgroundColor = .label.withAlphaComponent(0.20)
+        view.alpha = 1.0
         view.layer.cornerRadius = 22
         view.layer.cornerCurve = .continuous
         view.layer.borderWidth = 0.5
@@ -426,12 +446,12 @@ class PostDetailViewController: UIViewController {
 
     let floatingActionDivider: UIView = {
         let view = UIView()
-        view.backgroundColor = UIColor.systemBackground.withAlphaComponent(0.22)
+        view.backgroundColor = UIColor.systemBackground.withAlphaComponent(0.25)
         view.translatesAutoresizingMaskIntoConstraints = false
         return view
     }()
 
-    private let replyButtonAnchorView: UIView = {
+    let replyButtonAnchorView: UIView = {
         let view = UIView()
         view.isHidden = true
         view.translatesAutoresizingMaskIntoConstraints = false
@@ -439,7 +459,14 @@ class PostDetailViewController: UIViewController {
     }()
 
     let floatingReplyButtonContainer: FloatingControlContainerView
-
+    var floatingControlsRevealed = false
+    var floatingControlsHideWorkItem: DispatchWorkItem?
+    let floatingControlsHideDelay: TimeInterval = 2
+    let floatingControlsIdleAlpha: CGFloat = 0.12
+    let floatingControlsActiveAlpha: CGFloat = 0.30
+    var lastFloatingScrollOffsetY: CGFloat = 0
+    var floatingScrollMovement: CGFloat = 0
+    let floatingControlsRevealThreshold: CGFloat = 16
     let replyEditorBackdrop: UIControl = {
         let control = UIControl()
         control.backgroundColor = UIColor.black.withAlphaComponent(0.08)
@@ -610,6 +637,67 @@ class PostDetailViewController: UIViewController {
         return label
     }()
 
+    let restrictedPostOverlay: UIView = {
+        let view = UIView()
+        view.backgroundColor = .systemBackground
+        view.isHidden = true
+        view.accessibilityIdentifier = "post-detail-restricted-view"
+        view.translatesAutoresizingMaskIntoConstraints = false
+        return view
+    }()
+
+    let restrictedPostContentStack: UIStackView = {
+        let stack = UIStackView()
+        stack.axis = .vertical
+        stack.alignment = .center
+        stack.spacing = 12
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        return stack
+    }()
+
+    let restrictedPostIconView: UIImageView = {
+        let configuration = UIImage.SymbolConfiguration(pointSize: 34, weight: .medium)
+        let imageView = UIImageView(image: UIImage(systemName: "lock.fill", withConfiguration: configuration))
+        imageView.tintColor = .secondaryLabel
+        imageView.contentMode = .scaleAspectFit
+        imageView.translatesAutoresizingMaskIntoConstraints = false
+        return imageView
+    }()
+
+    let restrictedPostTitleLabel: UILabel = {
+        let label = UILabel()
+        label.text = "该帖子已私有化"
+        label.font = .preferredFont(forTextStyle: .title3)
+        label.textColor = .label
+        label.adjustsFontForContentSizeCategory = true
+        label.translatesAutoresizingMaskIntoConstraints = false
+        return label
+    }()
+
+    let restrictedPostMessageLabel: UILabel = {
+        let label = UILabel()
+        label.font = .preferredFont(forTextStyle: .body)
+        label.textColor = .secondaryLabel
+        label.textAlignment = .center
+        label.numberOfLines = 0
+        label.adjustsFontForContentSizeCategory = true
+        label.translatesAutoresizingMaskIntoConstraints = false
+        return label
+    }()
+
+    let restrictedPostBackButton: UIButton = {
+        let button = UIButton(type: .system)
+        var configuration = UIButton.Configuration.tinted()
+        configuration.title = "返回"
+        configuration.image = UIImage(systemName: "chevron.backward")
+        configuration.imagePadding = 8
+        configuration.cornerStyle = .medium
+        configuration.contentInsets = NSDirectionalEdgeInsets(top: 11, leading: 18, bottom: 11, trailing: 18)
+        button.configuration = configuration
+        button.accessibilityIdentifier = "post-detail-restricted-back-button"
+        button.translatesAutoresizingMaskIntoConstraints = false
+        return button
+    }()
     init(
         presenter: PostDetailPresenterProtocol,
         initialHeader: PostDetailHeaderContent? = nil,
@@ -655,6 +743,7 @@ class PostDetailViewController: UIViewController {
         attachmentLayoutRefreshWorkItem?.cancel()
         tableReloadWorkItem?.cancel()
         toastHideWorkItem?.cancel()
+        floatingControlsHideWorkItem?.cancel()
         imageUploadTask?.cancel()
         NotificationCenter.default.removeObserver(self)
     }
@@ -663,13 +752,32 @@ class PostDetailViewController: UIViewController {
         super.viewDidLoad()
         configureNavigationItems()
         setupUI()
+        replyTextView.onPasteImage = { [weak self] image in
+            self?.uploadPastedReplyImage(image) ?? false
+        }
         presenter.viewDidLoad()
+        Task { [weak self] in
+            guard let self else { return }
+            let account = await self.accountRefresher.cachedAccount()
+            let newUID = account?.nodeSeekUID
+            guard self.currentAccountUID != newUID else { return }
+            self.currentAccountUID = newUID
+        }
     }
 
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
         navigationController?.interactivePopGestureRecognizer?.isEnabled =
             (navigationController?.viewControllers.count ?? 0) > 1
+    }
+
+    override func viewDidDisappear(_ animated: Bool) {
+        super.viewDidDisappear(animated)
+        let wasRemovedFromNavigationStack = navigationController?.viewControllers.contains(self) == false
+        guard wasRemovedFromNavigationStack || isBeingDismissed || navigationController?.isBeingDismissed == true else {
+            return
+        }
+        presenter.cancelPendingLoad()
     }
 
     override func viewSafeAreaInsetsDidChange() {
@@ -684,8 +792,16 @@ class PostDetailViewController: UIViewController {
             horizontalAnchorView: replyButtonAnchorView
         )
         floatingReplyButtonContainer.syncFrame(with: replyButtonAnchorView)
+        applyFloatingControlsIdleStateIfNeeded()
     }
 
+    @objc func restrictedPostBackTapped() {
+        if let navigationController {
+            navigationController.popViewController(animated: true)
+        } else {
+            dismiss(animated: true)
+        }
+    }
     func configureNavigationItems() {
         title = nil
         navigationItem.titleView = navigationAuthorTitleView
@@ -728,7 +844,38 @@ class PostDetailViewController: UIViewController {
         )
         moreButton?.accessibilityLabel = "更多"
 
-        navigationItem.rightBarButtonItems = [moreButton, browserButton].compactMap { $0 }
+        myRepliesButton = UIBarButtonItem(
+            image: UIImage(systemName: "bubble.left.and.text.bubble.right"),
+            style: .plain,
+            target: self,
+            action: #selector(myRepliesTapped)
+        )
+        myRepliesButton?.accessibilityLabel = "我的回复"
+        myRepliesButton?.isEnabled = false
+
+        navigationItem.rightBarButtonItems = [moreButton, myRepliesButton, browserButton].compactMap { $0 }
+    }
+
+    func updateMyReplies(pages: [Int], latestAnchorID: String?) {
+        myReplyPages = pages
+        myReplyLatestAnchorID = latestAnchorID
+        myRepliesButton?.isEnabled = pages.isEmpty == false
+    }
+
+    @objc
+    private func myRepliesTapped() {
+        guard myReplyPages.isEmpty == false else { return }
+        let alert = UIAlertController(title: "我的回复", message: "选择要跳转的页", preferredStyle: .actionSheet)
+        for page in myReplyPages.sorted() {
+            alert.addAction(UIAlertAction(title: "第 \(page) 页", style: .default) { [weak self] _ in
+                self?.presenter.didTapMyReply(page: page, anchorID: nil)
+            })
+        }
+        alert.addAction(UIAlertAction(title: "取消", style: .cancel))
+        if let popover = alert.popoverPresentationController {
+            popover.barButtonItem = myRepliesButton
+        }
+        present(alert, animated: true)
     }
 
     func updateTableContentInsets() {
@@ -750,6 +897,13 @@ class PostDetailViewController: UIViewController {
         tableNode.view.translatesAutoresizingMaskIntoConstraints = false
 
         view.addSubview(tableNode.view)
+        restrictedPostContentStack.addArrangedSubview(restrictedPostIconView)
+        restrictedPostContentStack.addArrangedSubview(restrictedPostTitleLabel)
+        restrictedPostContentStack.addArrangedSubview(restrictedPostMessageLabel)
+        restrictedPostOverlay.addSubview(restrictedPostContentStack)
+        restrictedPostOverlay.addSubview(restrictedPostBackButton)
+        restrictedPostBackButton.addTarget(self, action: #selector(restrictedPostBackTapped), for: .touchUpInside)
+        view.addSubview(restrictedPostOverlay)
         view.addSubview(loadingIndicator)
         loginButton.addTarget(self, action: #selector(loginButtonTapped), for: .touchUpInside)
         loadMoreCommentsRefreshButton.addTarget(self, action: #selector(refreshCommentsAtEndTapped), for: .touchUpInside)
@@ -783,6 +937,23 @@ class PostDetailViewController: UIViewController {
             tableNode.view.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             tableNode.view.topAnchor.constraint(equalTo: view.topAnchor),
             tableNode.view.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+
+            restrictedPostOverlay.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            restrictedPostOverlay.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            restrictedPostOverlay.topAnchor.constraint(equalTo: view.topAnchor),
+            restrictedPostOverlay.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+
+            restrictedPostContentStack.leadingAnchor.constraint(greaterThanOrEqualTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 28),
+            restrictedPostContentStack.trailingAnchor.constraint(lessThanOrEqualTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -28),
+            restrictedPostContentStack.centerXAnchor.constraint(equalTo: restrictedPostOverlay.centerXAnchor),
+            restrictedPostContentStack.centerYAnchor.constraint(equalTo: restrictedPostOverlay.centerYAnchor, constant: -42),
+            restrictedPostMessageLabel.widthAnchor.constraint(lessThanOrEqualTo: view.safeAreaLayoutGuide.widthAnchor, constant: -56),
+            restrictedPostIconView.widthAnchor.constraint(equalToConstant: 42),
+            restrictedPostIconView.heightAnchor.constraint(equalToConstant: 42),
+
+            restrictedPostBackButton.centerXAnchor.constraint(equalTo: restrictedPostOverlay.centerXAnchor),
+            restrictedPostBackButton.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -22),
+            restrictedPostBackButton.heightAnchor.constraint(greaterThanOrEqualToConstant: 44),
 
             loadingIndicator.centerXAnchor.constraint(equalTo: view.centerXAnchor),
             loadingIndicator.centerYAnchor.constraint(equalTo: view.centerYAnchor),
@@ -923,6 +1094,11 @@ class PostDetailViewController: UIViewController {
     func configureReplyEditor() {
         replyButton.addTarget(self, action: #selector(replyButtonTapped), for: .touchUpInside)
         scrollToTopButton.addTarget(self, action: #selector(scrollToTopTapped), for: .touchUpInside)
+        floatingReplyButtonContainer.onDragBegan = { [weak self] in
+            guard let self else { return }
+            self.floatingControlsHideWorkItem?.cancel()
+            self.floatingControlsRevealed = true
+        }
         floatingReplyButtonContainer.onAdsorbedEdgeChanged = { [weak self] edge in
             self?.floatingReplyPanel.applyFloatingDockedCorners(for: edge)
         }
@@ -1018,6 +1194,8 @@ class PostDetailViewController: UIViewController {
         pendingReloadIndexPaths.removeAll()
         guard isViewLoaded else { return }
         tableNode.reloadData()
+        // 整表重载之后，表格重新数一遍数据源，这个值就是它下一次批量更新的基准。
+        tableKnownRowCount = tableNode(self.tableNode, numberOfRowsInSection: 0)
     }
 
     func cachedDetailImageSize(for url: URL) -> CGSize? {
@@ -1059,7 +1237,7 @@ class PostDetailViewController: UIViewController {
     func scheduleCommentReload(commentID: String) {
         guard let commentIndex = comments.firstIndex(where: { $0.id == commentID }) else { return }
         guard let row = detailRows.firstIndex(where: {
-            if case .comment(let index) = $0 {
+            if case .comment(let index, _) = $0 {
                 return index == commentIndex
             }
             return false
@@ -1083,10 +1261,93 @@ class PostDetailViewController: UIViewController {
             }
             self.pendingReloadIndexPaths.removeAll()
             guard reloadIndexPaths.isEmpty == false else { return }
-            self.tableNode.reloadRows(at: reloadIndexPaths, with: .none)
+
+            // 交给 reloadRowsWithScrollAnchor 统一处理，别再自己那套较松的锚定。
+            //
+            // 翻页时新插入的楼层是"先占位、渲染完再各自 reload"的：一页十条评论
+            // 会在不同时刻各触发一次本方法。原来这里把"视口内任意一行"当锚点、
+            // 并且无条件回写 contentOffset，于是十次渲染完成就是十次互相冲突的
+            // 偏移修正 —— 表现为向下翻页时画面乱跳。
+            // reloadRowsWithScrollAnchor 已经做对了：只认视口上半区的稳定锚点、
+            // 没有锚点就不动偏移、亚像素变化直接忽略。
+            self.reloadRowsWithScrollAnchor(reloadIndexPaths)
         }
         tableReloadWorkItem = workItem
         DispatchQueue.main.async(execute: workItem)
+    }
+
+    /// 行高变化（图片加载完展开、报告图从占位变完整尺寸）后的滚动补偿。
+    ///
+    /// 规则只有一条：**只有整体位于视口之上的行，才会推动可见内容**。
+    /// 之前做的是反过来的事 —— 只有当被改的行自己落在"视口上半区"时才补偿，
+    /// 于是从通知跳进某楼层后，该楼层上方的正文和更早楼层的图片加载完变高时，
+    /// 补偿分支根本不触发，画面被上方增长的高度整体往下推，一路推到
+    /// contentOffset 被夹成 0 —— 就是"图片加载完跳到 0 楼"。
+    /// 视口内部的行增高不需要补偿：它顶部不动，只是把下方内容推走。
+    func reloadRowsWithScrollAnchor(_ indexPaths: [IndexPath]) {
+        guard isViewLoaded else { return }
+        let currentRowCount = tableNode(self.tableNode, numberOfRowsInSection: 0)
+        // Texture 的 `reloadRows` 是批量更新：从 beginUpdates 到 endUpdates 之间
+        // 数据源行数一旦变过，它就抛 ASCollectionInvalidUpdateException 直接崩掉。
+        // build 127 真机崩的就是这个：`items after the update (32) must be equal to
+        // the number before the update (22) plus or minus inserted/deleted (0, 0)`。
+        // 评论和图片是"先占位、各自渲染完再 reload"的，一页十条就是十次行数变化，
+        // 所以这里必须按行数对得上不对得上来决定，而不是无脑 reloadRows。
+        // 对不上就退化成整表重载 —— 顶多少一次偏移补偿，不会崩。
+        if tableKnownRowCount != nil, tableKnownRowCount != currentRowCount {
+            AppLog.info(
+                .postDetail,
+                "行高补偿退化为整表重载: 表内记录行数=\(tableKnownRowCount ?? -1), 当前行数=\(currentRowCount), 待刷新条数=\(indexPaths.count)"
+            )
+            reloadTableData()
+            return
+        }
+        let valid = indexPaths.filter { $0.section == 0 && $0.row >= 0 && $0.row < currentRowCount }
+        guard valid.isEmpty == false else { return }
+        // 这条路径全在主线程上，而且 `rectForRow` 会强制未排版的那几行当场量一次。
+        // 卡死时"最后阶段"停在下面这行没有对应的完成日志，就说明死在这中间。
+        AppLog.debug(.postDetail, "行高补偿开始: rows=\(valid.map(\.row).sorted()), 视口顶=\(Int(tableNode.view.contentOffset.y))")
+        let scrollView = tableNode.view
+        let viewportTop = scrollView.contentOffset.y
+        let framesBefore = Dictionary(
+            valid.map { ($0.row, tableNode.rectForRow(at: $0)) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        tableNode.reloadRows(at: valid, with: .none)
+        tableKnownRowCount = currentRowCount
+
+        var shift: CGFloat = 0
+        for indexPath in valid {
+            guard let before = framesBefore[indexPath.row],
+                  before.maxY <= viewportTop + 1 else { continue }
+            shift += tableNode.rectForRow(at: indexPath).height - before.height
+        }
+        // 亚像素/布局抖动不动偏移，避免无意义跳动。
+        guard abs(shift) > 1 else { return }
+        var offset = scrollView.contentOffset
+        offset.y += shift
+        scrollView.contentOffset = offset
+        AppLog.debug(
+            .postDetail,
+            "行高补偿偏移: rows=\(valid.map(\.row).sorted()), shift=\(Int(shift)), 视口顶=\(Int(viewportTop))"
+        )
+    }
+
+    /// 头部图片增高：锚定 reload 头部行。
+    func reloadHeaderWithScrollAnchor() {
+        guard currentHeaderContent != nil, displayMode == .content else { return }
+        guard let row = detailRows.firstIndex(where: { if case .header = $0 { return true }; return false }) else { return }
+        reloadRowsWithScrollAnchor([IndexPath(row: row, section: 0)])
+    }
+
+    /// 评论内图片增高：锚定 reload 该评论行。
+    func reloadCommentWithScrollAnchor(commentID: String) {
+        guard let commentIndex = comments.firstIndex(where: { $0.id == commentID }) else { return }
+        guard let row = detailRows.firstIndex(where: {
+            if case .comment(let index, _) = $0 { return index == commentIndex }
+            return false
+        }) else { return }
+        reloadRowsWithScrollAnchor([IndexPath(row: row, section: 0)])
     }
 
     func showLoadingSkeletonIfNeeded() {

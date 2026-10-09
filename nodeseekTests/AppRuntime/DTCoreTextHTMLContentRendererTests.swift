@@ -1082,10 +1082,11 @@ struct DTCoreTextHTMLContentRendererTests {
                 <textarea aria-label="Terminal input">hidden helper</textarea>
                 <style>\(noisyTerminalStyles)</style>
                 <div class="xterm-rows">
-                  <div><span>硬件质量体检报告</span></div>
-                  <div><span>https://github.com/xykt/HardwareQuality</span></div>
+                  <div><span class="xterm-bold">硬件质量体检报告</span></div>
+                  <div><span class="xterm-fg-6">https://github.com/xykt/HardwareQuality</span></div>
                 </div>
               </div>
+              <p><img src="https://i.111666.best/image/hardware.webp" alt="硬件截图"></p>
             </div>
             <div class="nsk-magic-tab-title">🎬IP质量</div>
             <div class="nsk-magic-tab-body">
@@ -1108,23 +1109,86 @@ struct DTCoreTextHTMLContentRendererTests {
         )
         let tabs = magicTabs(in: blocks)
         let basicInfo = try #require(tabs.first)
-        let ipQuality = try #require(tabs.dropFirst().first)
         let renderedText = combinedText(in: blocks)
         let unsupportedReasons = unsupportedReasons(in: blocks)
 
         #expect(blocks.count == 1)
         #expect(tabs.map(\.title) == ["💻基本信息", "🎬IP质量", "🌐网络质量", "📍回程路由"])
-        #expect(combinedText(in: basicInfo.blocks).contains("硬件质量体检报告") == false)
-        #expect(combinedText(in: ipQuality.blocks).contains("IP质量体检报告") == false)
+        #expect(combinedText(in: basicInfo.blocks).contains("硬件质量体检报告"))
+        #expect(combinedText(in: tabs[1].blocks).contains("IP质量体检报告") == false)
         #expect(renderedText.contains("xterm-fg-1") == false)
         #expect(renderedText.contains("hidden helper") == false)
-        #expect(unsupportedReasons == [
-            DTCoreTextHTMLContentRenderer.unsupportedXtermContentNotice,
-            DTCoreTextHTMLContentRenderer.unsupportedXtermContentNotice,
-        ])
+        #expect(unsupportedReasons.isEmpty)
         #expect(imageURLs(in: blocks).map(\.absoluteString) == [
+            "https://i.111666.best/image/hardware.webp",
+            "https://Report.Check.Place/ip/demo.svg",
             "https://i.111666.best/image/network.webp",
             "https://i.111666.best/image/route.webp",
+        ])
+    }
+
+    @Test func removesNodeQualityReportDuplicatedOutsideMagicTabs() throws {
+        let renderer = DTCoreTextHTMLContentRenderer()
+        let baseURL = try #require(URL(string: "https://www.nodeseek.com"))
+        let reportURL = "https://Report.Check.Place/hardware/demo.svg"
+        let blocks = renderer.render(
+            fragment: """
+            <div class="pasted-nodequality-report"><pre><code>硬件质量体检报告
+            容器 / 虚拟化：KVM 虚拟机
+            CPU：AMD EPYC
+            报告链接：\(reportURL)</code></pre></div>
+            <div class="nsk-magic-tabs">
+              <div class="nsk-magic-tab-title">💻基本信息</div>
+              <div class="nsk-magic-tab-body">
+                <div class="terminal-container embedMode"><div class="xterm-rows">
+                  <div>硬件质量体检报告</div>
+                  <div>容器 / 虚拟化：KVM 虚拟机</div>
+                  <div>CPU：AMD EPYC</div>
+                  <div>报告链接：\(reportURL)</div>
+                </div></div>
+              </div>
+            </div>
+            <p>作者补充说明</p>
+            """,
+            baseURL: baseURL,
+            maxImageWidth: 240
+        )
+
+        #expect(blocks.count == 2)
+        #expect(magicTabs(in: blocks).map(\.title) == ["💻基本信息"])
+        #expect(codeBlocks(in: blocks).isEmpty)
+        #expect(combinedText(in: blocks).contains("硬件质量体检报告") == false)
+        #expect(combinedText(in: blocks).contains("作者补充说明"))
+        #expect(imageURLs(in: blocks).map(\.absoluteString) == [reportURL])
+    }
+
+    @Test func keepsStandaloneReportWithDifferentURLOutsideMagicTabs() throws {
+        let renderer = DTCoreTextHTMLContentRenderer()
+        let baseURL = try #require(URL(string: "https://www.nodeseek.com"))
+        let blocks = renderer.render(
+            fragment: """
+            <pre><code>另一份硬件质量体检报告
+            报告链接：https://Report.Check.Place/hardware/other.svg</code></pre>
+            <div class="nsk-magic-tabs">
+              <div class="nsk-magic-tab-title">💻基本信息</div>
+              <div class="nsk-magic-tab-body">
+                <div class="terminal-container embedMode"><div class="xterm-rows">
+                  <div>硬件质量体检报告</div>
+                  <div>报告链接：https://Report.Check.Place/hardware/current.svg</div>
+                </div></div>
+              </div>
+            </div>
+            """,
+            baseURL: baseURL,
+            maxImageWidth: 240
+        )
+
+        #expect(blocks.count == 2)
+        #expect(magicTabs(in: blocks).map(\.title) == ["💻基本信息"])
+        #expect(codeBlocks(in: blocks).count == 1)
+        #expect(combinedText(in: blocks).contains("另一份硬件质量体检报告"))
+        #expect(imageURLs(in: blocks).map(\.absoluteString) == [
+            "https://Report.Check.Place/hardware/current.svg",
         ])
     }
 
@@ -1150,14 +1214,13 @@ struct DTCoreTextHTMLContentRendererTests {
             maxImageWidth: 240
         )
         let tabs = magicTabs(in: blocks)
-        let ipQuality = try #require(tabs.first)
         let renderedText = combinedText(in: blocks)
 
         #expect(blocks.count == 1)
         #expect(tabs.map(\.title) == ["🎬IP质量", "🌐网络质量"])
-        #expect(combinedText(in: ipQuality.blocks).contains("IP质量体检报告：69.63.*.*"))
-        #expect(renderedText.contains("https://github.com/xykt/IPQuality"))
-        #expect(renderedText.contains("报告链接：https://Report.Check.Place/ip/demo.svg"))
+        #expect(codeBlocks(in: tabs.first?.blocks ?? []).isEmpty)
+        #expect(renderedText.contains("https://github.com/xykt/IPQuality") == false)
+        #expect(renderedText.contains("报告链接：https://Report.Check.Place/ip/demo.svg") == false)
         #expect(renderedText.contains("[1m") == false)
         #expect(renderedText.contains("[36m") == false)
         #expect(renderedText.contains("[4m") == false)
@@ -1183,6 +1246,20 @@ struct DTCoreTextHTMLContentRendererTests {
         ])
     }
 
+    @Test func keepsCheckPlaceReportTextWithoutDuplicateImageInsideCodeBlock() throws {
+        let renderer = DTCoreTextHTMLContentRenderer()
+        let baseURL = try #require(URL(string: "https://www.nodeseek.com"))
+        let blocks = renderer.render(
+            fragment: "<pre><code>IP质量体检报告\\n报告链接：https://report.check.place/ip/NPR7IUKQC.svg</code></pre>",
+            baseURL: baseURL,
+            maxImageWidth: 240
+        )
+
+        #expect(combinedText(in: blocks).contains("IP质量体检报告"))
+        #expect(combinedText(in: blocks).contains("https://report.check.place/ip/NPR7IUKQC.svg"))
+        #expect(imageURLs(in: blocks).isEmpty)
+    }
+
     @Test func promotesLikelyImageEndpointLinksToImageBlocks() throws {
         let renderer = DTCoreTextHTMLContentRenderer()
         let baseURL = try #require(URL(string: "https://www.nodeseek.com"))
@@ -1198,7 +1275,7 @@ struct DTCoreTextHTMLContentRendererTests {
         ])
     }
 
-    @Test func rendersPost705039MagicTabsFixtureWithAllTabsAndImages() throws {
+    @Test func rendersPost705039MagicTabsFixtureWithSeparateTabsAndImages() throws {
         let baseURL = try #require(URL(string: "https://www.nodeseek.com"))
         let html = try FixtureLoader.html(named: "post-705039-1")
         let parser = KannaNodeSeekParser(baseURL: baseURL)
@@ -1213,17 +1290,16 @@ struct DTCoreTextHTMLContentRendererTests {
             maxImageWidth: 320
         )
         let tabs = magicTabs(in: blocks)
-        let ipQuality = try #require(tabs.dropFirst().first)
         let renderedText = combinedText(in: blocks)
         let images = imageBlocks(in: blocks)
 
         #expect(blocks.count == 1)
         #expect(tabs.map(\.title) == ["💻基本信息", "🎬IP质量", "🌐网络质量", "📍回程路由"])
-        #expect(combinedText(in: ipQuality.blocks).contains("IP质量体检报告"))
-        #expect(renderedText.contains("IP质量体检报告(Lite)"))
+        #expect(combinedText(in: tabs.dropFirst().first?.blocks ?? []).contains("IP质量体检报告") == false)
+        #expect(renderedText.contains("IP质量体检报告(Lite)") == false)
         #expect(renderedText.contains("🌐网络质量"))
         #expect(renderedText.contains("📍回程路由"))
-        #expect(renderedText.contains("报告链接：https://Report.Check.Place/ip/1TZZHW387.svg"))
+        #expect(renderedText.contains("报告链接：https://Report.Check.Place/ip/1TZZHW387.svg") == false)
         #expect(renderedText.contains("[1m") == false)
         #expect(renderedText.contains("[36m") == false)
         #expect(renderedText.contains("[0m") == false)

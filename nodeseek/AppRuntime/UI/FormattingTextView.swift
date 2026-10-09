@@ -16,6 +16,26 @@ final class FormattingTextView: UITextView {
         let indentationLevel: Int
     }
 
+    private enum InlineFormatControl: Hashable {
+        case bold
+        case italic
+        case underline
+        case strikethrough
+    }
+
+    private var inlineFormatButtons: [InlineFormatControl: UIButton] = [:]
+    private var supplementaryAccessoryItems: [UIBarButtonItem] = []
+
+    /// 仅在用户执行“粘贴”时调用，不会读取或监听剪贴板。
+    var onPasteImage: ((UIImage) -> Bool)?
+
+    override var selectedRange: NSRange {
+        didSet {
+            guard selectedRange != oldValue else { return }
+            synchronizeInlineFormatButtons()
+        }
+    }
+
     override init(frame: CGRect, textContainer: NSTextContainer?) {
         super.init(frame: frame, textContainer: textContainer)
         configureFormattingMenu()
@@ -26,15 +46,39 @@ final class FormattingTextView: UITextView {
         configureFormattingMenu()
     }
 
+    /// 供外层编辑器添加图片等业务入口，同时保留四个常用格式按钮。
+    func setSupplementaryAccessoryItems(_ items: [UIBarButtonItem]) {
+        supplementaryAccessoryItems = items
+        rebuildFormattingToolbar()
+        if isFirstResponder {
+            reloadInputViews()
+        }
+    }
+
     override func canPerformAction(_ action: Selector, withSender sender: Any?) -> Bool {
+        if action == #selector(cut(_:))
+            || action == #selector(copy(_:))
+            || action == #selector(selectAll(_:))
+            || action == NSSelectorFromString("lookup:")
+            || action == NSSelectorFromString("translate:") {
+            // 用同功能的中文菜单替代系统按设备语言显示的英文标题。
+            return false
+        }
         switch action {
+        case #selector(cutSelection(_:)),
+             #selector(copySelection(_:)),
+             #selector(selectAllText(_:)),
+             #selector(lookupSelection(_:)),
+             #selector(translateSelection(_:)):
+            return selectedRange.length > 0
         case #selector(toggleBoldFormatting(_:)),
              #selector(toggleItalicFormatting(_:)),
              #selector(toggleUnderlineFormatting(_:)),
              #selector(toggleStrikethroughFormatting(_:)),
              #selector(increaseIndentation(_:)),
-             #selector(decreaseIndentation(_:)),
-             #selector(applyHeadingFormatting(_:)),
+             #selector(decreaseIndentation(_:)):
+            return isEditable
+        case #selector(applyHeadingFormatting(_:)),
              #selector(applyUnorderedListFormatting(_:)),
              #selector(applyOrderedListFormatting(_:)),
              #selector(applyQuoteFormatting(_:)),
@@ -54,6 +98,21 @@ final class FormattingTextView: UITextView {
     override func buildMenu(with builder: UIMenuBuilder) {
         super.buildMenu(with: builder)
         guard isEditable else { return }
+
+        let editMenu = UIMenu(
+            title: "编辑",
+            image: nil,
+            identifier: UIMenu.Identifier("com.zeu1s.nodeseek.text-edit"),
+            options: .displayInline,
+            children: [
+                UICommand(title: "剪切", image: UIImage(systemName: "scissors"), action: #selector(cutSelection(_:))),
+                UICommand(title: "复制", image: UIImage(systemName: "doc.on.doc"), action: #selector(copySelection(_:))),
+                UICommand(title: "全选", image: UIImage(systemName: "selection.pin.in.out"), action: #selector(selectAllText(_:))),
+                UICommand(title: "查询", image: UIImage(systemName: "book"), action: #selector(lookupSelection(_:))),
+                UICommand(title: "翻译", image: UIImage(systemName: "character.book.closed"), action: #selector(translateSelection(_:)))
+            ]
+        )
+        builder.insertChild(editMenu, atStartOfMenu: .edit)
 
         let menu = UIMenu(
             title: "格式",
@@ -143,7 +202,16 @@ final class FormattingTextView: UITextView {
                 )
             ]
         )
-        builder.insertChild(menu, atEndOfMenu: .edit)
+        builder.insertChild(menu, atStartOfMenu: .edit)
+    }
+
+    override func paste(_ sender: Any?) {
+        if isEditable,
+           let image = UIPasteboard.general.image,
+           onPasteImage?(image) == true {
+            return
+        }
+        super.paste(sender)
     }
 
     /// 将界面上的格式转换为提交内容。NodeSeek 原生 HTML 渲染支持这些标签。
@@ -181,6 +249,38 @@ final class FormattingTextView: UITextView {
                 indentationLevel: style.indentationLevel
             )
         }
+    }
+
+    @objc private func cutSelection(_ sender: Any?) {
+        cut(sender)
+    }
+
+    @objc private func copySelection(_ sender: Any?) {
+        copy(sender)
+    }
+
+    @objc private func selectAllText(_ sender: Any?) {
+        selectAll(sender)
+    }
+
+    @objc private func lookupSelection(_ sender: Any?) {
+        let source = text ?? ""
+        let selection = safeSelectedRange(in: attributedText ?? NSAttributedString())
+        let selectedText = (source as NSString)
+            .substring(with: selection)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard selectedText.isEmpty == false,
+              UIReferenceLibraryViewController.dictionaryHasDefinition(forTerm: selectedText) else { return }
+        containingViewController()?.present(
+            UIReferenceLibraryViewController(term: selectedText),
+            animated: true
+        )
+    }
+
+    @objc private func translateSelection(_ sender: Any?) {
+        let translationSelector = NSSelectorFromString("translate:")
+        guard responds(to: translationSelector) else { return }
+        perform(translationSelector, with: sender)
     }
 
     @objc private func toggleItalicFormatting(_ sender: Any?) {
@@ -268,25 +368,49 @@ final class FormattingTextView: UITextView {
     }
 
     @objc private func insertLinkFormatting(_ sender: Any?) {
-        guard let controller = containingViewController(), selectedRange.length > 0 else { return }
+        guard let controller = containingViewController() else { return }
+
+        let source = (text ?? "") as NSString
+        let selection = source.substring(
+            with: NSIntersectionRange(selectedRange, NSRange(location: 0, length: source.length))
+        )
 
         let alert = UIAlertController(title: "插入链接", message: nil, preferredStyle: .alert)
-        alert.addTextField { textField in
-            textField.placeholder = "https://example.com"
-            textField.keyboardType = .URL
-            textField.autocapitalizationType = .none
-            textField.autocorrectionType = .no
+        alert.addTextField { field in
+            field.placeholder = "显示文字（留空则显示链接本身）"
+            field.text = selection
+            field.autocapitalizationType = .none
+            field.autocorrectionType = .no
+        }
+        alert.addTextField { field in
+            field.placeholder = "https://example.com"
+            field.keyboardType = .URL
+            field.autocapitalizationType = .none
+            field.autocorrectionType = .no
         }
         alert.addAction(UIAlertAction(title: "取消", style: .cancel))
         alert.addAction(UIAlertAction(title: "插入", style: .default) { [weak self, weak alert] _ in
             guard let self,
-                  let destination = alert?.textFields?.first?.text?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  let destination = alert?.textFields?.last?.text?.trimmingCharacters(in: .whitespacesAndNewlines),
                   URL(string: destination)?.scheme?.isEmpty == false else {
                 return
             }
-            self.wrapSelectedText(withPrefix: "[", suffix: "](\(destination))")
+            let label = alert?.textFields?.first?.text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            // 插成 <a href>，不是字面 markdown：评论正文里的粗体/斜体本来就是
+            // <strong>/<em> 这类标签、由站点原生渲染，链接走同一条路才对，
+            // 帖子显示文字、点文字跳转。之前插 [文字](url) 那种纯文本，
+            // 用户看到的就是那串方括号本身。
+            self.replaceSelection(with: "<a href=\"\(destination)\">\(label.isEmpty ? destination : label)</a>")
         })
         controller.present(alert, animated: true)
+    }
+
+    @objc private func showFormattingHelp(_ sender: Any?) {
+        guard let controller = containingViewController() else { return }
+        controller.present(
+            UINavigationController(rootViewController: ComposerFormattingHelpViewController()),
+            animated: true
+        )
     }
 
     @objc private func insertTableFormatting(_ sender: Any?) {
@@ -307,12 +431,20 @@ final class FormattingTextView: UITextView {
         attributedText = source
         selectedRange = range
         typingAttributes = plainAttributes
+        synchronizeInlineFormatButtons()
     }
 
     private func configureFormattingMenu() {
+        rebuildFormattingToolbar()
+
         // iOS 15 仍使用 UIMenuController 展示编辑菜单；iOS 16+ 由 buildMenu 提供。
         if #unavailable(iOS 16.0) {
             UIMenuController.shared.menuItems = [
+                UIMenuItem(title: "剪切", action: #selector(cutSelection(_:))),
+                UIMenuItem(title: "复制", action: #selector(copySelection(_:))),
+                UIMenuItem(title: "全选", action: #selector(selectAllText(_:))),
+                UIMenuItem(title: "查询", action: #selector(lookupSelection(_:))),
+                UIMenuItem(title: "翻译", action: #selector(translateSelection(_:))),
                 UIMenuItem(title: "粗体", action: #selector(toggleBoldFormatting(_:))),
                 UIMenuItem(title: "斜体", action: #selector(toggleItalicFormatting(_:))),
                 UIMenuItem(title: "下划线", action: #selector(toggleUnderlineFormatting(_:))),
@@ -330,6 +462,158 @@ final class FormattingTextView: UITextView {
                 UIMenuItem(title: "分隔线", action: #selector(insertHorizontalRuleFormatting(_:))),
                 UIMenuItem(title: "清除格式", action: #selector(clearFormatting(_:)))
             ]
+        }
+    }
+
+    private lazy var formattingToolbar = UIToolbar()
+
+    private func rebuildFormattingToolbar() {
+        inlineFormatButtons.removeAll()
+        var items: [UIBarButtonItem] = [
+            toolbarButton(
+                control: .bold,
+                imageName: "bold",
+                action: #selector(toggleBoldFormatting(_:)),
+                label: "粗体"
+            ),
+            toolbarButton(
+                control: .italic,
+                imageName: "italic",
+                action: #selector(toggleItalicFormatting(_:)),
+                label: "斜体"
+            ),
+            toolbarButton(
+                control: .underline,
+                imageName: "underline",
+                action: #selector(toggleUnderlineFormatting(_:)),
+                label: "下划线"
+            ),
+            toolbarButton(
+                control: .strikethrough,
+                imageName: "strikethrough",
+                action: #selector(toggleStrikethroughFormatting(_:)),
+                label: "删除线"
+            )
+        ]
+        // 链接是最常用的一个，之前只藏在"更多格式"里，点两下才找得到。
+        items.append(plainToolbarButton(
+            imageName: "link",
+            action: #selector(insertLinkFormatting(_:)),
+            label: "链接"
+        ))
+        items.append(contentsOf: supplementaryAccessoryItems)
+        items.append(UIBarButtonItem(systemItem: .flexibleSpace))
+        items.append(plainToolbarButton(
+            imageName: "questionmark.circle",
+            action: #selector(showFormattingHelp(_:)),
+            label: "格式说明"
+        ))
+        items.append(additionalFormattingButton())
+        formattingToolbar.setItems(items, animated: false)
+        formattingToolbar.sizeToFit()
+        inputAccessoryView = formattingToolbar
+        synchronizeInlineFormatButtons()
+    }
+
+    private func toolbarButton(
+        control: InlineFormatControl,
+        imageName: String,
+        action: Selector,
+        label: String
+    ) -> UIBarButtonItem {
+        let button = UIButton(type: .system)
+        var configuration = UIButton.Configuration.plain()
+        configuration.image = UIImage(systemName: imageName)
+        configuration.preferredSymbolConfigurationForImage = UIImage.SymbolConfiguration(pointSize: 16, weight: .semibold)
+        configuration.contentInsets = NSDirectionalEdgeInsets(top: 6, leading: 7, bottom: 6, trailing: 7)
+        configuration.background.cornerRadius = 6
+        button.configuration = configuration
+        button.accessibilityLabel = label
+        button.accessibilityIdentifier = "formatting-text-view-\(label)"
+        button.addTarget(self, action: action, for: .touchUpInside)
+        inlineFormatButtons[control] = button
+        update(button: button, isActive: false)
+        return UIBarButtonItem(customView: button)
+    }
+
+    /// 不参与"当前选区是否已应用该格式"高亮同步的工具栏按钮。
+    private func plainToolbarButton(imageName: String, action: Selector, label: String) -> UIBarButtonItem {
+        let button = UIButton(type: .system)
+        var configuration = UIButton.Configuration.plain()
+        configuration.image = UIImage(systemName: imageName)
+        configuration.preferredSymbolConfigurationForImage = UIImage.SymbolConfiguration(pointSize: 16, weight: .semibold)
+        configuration.contentInsets = NSDirectionalEdgeInsets(top: 6, leading: 7, bottom: 6, trailing: 7)
+        configuration.background.cornerRadius = 6
+        configuration.baseForegroundColor = .secondaryLabel
+        button.configuration = configuration
+        button.accessibilityLabel = label
+        button.accessibilityIdentifier = "formatting-text-view-\(label)"
+        button.addTarget(self, action: action, for: .touchUpInside)
+        return UIBarButtonItem(customView: button)
+    }
+
+    private func synchronizeInlineFormatButtons() {
+        let style = currentSelectionStyle()
+        update(button: inlineFormatButtons[.bold], isActive: style.isBold)
+        update(button: inlineFormatButtons[.italic], isActive: style.isItalic)
+        update(button: inlineFormatButtons[.underline], isActive: style.isUnderlined)
+        update(button: inlineFormatButtons[.strikethrough], isActive: style.isStruckThrough)
+    }
+
+    private func update(button: UIButton?, isActive: Bool) {
+        guard let button else { return }
+        button.isSelected = isActive
+        var configuration = button.configuration ?? UIButton.Configuration.plain()
+        configuration.baseForegroundColor = isActive ? .systemOrange : .secondaryLabel
+        configuration.background.backgroundColor = isActive ? UIColor.systemOrange.withAlphaComponent(0.16) : .clear
+        button.configuration = configuration
+        button.accessibilityValue = isActive ? "已启用" : "未启用"
+    }
+
+    private func currentSelectionStyle() -> TextStyle {
+        let source = attributedText ?? NSAttributedString()
+        let selection = safeSelectedRange(in: source)
+        if selection.length > 0 {
+            return styleForSelection(in: source, range: selection)
+        }
+        if typingAttributes.isEmpty == false {
+            return Self.style(from: typingAttributes, fallbackFont: font)
+        }
+        guard source.length > 0 else {
+            return Self.style(from: plainTextAttributes(), fallbackFont: font)
+        }
+        let location = min(max(selection.location, 0), source.length - 1)
+        return Self.style(
+            from: source.attributes(at: location, effectiveRange: nil),
+            fallbackFont: font
+        )
+    }
+
+    private func additionalFormattingButton() -> UIBarButtonItem {
+        let button = UIBarButtonItem(image: UIImage(systemName: "textformat"), menu: additionalFormattingMenu())
+        button.accessibilityLabel = "更多格式"
+        return button
+    }
+
+    private func additionalFormattingMenu() -> UIMenu {
+        UIMenu(title: "更多格式", children: [
+            formatAction(title: "标题", imageName: "textformat.size", selector: #selector(applyHeadingFormatting(_:))),
+            formatAction(title: "无序列表", imageName: "list.bullet", selector: #selector(applyUnorderedListFormatting(_:))),
+            formatAction(title: "有序列表", imageName: "list.number", selector: #selector(applyOrderedListFormatting(_:))),
+            formatAction(title: "引用", imageName: "text.quote", selector: #selector(applyQuoteFormatting(_:))),
+            formatAction(title: "行内代码", imageName: "chevron.left.forwardslash.chevron.right", selector: #selector(applyInlineCodeFormatting(_:))),
+            formatAction(title: "代码块", imageName: "curlybraces", selector: #selector(applyCodeBlockFormatting(_:))),
+            formatAction(title: "链接", imageName: "link", selector: #selector(insertLinkFormatting(_:))),
+            formatAction(title: "插入表格", imageName: "tablecells", selector: #selector(insertTableFormatting(_:))),
+            formatAction(title: "分隔线", imageName: "minus", selector: #selector(insertHorizontalRuleFormatting(_:))),
+            formatAction(title: "清除格式", imageName: "clear", selector: #selector(clearFormatting(_:))),
+            formatAction(title: "格式说明", imageName: "questionmark.circle", selector: #selector(showFormattingHelp(_:)))
+        ])
+    }
+
+    private func formatAction(title: String, imageName: String, selector: Selector) -> UIAction {
+        UIAction(title: title, image: UIImage(systemName: imageName)) { [weak self] _ in
+            _ = self?.perform(selector, with: nil)
         }
     }
 
@@ -352,6 +636,7 @@ final class FormattingTextView: UITextView {
         }
         attributedText = source
         selectedRange = NSRange(location: selection.location, length: selection.length + insertedLength)
+        synchronizeInlineFormatButtons()
     }
 
     private func wrapSelectedText(withPrefix prefix: String, suffix: String) {
@@ -369,6 +654,7 @@ final class FormattingTextView: UITextView {
             location: selection.location + (prefix as NSString).length,
             length: selection.length
         )
+        synchronizeInlineFormatButtons()
     }
 
     private func replaceSelection(with text: String) {
@@ -381,6 +667,7 @@ final class FormattingTextView: UITextView {
         attributedText = source
         selectedRange = NSRange(location: selection.location + (text as NSString).length, length: 0)
         typingAttributes = plainTextAttributes()
+        synchronizeInlineFormatButtons()
     }
 
     private func safeSelectedRange(in text: NSAttributedString) -> NSRange {
@@ -429,43 +716,24 @@ final class FormattingTextView: UITextView {
     }
 
     private func updateSelectionStyle(_ transform: (TextStyle) -> TextStyle) {
-        let selectedRange = selectedRange
-        guard selectedRange.length > 0 else { return }
-
         let source = NSMutableAttributedString(attributedString: attributedText ?? NSAttributedString())
-        let selectionStyle = styleForSelection(in: source, range: selectedRange)
+        let selectedRange = safeSelectedRange(in: source)
+        let selectionStyle = currentSelectionStyle()
         let targetStyle = transform(selectionStyle)
-        let fallbackFont = font ?? UIFont.preferredFont(forTextStyle: .body)
 
-        var fontRanges: [(NSRange, UIFont)] = []
-        source.enumerateAttributes(in: selectedRange, options: []) { attributes, range, _ in
-            let currentFont = (attributes[.font] as? UIFont) ?? fallbackFont
-            fontRanges.append((range, currentFont))
+        guard selectedRange.length > 0 else {
+            let baseAttributes = typingAttributes.isEmpty ? plainTextAttributes() : typingAttributes
+            typingAttributes = attributes(baseAttributes, applying: targetStyle)
+            synchronizeInlineFormatButtons()
+            return
         }
-        for (range, currentFont) in fontRanges {
-            source.addAttribute(
-                .font,
-                value: Self.font(from: currentFont, isBold: targetStyle.isBold, isItalic: targetStyle.isItalic),
-                range: range
-            )
-            if targetStyle.isUnderlined {
-                source.addAttribute(.underlineStyle, value: NSUnderlineStyle.single.rawValue, range: range)
-            } else {
-                source.removeAttribute(.underlineStyle, range: range)
-            }
-            if targetStyle.isStruckThrough {
-                source.addAttribute(.strikethroughStyle, value: NSUnderlineStyle.single.rawValue, range: range)
-            } else {
-                source.removeAttribute(.strikethroughStyle, range: range)
-            }
-            source.addAttribute(
-                .paragraphStyle,
-                value: Self.paragraphStyle(
-                    from: source.attribute(.paragraphStyle, at: range.location, effectiveRange: nil),
-                    indentationLevel: targetStyle.indentationLevel
-                ),
-                range: range
-            )
+
+        var attributeRanges: [(NSRange, [NSAttributedString.Key: Any])] = []
+        source.enumerateAttributes(in: selectedRange, options: []) { attributes, range, _ in
+            attributeRanges.append((range, attributes))
+        }
+        for (range, attributes) in attributeRanges {
+            source.setAttributes(self.attributes(attributes, applying: targetStyle), range: range)
         }
 
         attributedText = source
@@ -474,6 +742,31 @@ final class FormattingTextView: UITextView {
             let typingLocation = min(selectedRange.location, source.length - 1)
             typingAttributes = source.attributes(at: typingLocation, effectiveRange: nil)
         }
+        synchronizeInlineFormatButtons()
+    }
+
+    private func attributes(
+        _ source: [NSAttributedString.Key: Any],
+        applying style: TextStyle
+    ) -> [NSAttributedString.Key: Any] {
+        var attributes = source
+        let baseFont = (attributes[.font] as? UIFont) ?? font ?? UIFont.preferredFont(forTextStyle: .body)
+        attributes[.font] = Self.font(from: baseFont, isBold: style.isBold, isItalic: style.isItalic)
+        if style.isUnderlined {
+            attributes[.underlineStyle] = NSUnderlineStyle.single.rawValue
+        } else {
+            attributes.removeValue(forKey: .underlineStyle)
+        }
+        if style.isStruckThrough {
+            attributes[.strikethroughStyle] = NSUnderlineStyle.single.rawValue
+        } else {
+            attributes.removeValue(forKey: .strikethroughStyle)
+        }
+        attributes[.paragraphStyle] = Self.paragraphStyle(
+            from: attributes[.paragraphStyle],
+            indentationLevel: style.indentationLevel
+        )
+        return attributes
     }
 
     private func styleForSelection(in text: NSAttributedString, range: NSRange) -> TextStyle {
@@ -617,14 +910,15 @@ final class FormattingTextView: UITextView {
         }
 
         let source = NSMutableAttributedString(attributedString: attributedText ?? NSAttributedString())
-        let baseFont = font ?? UIFont.preferredFont(forTextStyle: .body)
-        let attributes: [NSAttributedString.Key: Any] = [
-            .font: Self.font(from: baseFont, isBold: false, isItalic: false),
-            .foregroundColor: textColor ?? UIColor.label
-        ]
+        var attributes = typingAttributes
+        if attributes.isEmpty {
+            attributes = plainTextAttributes()
+        }
+        attributes[.foregroundColor] = textColor ?? UIColor.label
         source.replaceCharacters(in: replacementRange, with: NSAttributedString(string: insertedText, attributes: attributes))
         attributedText = source
         selectedRange = NSRange(location: safeLocation + (insertedText as NSString).length, length: 0)
         typingAttributes = attributes
+        synchronizeInlineFormatButtons()
     }
 }

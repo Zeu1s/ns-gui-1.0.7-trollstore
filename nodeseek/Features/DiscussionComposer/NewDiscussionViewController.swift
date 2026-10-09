@@ -167,11 +167,7 @@ final class NewDiscussionViewController: UIViewController {
             action: #selector(imageTapped)
         )
         imageItem.accessibilityLabel = "插入图片"
-        let spacer = UIBarButtonItem(systemItem: .flexibleSpace)
-        let editorToolbar = UIToolbar()
-        editorToolbar.items = [imageItem, spacer]
-        editorToolbar.sizeToFit()
-        editorTextView.inputAccessoryView = editorToolbar
+        editorTextView.setSupplementaryAccessoryItems([imageItem])
 
         let helperLabel = UILabel()
         helperLabel.text = "支持 Markdown 和图片链接"
@@ -239,7 +235,7 @@ final class NewDiscussionViewController: UIViewController {
     @objc private func visibilityTapped() {
         let alert = UIAlertController(title: "阅读限制", message: nil, preferredStyle: .actionSheet)
         let options = [(0, "公开")]
-            + (1...10).map { ($0, "Lv \($0)") }
+            + (1...6).map { ($0, "Lv \($0)") }
             + [(255, "私有")]
         options.forEach { rank, title in
             alert.addAction(UIAlertAction(title: title, style: .default) { [weak self] _ in
@@ -395,26 +391,11 @@ final class NewDiscussionViewController: UIViewController {
     }
 
     private func presentNodeImageKeyInput() {
-        let alert = UIAlertController(
-            title: "填写 NodeImage API Key",
-            message: "输入已有的 API Key 后即可插入图片。",
-            preferredStyle: .alert
-        )
-        alert.addTextField { field in
-            field.placeholder = "X-API-Key"
-            field.textContentType = .password
-            field.autocapitalizationType = .none
-            field.autocorrectionType = .no
-        }
-        alert.addAction(UIAlertAction(title: "取消", style: .cancel))
-        alert.addAction(UIAlertAction(title: "保存", style: .default) { [weak self, weak alert] _ in
+        presentNodeImageAuthorization { [weak self] key in
             guard let self else { return }
-            let key = NodeImageAPIKeyNormalizer.normalized(alert?.textFields?.first?.text ?? "")
-            guard key.isEmpty == false else { return }
             self.nodeImageAPIKeyStore.save(apiKey: key)
             self.presentPhotoLibraryPicker()
-        })
-        present(alert, animated: true)
+        }
     }
 
     private func presentPhotoLibraryPicker() {

@@ -21,12 +21,20 @@ final class DetailMagicTabsNode: ASDisplayNode {
     private let tabs: [Tab]
     private let titleNodes: [ASButtonNode]
     private let onLayoutInvalidated: () -> Void
+    private let onSelectionChanged: (Int) -> Void
     private let contentBackgroundNode = ASDisplayNode()
-    private var selectedIndex = 0
+    private var selectedIndex: Int
 
-    init(tabs: [Tab], onLayoutInvalidated: @escaping () -> Void) {
+    init(
+        tabs: [Tab],
+        initialSelectedIndex: Int = 0,
+        onSelectionChanged: @escaping (Int) -> Void = { _ in },
+        onLayoutInvalidated: @escaping () -> Void
+    ) {
         self.tabs = tabs
         self.onLayoutInvalidated = onLayoutInvalidated
+        self.onSelectionChanged = onSelectionChanged
+        self.selectedIndex = min(max(initialSelectedIndex, 0), max(tabs.count - 1, 0))
         self.titleNodes = tabs.map { tab in
             let node = ASButtonNode()
             node.accessibilityLabel = "切换到 \(tab.title)"
@@ -70,6 +78,7 @@ final class DetailMagicTabsNode: ASDisplayNode {
     @objc private func tabTapped(_ sender: ASButtonNode) {
         guard let index = titleNodes.firstIndex(where: { $0 === sender }), selectedIndex != index else { return }
         selectedIndex = index
+        onSelectionChanged(index)
         configureTitleNodes()
         setNeedsLayout()
         onLayoutInvalidated()

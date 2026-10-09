@@ -101,12 +101,12 @@ private extension NodeSeekSplashAnimator {
         nFinalStrokeLayer.name = "splash.n.finalStroke"
         sLayer.name = "splash.s"
         dotLayer.name = "splash.dot"
-        leftWaveLayer.name = "splash.nodeseek.leftWaves"
+        leftWaveLayer.name = "splash.nodeseek.leftWave"
         nodeCoreLayer.name = "splash.nodeseek.core"
         nodeEyesLayer.name = "splash.nodeseek.eyes"
         brandImageLayer.name = "splash.nodeseek.image"
         brandGlowLayer.name = "splash.nodeseek.glow"
-        rightWaveLayer.name = "splash.nodeseek.rightWaves"
+        rightWaveLayer.name = "splash.nodeseek.rightWave"
         wordmarkLayer.name = "splash.nodeseek.wordmark"
         wordmarkLeftLayer.name = "splash.nodeseek.wordmark.left"
         wordmarkRightLayer.name = "splash.nodeseek.wordmark.right"
@@ -146,7 +146,6 @@ private extension NodeSeekSplashAnimator {
         brandImageLayer.cornerRadius = brandSide * 0.2237
         brandImageLayer.masksToBounds = true
 
-        // 柔和的品牌色光晕，衬托 Logo 入场
         let glowSide = brandSide * 1.9
         brandGlowLayer.frame = CGRect(
             x: glyphFrame.midX - glowSide / 2,
@@ -247,20 +246,6 @@ private extension NodeSeekSplashAnimator {
         }
     }
 
-    func wavePath(center: CGPoint, radius: CGFloat, opensToLeft: Bool) -> UIBezierPath {
-        let path = UIBezierPath()
-        for multiplier in [0.68, 1.0] {
-            let waveRadius = radius * multiplier
-            let direction: CGFloat = opensToLeft ? -1 : 1
-            path.move(to: CGPoint(x: center.x, y: center.y - waveRadius))
-            path.addQuadCurve(
-                to: CGPoint(x: center.x, y: center.y + waveRadius),
-                controlPoint: CGPoint(x: center.x + direction * waveRadius * 0.78, y: center.y)
-            )
-        }
-        return path
-    }
-
     func applyBrandColors(for traitCollection: UITraitCollection) {
         let darkMode = traitCollection.userInterfaceStyle == .dark
         let coreColor = darkMode ? UIColor.white : UIColor.black
@@ -279,6 +264,18 @@ private extension NodeSeekSplashAnimator {
         wordmarkLayer.foregroundColor = NodeSeekSplashVector.wordmarkColor(for: traitCollection).cgColor
         wordmarkLeftLayer.foregroundColor = NodeSeekSplashVector.wordmarkColor(for: traitCollection).cgColor
         wordmarkRightLayer.foregroundColor = NodeSeekSplashVector.wordmarkColor(for: traitCollection).cgColor
+    }
+
+    /// 保留左右括号的原入场轨迹，但只绘制外层曲线，消除截图中的重叠括号。
+    func wavePath(center: CGPoint, radius: CGFloat, opensToLeft: Bool) -> UIBezierPath {
+        let path = UIBezierPath()
+        let direction: CGFloat = opensToLeft ? -1 : 1
+        path.move(to: CGPoint(x: center.x, y: center.y - radius))
+        path.addQuadCurve(
+            to: CGPoint(x: center.x, y: center.y + radius),
+            controlPoint: CGPoint(x: center.x + direction * radius * 0.78, y: center.y)
+        )
+        return path
     }
 
     func layoutLayers(in bounds: CGRect) {
@@ -507,7 +504,6 @@ private extension NodeSeekSplashAnimator {
 
     func animateBrandImageLayer(beginTime: CFTimeInterval, duration: CFTimeInterval) {
         animateBrandLayer(brandImageLayer, beginTime: beginTime, duration: duration * 0.6)
-        // 弹性入场：轻微过冲后回落，配合一点上浮，比线性缩放更有生气
         let scale = CAKeyframeAnimation(keyPath: "transform.scale")
         scale.values = [0.78, 1.045, 0.99, 1.0]
         scale.keyTimes = [0, 0.55, 0.82, 1]

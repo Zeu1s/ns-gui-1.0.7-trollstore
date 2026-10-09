@@ -1172,6 +1172,7 @@ struct PostDetailViewControllerTests {
         var favoriteTapCount = 0
         var replyTapCount = 0
         var commentTapCount = 0
+        var editTapCount = 0
         let node = PostBodyCellNode(
             content: header,
             renderedContent: [],
@@ -1194,6 +1195,10 @@ struct PostDetailViewControllerTests {
             onCommentTapped: {
                 commentTapCount += 1
             },
+            onEditTapped: {
+                editTapCount += 1
+            },
+            showsDiscussionEditAction: true,
             onTextLayoutInvalidated: {}
         )
         _ = node.layoutThatFits(ASSizeRange(
@@ -1207,8 +1212,9 @@ struct PostDetailViewControllerTests {
         node.debugTapReplyAction()
         node.debugTapCommentAction()
 
+        node.debugTapEditAction()
         #expect(node.debugReactionActionTitles == [nil, "1", nil, "2"])
-        #expect(node.debugFooterActionAccessibilityLabels == ["点赞", "加鸡腿 1", "反对", "收藏 2", "回复楼主", "评论帖子"])
+        #expect(node.debugFooterActionAccessibilityLabels == ["点赞", "加鸡腿 1", "反对", "收藏 2", "回复楼主", "评论帖子", "编辑帖子"])
         #expect(node.debugFavoriteActionColor == .systemYellow)
         #expect(likeTapCount == 1)
         #expect(chickenLegTapCount == 1)
@@ -1216,6 +1222,7 @@ struct PostDetailViewControllerTests {
         #expect(favoriteTapCount == 1)
         #expect(replyTapCount == 1)
         #expect(commentTapCount == 1)
+        #expect(editTapCount == 1)
     }
 
     @Test func postBodyCellUpdatesLikeReactionInPlace() {
@@ -1263,7 +1270,7 @@ struct PostDetailViewControllerTests {
 
         #expect(node.debugReactionActionTitles[1] == "2")
         #expect(node.debugFooterActionAccessibilityLabels[1] == "加鸡腿 2")
-        #expect(node.debugChickenLegActionColor == .systemOrange)
+        #expect(node.debugChickenLegActionColor == .label)
     }
 
     @Test func postBodyCellUpdatesOpposeReactionInPlace() {
@@ -1573,7 +1580,7 @@ struct PostDetailViewControllerTests {
 
         #expect(node.debugReactionActionTitles[1] == "2")
         #expect(node.debugFooterActionAccessibilityLabels[1] == "加鸡腿 2")
-        #expect(node.debugChickenLegActionColor == .systemOrange)
+        #expect(node.debugChickenLegActionColor == .label)
     }
 
     @Test func commentCellUpdatesOpposeReactionInPlace() {
@@ -1792,6 +1799,18 @@ struct PostDetailViewControllerTests {
         #expect(DetailCodeBlockLayout.contentWidth(for: codeBlock.text, viewportWidth: 180) == 180)
     }
 
+    @Test func terminalCodeBlockUsesTerminalCellsForCJKAlignment() {
+        let codeBlock = RenderedCodeBlock(text: "CPU：  ✔ AES-NI", style: .terminal)
+
+        #expect(DetailCodeBlockLayout.terminalColumnCount(for: "C") == 1)
+        #expect(DetailCodeBlockLayout.terminalColumnCount(for: "中") == 2)
+        #expect(DetailCodeBlockLayout.terminalColumnCount(for: "✔") == 1)
+        #expect(
+            DetailCodeBlockLayout.contentWidth(for: codeBlock, viewportWidth: 80)
+                == DetailCodeBlockLayout.terminalNaturalCodeWidth(for: codeBlock.text)
+        )
+    }
+
     @Test func codeBlockHeightUsesFontLineHeightWithoutPerLineInflation() {
         let lineCount = 80
         let codeBlock = RenderedCodeBlock(
@@ -1912,6 +1931,114 @@ struct PostDetailViewControllerTests {
         #expect(reference?.displayText.contains("Lv.9") == true)
         #expect(reference?.displayText.contains("#15") == true)
         #expect(reference?.displayText.contains("原楼的完整内容") == true)
+    }
+
+    @Test func flatReplyReferenceKeepsAuthorFloorAndSummaryOnOneLine() {
+        let original = Comment(
+            id: "original",
+            anchorID: "15",
+            authorName: "alpha",
+            avatarURL: nil,
+            authorBadgeTexts: ["Lv.9"],
+            floorText: "#15",
+            createdAtText: nil,
+            contentHTML: "<p>原楼的完整内容</p>"
+        )
+        let reply = Comment(
+            id: "reply",
+            anchorID: "16",
+            authorName: "beta",
+            avatarURL: nil,
+            floorText: "#16",
+            createdAtText: nil,
+            contentHTML: "<p>@alpha <a href=\"#15\">#15</a> 回复内容</p>"
+        )
+
+        let reference = CommentReplyReferenceResolver.reference(for: reply, among: [original, reply])
+
+        #expect(reference?.flatDisplayText.contains("回复 @alpha") == true)
+        #expect(reference?.flatDisplayText.contains("#15") == true)
+        #expect(reference?.flatDisplayText.contains("原楼的完整内容") == true)
+        #expect(reference?.flatDisplayText.contains("\n") == false)
+    }
+
+    @Test func imageOnlyReplyReferenceShowsImagePlaceholder() {
+        let original = Comment(
+            id: "original",
+            anchorID: "15",
+            authorName: "alpha",
+            avatarURL: nil,
+            authorBadgeTexts: [],
+            floorText: "#15",
+            createdAtText: nil,
+            contentHTML: "<p><img src=\"https://example.com/1.png\"></p><p><img src=\"https://example.com/2.png\"></p>"
+        )
+        let reply = Comment(
+            id: "reply",
+            anchorID: "16",
+            authorName: "beta",
+            avatarURL: nil,
+            floorText: "#16",
+            createdAtText: nil,
+            contentHTML: "<p>@alpha <a href=\"#15\">#15</a> <img src=\"https://example.com/3.png\"></p>"
+        )
+
+        let reference = CommentReplyReferenceResolver.reference(for: reply, among: [original, reply])
+
+        #expect(reference?.flatDisplayText.contains("回复 @alpha") == true)
+        #expect(reference?.flatDisplayText.contains("#15") == true)
+        #expect(reference?.flatDisplayText.contains("图片") == true)
+    }
+
+    @Test func replyReferenceFallsBackToNumericAnchorFloorAndKeepsFullSummary() {
+        let longText = String(repeating: "完整内容", count: 60)
+        let original = Comment(
+            id: "original",
+            anchorID: "15",
+            authorName: "alpha",
+            avatarURL: nil,
+            authorBadgeTexts: [],
+            floorText: nil,
+            createdAtText: nil,
+            contentHTML: "<p>\(longText)</p>"
+        )
+        let reply = Comment(
+            id: "reply",
+            anchorID: "16",
+            authorName: "beta",
+            avatarURL: nil,
+            floorText: "#16",
+            createdAtText: nil,
+            contentHTML: "<p>@alpha <a href=\"#15\">#15</a> 回复内容</p>"
+        )
+
+        let reference = CommentReplyReferenceResolver.reference(for: reply, among: [original, reply])
+
+        #expect(reference?.resolvedFloor == "#15")
+        #expect(reference?.flatDisplayText.contains("#15") == true)
+        #expect(reference?.flatDisplayText.contains(longText) == true)
+        #expect(reference?.flatDisplayText.hasSuffix("...") == false)
+    }
+
+    @Test func userIDResolverSupportsNodePrefixedPaths() throws {
+        let nodeURL = try #require(URL(string: "https://www.nodeseek.com/n31037"))
+        #expect(NodeSeekUserIDResolver.uid(from: nodeURL) == 31037)
+
+        let memberURL = try #require(URL(string: "https://www.nodeseek.com/member?t=hogue"))
+        #expect(NodeSeekUserIDResolver.uid(from: memberURL) == nil)
+    }
+
+    @Test func resolvesMemberLinkToUserProfileDestination() throws {
+        let baseURL = try #require(URL(string: "https://www.nodeseek.com"))
+        let url = try #require(URL(string: "/member?t=hogue", relativeTo: baseURL)?.absoluteURL)
+
+        let destination = try #require(PostDetailLinkResolver.destination(for: url, baseURL: baseURL))
+
+        guard case .userProfile(let resolvedURL) = destination else {
+            Issue.record("Expected user profile destination")
+            return
+        }
+        #expect(resolvedURL.absoluteString.contains("/member"))
     }
 
     @Test func resolvesNodeSeekPostLinksWithoutPageToNativeDetailPageOne() throws {
@@ -2901,7 +3028,7 @@ struct PostDetailViewControllerTests {
         #expect(loadedLayout.height == 160)
     }
 
-    @Test func imageBlockUsesFullWidthPlaceholderForReportImages() {
+    @Test func imageBlockUsesShortAspectFitPlaceholderForReportImages() {
         let layout = DetailImageBlockLayout.measure(
             originalSize: .zero,
             constrainedSize: CGSize(width: 320, height: CGFloat.greatestFiniteMagnitude),
@@ -2909,7 +3036,28 @@ struct PostDetailViewControllerTests {
         )
 
         #expect(layout.width == 320)
-        #expect(layout.height > 320)
+        #expect(layout.height == 180)
+    }
+
+    @Test func reportImageBlockUsesCachedNativeSVGSizeForInitialMeasurement() throws {
+        let imageURL = try #require(URL(string: "https://report.check.place/ip/example.svg"))
+        let node = DetailImageBlockNode(
+            imageBlock: RenderedImageBlock(url: imageURL, altText: nil),
+            imageURLs: [imageURL],
+            imageIndex: 0,
+            initialImageSize: CGSize(width: 400, height: 2_000),
+            resolvedKind: .report,
+            onImageTapped: { _, _ in },
+            onLayoutInvalidated: {}
+        )
+
+        let layout = node.layoutThatFits(ASSizeRange(
+            min: .zero,
+            max: CGSize(width: 320, height: CGFloat.greatestFiniteMagnitude)
+        ))
+
+        #expect(layout.size.width == 320)
+        #expect(layout.size.height == 1_600)
     }
 
     @Test func imageBlockNodeUsesCachedImageSizeForInitialMeasurement() throws {
@@ -2932,7 +3080,7 @@ struct PostDetailViewControllerTests {
         #expect(layout.size.height == 160)
     }
 
-    @Test func imageBlockNodeRequestsRowReloadWhenLoadedImageIsShorterThanPlaceholder() throws {
+    @Test func imageBlockNodeRequestsRowReloadOnlyWhenImageHeightDecreases() throws {
         let imageURL = try #require(URL(string: "https://i.111666.best/image/wide.webp"))
         var didRequestRowReload = false
         var didRequestGeneralRelayout = false
@@ -2957,6 +3105,62 @@ struct PostDetailViewControllerTests {
 
         #expect(didRequestRowReload)
         #expect(didRequestGeneralRelayout == false)
+    }
+
+    @Test func cachedReportImageDoesNotInvalidateLayoutWhenTheLoadedSizeIsUnchanged() throws {
+        let imageURL = try #require(URL(string: "https://report.check.place/ip/example.svg"))
+        var didRequestRowReload = false
+        var didRequestGeneralRelayout = false
+        let cachedSize = CGSize(width: 400, height: 2_000)
+        let node = DetailImageBlockNode(
+            imageBlock: RenderedImageBlock(url: imageURL, altText: nil),
+            imageURLs: [imageURL],
+            imageIndex: 0,
+            initialImageSize: cachedSize,
+            resolvedKind: .report,
+            onImageTapped: { _, _ in },
+            onImageHeightReduced: {
+                didRequestRowReload = true
+            },
+            onLayoutInvalidated: {
+                didRequestGeneralRelayout = true
+            }
+        )
+
+        _ = node.layoutThatFits(ASSizeRange(
+            min: .zero,
+            max: CGSize(width: 320, height: CGFloat.greatestFiniteMagnitude)
+        ))
+        node.updateLoadedImageSize(cachedSize, resolvedKind: .report)
+
+        #expect(didRequestRowReload == false)
+        #expect(didRequestGeneralRelayout == false)
+    }
+
+    @Test func imageBlockNodeKeepsReportPresentationAfterImageTypeResolution() throws {
+        let imageURL = try #require(URL(string: "https://example.com/network.webp"))
+        let node = DetailImageBlockNode(
+            imageBlock: RenderedImageBlock(url: imageURL, altText: nil),
+            imageURLs: [imageURL],
+            imageIndex: 0,
+            resolvedKind: .report,
+            onImageTapped: { _, _ in },
+            onLayoutInvalidated: {}
+        )
+
+        _ = node.layoutThatFits(ASSizeRange(
+            min: .zero,
+            max: CGSize(width: 320, height: CGFloat.greatestFiniteMagnitude)
+        ))
+        node.updateLoadedImageSize(CGSize(width: 1200, height: 1600), resolvedKind: .normal)
+
+        let layout = node.layoutThatFits(ASSizeRange(
+            min: .zero,
+            max: CGSize(width: 320, height: CGFloat.greatestFiniteMagnitude)
+        ))
+
+        #expect(layout.size.width == 320)
+        #expect(layout.size.height == 427)
     }
 
     @Test func imageBlockNodeCanSwitchToReportLayoutAfterSVGContentIsResolved() throws {

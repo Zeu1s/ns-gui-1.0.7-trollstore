@@ -7,11 +7,37 @@ import Foundation
 import WebKit
 
 enum WebViewAccessibilityScriptFactory {
+    static func makeResponsiveViewportScript(allowsUserZoom: Bool = false) -> WKUserScript {
+        let viewportContent = allowsUserZoom
+            ? "width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=5, user-scalable=yes, viewport-fit=cover"
+            : "width=device-width, initial-scale=1, viewport-fit=cover"
+        return WKUserScript(
+            source: """
+            (() => {
+              const marker = 'data-nodeseek-responsive-viewport';
+              const ensureViewport = () => {
+                if (document.querySelector('meta[name="viewport"]')) return;
+                const viewport = document.createElement('meta');
+                viewport.name = 'viewport';
+                viewport.content = '\(viewportContent)';
+                viewport.setAttribute(marker, 'true');
+                (document.head || document.documentElement).appendChild(viewport);
+              };
+              ensureViewport();
+              document.addEventListener('DOMContentLoaded', ensureViewport, { once: true });
+            })();
+            """,
+            injectionTime: .atDocumentStart,
+            forMainFrameOnly: true
+        )
+    }
+
     static func makeDisplayScaleScript(
-        scale: CGFloat = AppDisplayScaleSettings.shared.scale
+        scale: CGFloat = AppDisplayScaleSettings.shared.scale,
+        allowsUserZoom: Bool = false
     ) -> WKUserScript {
         WKUserScript(
-            source: displayScaleJavaScript(scale: scale),
+            source: displayScaleJavaScript(scale: scale, allowsUserZoom: allowsUserZoom),
             injectionTime: .atDocumentStart,
             forMainFrameOnly: true
         )
@@ -23,8 +49,11 @@ enum WebViewAccessibilityScriptFactory {
         "window.__nodeSeekApplyDisplayScale && window.__nodeSeekApplyDisplayScale(\(normalizedScaleLiteral(scale)));"
     }
 
-    private static func displayScaleJavaScript(scale: CGFloat) -> String {
-        """
+    private static func displayScaleJavaScript(scale: CGFloat, allowsUserZoom: Bool) -> String {
+        let viewportContent = allowsUserZoom
+            ? "width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=5, user-scalable=yes, viewport-fit=cover"
+            : "width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"
+        return """
         (() => {
           const host = window.location.hostname.toLowerCase();
           if (host !== 'nodeseek.com' && !host.endsWith('.nodeseek.com')) return;
@@ -36,9 +65,7 @@ enum WebViewAccessibilityScriptFactory {
             if (!root) return;
             const route = pageRoute();
             const isPrivateMessagePage = route.includes('/message');
-            const isProfilePage = route.includes('/space/');
             root.classList.toggle('nodeseek-private-message-page', isPrivateMessagePage);
-            root.classList.toggle('nodeseek-profile-page', isProfilePage);
 
             if (isPrivateMessagePage) {
               const messageCandidates = Array.from(document.querySelectorAll('[class*="message"], [class*="conversation"], [class*="chat"]'));
@@ -61,33 +88,6 @@ enum WebViewAccessibilityScriptFactory {
               });
             }
 
-            if (!isProfilePage) return;
-            document.querySelectorAll('[class*="medal"], [class*="badge"], img[alt*="勋章"], img[title*="勋章"]').forEach((element) => {
-              const label = `${element.getAttribute('alt') || ''} ${element.getAttribute('title') || ''} ${element.textContent || ''}`;
-              const className = String(element.getAttribute('class') || '').toLowerCase();
-              if (label.includes('勋章') || className.includes('medal')) {
-                element.classList.add('nodeseek-profile-medal');
-                element.parentElement?.classList.add('nodeseek-profile-medal-list');
-              }
-            });
-            const profileStatLabels = ['加入天数', '等级', 'Lv', '鸡腿数目', '主题帖数', '评论数'];
-            const statCards = [];
-            document.querySelectorAll('[class*="stat"], [class*="data"], [class*="info"], [class*="card"]').forEach((element) => {
-              const label = (element.textContent || '').replace(/\\s+/g, '');
-              if (profileStatLabels.some((item) => label.includes(item)) && label.length <= 96) {
-                element.classList.add('nodeseek-profile-stat-card');
-                statCards.push(element);
-              }
-              if (label.includes('加入天数') || label.includes('等级') || label.includes('Lv')) {
-                element.classList.add('nodeseek-profile-priority-stat');
-              }
-            });
-            statCards.forEach((card) => {
-              const parent = card.parentElement;
-              if (!parent) return;
-              const directCards = Array.from(parent.children).filter((child) => child.classList.contains('nodeseek-profile-stat-card'));
-              if (directCards.length >= 2) parent.classList.add('nodeseek-profile-stats-grid');
-            });
           };
           const userBadgeState = {};
           const userBadgeStyleID = 'nodeseek-user-badge-style';
@@ -126,7 +126,7 @@ enum WebViewAccessibilityScriptFactory {
                 const createdAt = detail.created_at ? new Date(detail.created_at).getTime() : NaN;
                 const joinDays = Number.isFinite(createdAt) ? Math.max(1, Math.ceil((Date.now() - createdAt) / 86400000)) : 0;
                 const coin = Number(detail.coin) || 0;
-                const level = Number(detail.rank) || Math.min(6, Math.floor(Math.sqrt(coin) / 10));
+                const level = Math.min(6, Number(detail.rank) || Math.floor(Math.sqrt(coin) / 10));
                 const badgeText = 'Lv ' + level + (joinDays > 0 ? ' · ' + joinDays + '天' : '');
                 userBadgeState[userId] = badgeText;
                 appendUserBadge(anchor, badgeText);
@@ -174,7 +174,7 @@ enum WebViewAccessibilityScriptFactory {
             if (viewport) {
               viewport.setAttribute(
                 'content',
-                'width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover'
+                '\(viewportContent)'
               );
             }
           };

@@ -42,13 +42,18 @@ enum DetailContentBlockNodeFactory {
     static func makeNodes(
         from blocks: [RenderedContentBlock],
         onImageTapped: @escaping ([URL], Int) -> Void,
+        onImageLongPressed: @escaping (URL) -> Void = { _ in },
         onLinkTapped: @escaping (URL) -> Void,
         onSignatureLinkCandidatesTapped: @escaping ([DetailLinkCandidate]) -> Void = { _ in },
         onTextLayoutInvalidated: @escaping () -> Void,
         imageSizeProvider: @escaping (URL) -> CGSize? = { _ in nil },
         onImageSizeResolved: @escaping (URL, CGSize) -> Void = { _, _ in },
         onImageHeightReduced: @escaping () -> Void = {},
-        forceReportImages: Bool = false
+        onImageHeightIncreased: @escaping () -> Void = {},
+        forceReportImages: Bool = false,
+        magicTabSelectionKeyPrefix: String? = nil,
+        selectedMagicTabIndex: @escaping (String) -> Int? = { _ in nil },
+        onMagicTabSelected: @escaping (String, Int) -> Void = { _, _ in }
     ) -> [ASDisplayNode] {
         let imageURLs = imageURLs(in: blocks)
         var imageIndex = 0
@@ -57,13 +62,18 @@ enum DetailContentBlockNodeFactory {
             imageURLs: imageURLs,
             imageIndex: &imageIndex,
             onImageTapped: onImageTapped,
+            onImageLongPressed: onImageLongPressed,
             onLinkTapped: onLinkTapped,
             onSignatureLinkCandidatesTapped: onSignatureLinkCandidatesTapped,
             onTextLayoutInvalidated: onTextLayoutInvalidated,
             imageSizeProvider: imageSizeProvider,
             onImageSizeResolved: onImageSizeResolved,
             onImageHeightReduced: onImageHeightReduced,
-            forceReportImages: forceReportImages
+            onImageHeightIncreased: onImageHeightIncreased,
+            forceReportImages: forceReportImages,
+            magicTabSelectionKeyPrefix: magicTabSelectionKeyPrefix,
+            selectedMagicTabIndex: selectedMagicTabIndex,
+            onMagicTabSelected: onMagicTabSelected
         )
     }
 
@@ -72,13 +82,18 @@ enum DetailContentBlockNodeFactory {
         imageURLs: [URL],
         imageIndex: inout Int,
         onImageTapped: @escaping ([URL], Int) -> Void,
+        onImageLongPressed: @escaping (URL) -> Void,
         onLinkTapped: @escaping (URL) -> Void,
         onSignatureLinkCandidatesTapped: @escaping ([DetailLinkCandidate]) -> Void,
         onTextLayoutInvalidated: @escaping () -> Void,
         imageSizeProvider: @escaping (URL) -> CGSize?,
         onImageSizeResolved: @escaping (URL, CGSize) -> Void,
         onImageHeightReduced: @escaping () -> Void,
-        forceReportImages: Bool = false
+        onImageHeightIncreased: @escaping () -> Void,
+        forceReportImages: Bool = false,
+        magicTabSelectionKeyPrefix: String? = nil,
+        selectedMagicTabIndex: @escaping (String) -> Int? = { _ in nil },
+        onMagicTabSelected: @escaping (String, Int) -> Void = { _, _ in }
     ) -> [ASDisplayNode] {
         return blocks.compactMap { block -> ASDisplayNode? in
             switch block {
@@ -89,6 +104,7 @@ enum DetailContentBlockNodeFactory {
                     imageSizeProvider: imageSizeProvider,
                     onImageSizeResolved: onImageSizeResolved,
                     onImageTapped: onImageTapped,
+                    onImageLongPressed: onImageLongPressed,
                     onLinkTapped: onLinkTapped,
                     onSignatureLinkCandidatesTapped: onSignatureLinkCandidatesTapped,
                     onLayoutInvalidated: onTextLayoutInvalidated
@@ -116,8 +132,10 @@ enum DetailContentBlockNodeFactory {
                     resolvedKind: forceReportImages ? .report : nil,
                     animateAppearance: forceReportImages,
                     onImageTapped: onImageTapped,
+                    onImageLongPressed: onImageLongPressed,
                     onImageSizeResolved: onImageSizeResolved,
                     onImageHeightReduced: onImageHeightReduced,
+                    onImageHeightIncreased: onImageHeightIncreased,
                     onLayoutInvalidated: onTextLayoutInvalidated
                 )
             case .magicTabs(let magicTabs):
@@ -128,20 +146,37 @@ enum DetailContentBlockNodeFactory {
                         imageURLs: imageURLs,
                         imageIndex: &imageIndex,
                         onImageTapped: onImageTapped,
+                        onImageLongPressed: onImageLongPressed,
                         onLinkTapped: onLinkTapped,
                         onSignatureLinkCandidatesTapped: onSignatureLinkCandidatesTapped,
                         onTextLayoutInvalidated: onTextLayoutInvalidated,
                         imageSizeProvider: imageSizeProvider,
                         onImageSizeResolved: onImageSizeResolved,
                         onImageHeightReduced: onImageHeightReduced,
-                        forceReportImages: true
+                        onImageHeightIncreased: onImageHeightIncreased,
+                        forceReportImages: true,
+                        magicTabSelectionKeyPrefix: magicTabSelectionKeyPrefix,
+                        selectedMagicTabIndex: selectedMagicTabIndex,
+                        onMagicTabSelected: onMagicTabSelected
                     )
                     if bodyNodes.isEmpty == false {
                         tabs.append(DetailMagicTabsNode.Tab(title: tab.title, bodyNodes: bodyNodes))
                     }
                 }
                 guard tabs.isEmpty == false else { return nil }
-                return DetailMagicTabsNode(tabs: tabs, onLayoutInvalidated: onTextLayoutInvalidated)
+                let tabKey = magicTabSelectionKeyPrefix.map {
+                    "\($0):\(tabs.map(\.title).joined(separator: "|"))"
+                }
+                return DetailMagicTabsNode(
+                    tabs: tabs,
+                    initialSelectedIndex: tabKey.flatMap(selectedMagicTabIndex) ?? 0,
+                    onSelectionChanged: { index in
+                        if let tabKey {
+                            onMagicTabSelected(tabKey, index)
+                        }
+                    },
+                    onLayoutInvalidated: onTextLayoutInvalidated
+                )
             case .iframeLink(let iframeBlock):
                 return DetailIFrameLinkNode(
                     iframeBlock: iframeBlock,
@@ -157,13 +192,18 @@ enum DetailContentBlockNodeFactory {
                     imageURLs: imageURLs,
                     imageIndex: &imageIndex,
                     onImageTapped: onImageTapped,
+                    onImageLongPressed: onImageLongPressed,
                     onLinkTapped: onLinkTapped,
                     onSignatureLinkCandidatesTapped: onSignatureLinkCandidatesTapped,
                     onTextLayoutInvalidated: onTextLayoutInvalidated,
                     imageSizeProvider: imageSizeProvider,
                     onImageSizeResolved: onImageSizeResolved,
                     onImageHeightReduced: onImageHeightReduced,
-                    forceReportImages: forceReportImages
+                    onImageHeightIncreased: onImageHeightIncreased,
+                    forceReportImages: forceReportImages,
+                    magicTabSelectionKeyPrefix: magicTabSelectionKeyPrefix,
+                    selectedMagicTabIndex: selectedMagicTabIndex,
+                    onMagicTabSelected: onMagicTabSelected
                 )
                 guard childNodes.isEmpty == false else { return nil }
                 return DetailQuoteBlockNode(children: childNodes)
@@ -480,10 +520,22 @@ final class DetailCodeBlockView: UIView {
     private let scrollView = UIScrollView()
     private let contentView = UIView()
     private let codeLabel = UILabel()
+    private let terminalCanvasView: TerminalReportCanvasView?
     private let chromeDotsStack = UIStackView()
     private let copyButton = UIButton(type: .system)
     private var contentWidthConstraint: NSLayoutConstraint?
     private var copyResetWorkItem: DispatchWorkItem?
+    private var terminalHeightConstraint: NSLayoutConstraint?
+    private var actionsButton = UIButton(type: .system)
+
+    /// 供初始缩放写入绘制比例（全屏查看器里的同名属性属于另一个类）。
+    private var canvasView: TerminalReportCanvasView? {
+        terminalCanvasView
+    }
+
+    private var showsChrome: Bool {
+        codeBlock.style == .standard
+    }
 
     init(
         codeBlock: RenderedCodeBlock,
@@ -491,11 +543,24 @@ final class DetailCodeBlockView: UIView {
     ) {
         self.codeBlock = codeBlock
         self.pasteboardStringWriter = pasteboardStringWriter
+        self.terminalCanvasView = codeBlock.style == .terminal
+            ? TerminalReportCanvasView(codeBlock: codeBlock)
+            : nil
         super.init(frame: .zero)
         configureView()
-        configureChromeDots()
-        configureCopyButton()
+        if showsChrome {
+            configureChromeDots()
+            configureCopyButton()
+        }
         configureScrollView()
+    }
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        // 约束必须在视图进入层级后激活：init 期间按钮与 self 尚无共同祖先，
+        // AsyncDisplayKit 异步挂载时激活约束会 SIGABRT（build91/92 崩溃实锤）。
+        guard window != nil, codeBlock.style == .terminal, actionsButton.superview == nil else { return }
+        configureTerminalActions()
     }
 
     required init?(coder: NSCoder) {
@@ -508,14 +573,56 @@ final class DetailCodeBlockView: UIView {
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        contentWidthConstraint?.constant = DetailCodeBlockLayout.contentWidth(
-            for: codeBlock.text,
+        let nextWidth = DetailCodeBlockLayout.contentWidth(
+            for: codeBlock,
             viewportWidth: bounds.width
         )
+        if let contentWidthConstraint,
+           abs(contentWidthConstraint.constant - nextWidth) > 0.5 {
+            contentWidthConstraint.constant = nextWidth
+        }
+        applyTerminalInlineZoom()
+    }
+
+    /// 终端内嵌自适应：按当前视图宽度算出比例，让整份报告左右完整可见，
+    /// 纵向随内容自然延展，不做高度截断。
+    /// 上限 90% 不放大、下限 50%；再宽就保留横向滑动，避免缩到不可读。
+    ///
+    /// 每次布局都重算并只在数值真变了时写入：无状态、幂等。
+    /// 用 hasApplied 之类的"只跑一次"标记会被 layoutSubviews 里那次
+    /// 通用宽度赋值（未缩放的自然宽度）覆盖掉，转屏也不会重算。
+    private func applyTerminalInlineZoom() {
+        guard codeBlock.style == .terminal, bounds.width > 0 else { return }
+
+        let scale = DetailCodeBlockLayout.terminalFitScale(
+            text: codeBlock.text,
+            availableWidth: bounds.width
+        )
+        canvasView?.displayScale = scale
+
+        let scaledWidth = DetailCodeBlockLayout.terminalInlineContentWidth(
+            text: codeBlock.text,
+            availableWidth: bounds.width
+        )
+        if let contentWidthConstraint,
+           abs(contentWidthConstraint.constant - scaledWidth) > 0.5 {
+            contentWidthConstraint.constant = scaledWidth
+        }
+
+        let scaledHeight = DetailCodeBlockLayout.terminalTextHeight(for: codeBlock.text) * scale
+        if let terminalHeightConstraint,
+           abs(terminalHeightConstraint.constant - scaledHeight) > 0.5 {
+            terminalHeightConstraint.constant = scaledHeight
+        }
+
+        scrollView.alwaysBounceHorizontal = true
+        scrollView.showsHorizontalScrollIndicator = true
     }
 
     private func configureView() {
-        backgroundColor = .secondarySystemBackground
+        backgroundColor = showsChrome
+            ? .secondarySystemBackground
+            : UIColor(red: 29 / 255, green: 29 / 255, blue: 29 / 255, alpha: 1)
         layer.cornerRadius = 8
         layer.masksToBounds = true
     }
@@ -582,27 +689,51 @@ final class DetailCodeBlockView: UIView {
         contentView.translatesAutoresizingMaskIntoConstraints = false
         scrollView.addSubview(contentView)
 
-        codeLabel.numberOfLines = 0
-        codeLabel.lineBreakMode = .byClipping
-        codeLabel.font = DetailCodeBlockLayout.codeFont
-        codeLabel.textColor = .label
-        codeLabel.text = codeBlock.text
-        codeLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
-        codeLabel.translatesAutoresizingMaskIntoConstraints = false
-        contentView.addSubview(codeLabel)
+        let contentNode: UIView
+        if let terminalCanvasView {
+            terminalCanvasView.translatesAutoresizingMaskIntoConstraints = false
+            contentView.addSubview(terminalCanvasView)
+            contentNode = terminalCanvasView
+        } else {
+            codeLabel.numberOfLines = 0
+            codeLabel.lineBreakMode = .byClipping
+            codeLabel.font = DetailCodeBlockLayout.codeFont
+            codeLabel.textColor = .label
+            codeLabel.attributedText = attributedCodeText()
+            codeLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
+            codeLabel.translatesAutoresizingMaskIntoConstraints = false
+            contentView.addSubview(codeLabel)
+            contentNode = codeLabel
+        }
 
         let widthConstraint = contentView.widthAnchor.constraint(
             equalToConstant: DetailCodeBlockLayout.contentWidth(
-                for: codeBlock.text,
+                for: codeBlock,
                 viewportWidth: DetailCodeBlockLayout.fallbackViewportWidth
             )
         )
         contentWidthConstraint = widthConstraint
 
+        let contentViewHeight: NSLayoutConstraint
+        if codeBlock.style == .terminal {
+            // 终端纵向完整显示：contentView 高度必须跟随内容撑开，
+            // 若等于 scrollView 可视高度会把超高报告压没（点开空白）。
+            contentViewHeight = contentView.heightAnchor.constraint(
+                greaterThanOrEqualTo: scrollView.frameLayoutGuide.heightAnchor
+            )
+        } else {
+            contentViewHeight = contentView.heightAnchor.constraint(
+                equalTo: scrollView.frameLayoutGuide.heightAnchor
+            )
+        }
+
         NSLayoutConstraint.activate([
             scrollView.leadingAnchor.constraint(equalTo: leadingAnchor),
             scrollView.trailingAnchor.constraint(equalTo: trailingAnchor),
-            scrollView.topAnchor.constraint(equalTo: topAnchor, constant: DetailCodeBlockLayout.chromeHeight),
+            scrollView.topAnchor.constraint(
+                equalTo: topAnchor,
+                constant: DetailCodeBlockLayout.contentTopInset(for: codeBlock.style)
+            ),
             scrollView.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -DetailCodeBlockLayout.bottomInset),
 
             widthConstraint,
@@ -610,13 +741,175 @@ final class DetailCodeBlockView: UIView {
             contentView.trailingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.trailingAnchor),
             contentView.topAnchor.constraint(equalTo: scrollView.contentLayoutGuide.topAnchor),
             contentView.bottomAnchor.constraint(equalTo: scrollView.contentLayoutGuide.bottomAnchor),
-            contentView.heightAnchor.constraint(equalTo: scrollView.frameLayoutGuide.heightAnchor),
+            contentViewHeight,
 
-            codeLabel.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: DetailCodeBlockLayout.horizontalInset),
-            codeLabel.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -DetailCodeBlockLayout.horizontalInset),
-            codeLabel.topAnchor.constraint(equalTo: contentView.topAnchor),
-            codeLabel.bottomAnchor.constraint(lessThanOrEqualTo: contentView.bottomAnchor)
+            contentNode.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: DetailCodeBlockLayout.horizontalInset),
+            contentNode.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -DetailCodeBlockLayout.horizontalInset),
+            contentNode.topAnchor.constraint(equalTo: contentView.topAnchor),
+            contentNode.bottomAnchor.constraint(lessThanOrEqualTo: contentView.bottomAnchor)
         ])
+
+        if let terminalCanvasView {
+            let heightConstraint = terminalCanvasView.heightAnchor.constraint(
+                equalToConstant: DetailCodeBlockLayout.terminalTextHeight(for: codeBlock.text)
+            )
+            terminalHeightConstraint = heightConstraint
+            NSLayoutConstraint.activate([
+                heightConstraint,
+                terminalCanvasView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor)
+            ])
+            // 点击打开全屏放大查看器（内嵌缩放与帖子页滚动手势冲突，已移除）。
+            scrollView.showsHorizontalScrollIndicator = false
+            scrollView.addGestureRecognizer(
+                UITapGestureRecognizer(target: self, action: #selector(terminalCanvasTapped))
+            )
+        }
+    }
+
+    /// 终端操作入口：右下角单分享图标（与报告图一致），点击弹出复制/分享/保存。
+    private func configureTerminalActions() {
+        guard codeBlock.style == .terminal else { return }
+        // 终端块 showsChrome 为 false，configureCopyButton 不会执行；
+        // 全部操作收进一个入口图标，避免按钮群遮挡报告内容。
+        addSubview(actionsButton)
+        actionsButton.tintColor = .white
+        actionsButton.setImage(UIImage(systemName: "square.and.arrow.up"), for: .normal)
+        actionsButton.backgroundColor = UIColor.black.withAlphaComponent(0.55)
+        actionsButton.layer.cornerRadius = 14
+        actionsButton.addTarget(self, action: #selector(showTerminalActions), for: .touchUpInside)
+
+        NSLayoutConstraint.activate([
+            actionsButton.widthAnchor.constraint(equalToConstant: 28),
+            actionsButton.heightAnchor.constraint(equalToConstant: 28),
+            actionsButton.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -8),
+            actionsButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8)
+        ])
+    }
+
+    @objc
+    private func showTerminalActions() {
+        let alert = UIAlertController(title: nil, message: nil, preferredStyle: .actionSheet)
+        alert.addAction(UIAlertAction(title: "复制全文", style: .default) { [weak self] _ in
+            guard let self else { return }
+            UIPasteboard.general.string = self.codeBlock.text
+        })
+        alert.addAction(UIAlertAction(title: "分享", style: .default) { [weak self] _ in
+            guard let self else { return }
+            var responder: UIResponder? = self.next
+            while let current = responder {
+                if let viewController = current as? UIViewController {
+                    viewController.present(
+                        UIActivityViewController(activityItems: [self.terminalImage()], applicationActivities: nil),
+                        animated: true
+                    )
+                    return
+                }
+                responder = current.next
+            }
+        })
+        alert.addAction(UIAlertAction(title: "保存到相册", style: .default) { [weak self] _ in
+            guard let self else { return }
+            UIImageWriteToSavedPhotosAlbum(self.terminalImage(), self, #selector(self.image(_:didFinishSavingWithError:contextInfo:)), nil)
+        })
+        alert.addAction(UIAlertAction(title: "取消", style: .cancel))
+        // iPad 上 actionSheet 必须指定锚点。
+        if let popover = alert.popoverPresentationController {
+            popover.sourceView = actionsButton
+            popover.sourceRect = actionsButton.bounds
+        }
+        var responder: UIResponder? = next
+        while let current = responder {
+            if let viewController = current as? UIViewController {
+                viewController.present(alert, animated: true)
+                return
+            }
+            responder = current.next
+        }
+    }
+
+    /// 终端报告渲染为图片（内嵌/全屏共用，与报告图的保存/分享方式一致）。
+    func terminalImage() -> UIImage {
+        let size = canvasView?.scaledSize ?? CGSize(width: 1, height: 1)
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = UIScreen.main.scale
+        format.opaque = true
+        let renderer = UIGraphicsImageRenderer(size: size, format: format)
+        return renderer.image { _ in
+            canvasView?.drawHierarchy(in: CGRect(origin: .zero, size: size), afterScreenUpdates: true)
+        }
+    }
+
+    @objc
+    private func image(_ image: UIImage, didFinishSavingWithError error: Error?, contextInfo: UnsafeRawPointer) {
+        var responder: UIResponder? = next
+        while let current = responder {
+            if let viewController = current as? UIViewController {
+                let title = error == nil ? "已保存到相册" : "保存失败"
+                let alert = UIAlertController(title: title, message: error?.localizedDescription, preferredStyle: .alert)
+                alert.addAction(UIAlertAction(title: "知道了", style: .default))
+                viewController.present(alert, animated: true)
+                return
+            }
+            responder = current.next
+        }
+    }
+
+    @objc
+    private func terminalCanvasTapped() {
+        guard codeBlock.style == .terminal else { return }
+        var responder: UIResponder? = next
+        while let current = responder {
+            if let viewController = current as? UIViewController {
+                viewController.present(
+                    TerminalReportFullscreenViewer(codeBlock: codeBlock),
+                    animated: true
+                )
+                return
+            }
+            responder = current.next
+        }
+    }
+
+    private func attributedCodeText() -> NSAttributedString {
+        guard codeBlock.style == .terminal else {
+            return NSAttributedString(
+                string: codeBlock.text,
+                attributes: [
+                    .font: DetailCodeBlockLayout.codeFont,
+                    .foregroundColor: UIColor.label
+                ]
+            )
+        }
+
+        let text = NSMutableAttributedString(
+            string: codeBlock.text,
+            attributes: [
+                .font: DetailCodeBlockLayout.codeFont,
+                .foregroundColor: UIColor.white
+            ]
+        )
+        let textLength = text.length
+        for run in codeBlock.runs {
+            let range = NSRange(location: max(0, run.location), length: max(0, run.length))
+            guard NSMaxRange(range) <= textLength, range.length > 0 else { continue }
+            if let foreground = run.foregroundColorIndex {
+                text.addAttribute(.foregroundColor, value: TerminalPalette.color(index: foreground), range: range)
+            }
+            if let background = run.backgroundColorIndex {
+                text.addAttribute(.backgroundColor, value: TerminalPalette.color(index: background), range: range)
+            }
+            if run.isBold || run.isItalic {
+                text.addAttribute(
+                    .font,
+                    value: TerminalPalette.font(isBold: run.isBold, isItalic: run.isItalic),
+                    range: range
+                )
+            }
+            if run.isUnderlined {
+                text.addAttribute(.underlineStyle, value: NSUnderlineStyle.single.rawValue, range: range)
+            }
+        }
+        return text
     }
 
     @objc
@@ -644,9 +937,366 @@ final class DetailCodeBlockView: UIView {
     }
 }
 
+/// 按终端字符网格绘制 ANSI 报告。不能把 ANSI 背景交给 UILabel：中文回退字形的
+/// 宽度并不等于终端列宽，会让 NodeQuality 的色块与文字错列。
+/// displayScale 直接按目标比例绘制（字号/格宽同步缩放），而不是整体 transform
+/// 缩放——后者会产生栅格模糊与笔画错位感。
+final class TerminalReportCanvasView: UIView {
+    private let codeBlock: RenderedCodeBlock
+    private let lines: [Substring]
+    /// 绘制比例：1 = 原始终端字号。改变后按新比例重绘，文字始终清晰。
+    var displayScale: CGFloat = 1 {
+        didSet {
+            guard abs(displayScale - oldValue) > 0.001 else { return }
+            setNeedsDisplay()
+            invalidateIntrinsicContentSize()
+        }
+    }
+
+    init(codeBlock: RenderedCodeBlock) {
+        self.codeBlock = codeBlock
+        self.lines = codeBlock.text.split(separator: "\n", omittingEmptySubsequences: false)
+        super.init(frame: .zero)
+        isOpaque = true
+        backgroundColor = .clear
+        contentMode = .redraw
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    var naturalSize: CGSize {
+        CGSize(
+            width: DetailCodeBlockLayout.terminalNaturalCodeWidth(for: codeBlock.text),
+            height: DetailCodeBlockLayout.terminalTextHeight(for: codeBlock.text)
+        )
+    }
+
+    var scaledSize: CGSize {
+        CGSize(width: naturalSize.width * displayScale, height: naturalSize.height * displayScale)
+    }
+
+    override var intrinsicContentSize: CGSize {
+        scaledSize
+    }
+
+    override func draw(_ rect: CGRect) {
+        UIColor(red: 29 / 255, green: 29 / 255, blue: 29 / 255, alpha: 1).setFill()
+        UIRectFill(bounds)
+
+        let scale = max(displayScale, 0.05)
+        let cellWidth = DetailCodeBlockLayout.terminalCellWidth * scale
+        let lineHeight = DetailCodeBlockLayout.terminalLineHeight * scale
+
+        // runs 按位置有序：游标只前进不回扫，把每字符 O(runs) 的线性查找
+        // 降为均摊 O(1)——NQ 报告数万字符时全量 draw 否则会卡出秒级停顿。
+        var runIndex = 0
+        var utf16Location = 0
+        for (lineIndex, line) in lines.enumerated() {
+            let lineOrigin = CGFloat(lineIndex) * lineHeight
+            var column = 0
+
+            for character in line {
+                let characterText = String(character)
+                let characterLength = (characterText as NSString).length
+                while runIndex < codeBlock.runs.count,
+                      utf16Location >= codeBlock.runs[runIndex].location + codeBlock.runs[runIndex].length {
+                    runIndex += 1
+                }
+                let style: RenderedCodeBlockRun? = runIndex < codeBlock.runs.count
+                    && utf16Location >= codeBlock.runs[runIndex].location
+                    ? codeBlock.runs[runIndex]
+                    : nil
+                let columnCount = DetailCodeBlockLayout.terminalColumnCount(for: character)
+                let width = CGFloat(columnCount) * cellWidth
+                let frame = CGRect(
+                    x: CGFloat(column) * cellWidth,
+                    y: lineOrigin,
+                    width: width,
+                    height: lineHeight
+                )
+
+                if let background = style?.backgroundColorIndex {
+                    TerminalPalette.color(index: background).setFill()
+                    UIRectFill(frame)
+                }
+
+                let isBold = style?.isBold ?? false
+                let isItalic = style?.isItalic ?? false
+                let foreground = style?.foregroundColorIndex.map { TerminalPalette.color(index: $0) }
+                    ?? UIColor.white
+                (characterText as NSString).draw(
+                    at: CGPoint(x: frame.minX, y: frame.minY),
+                    withAttributes: [
+                        .font: TerminalPalette.font(isBold: isBold, isItalic: isItalic, size: 13 * scale),
+                        .foregroundColor: foreground
+                    ]
+                )
+
+                column += columnCount
+                utf16Location += characterLength
+            }
+
+            if lineIndex < lines.count - 1 {
+                utf16Location += 1
+            }
+        }
+    }
+}
+
+/// 终端报告全屏查看器：初始整份缩放并居中，双指/双击放大到原始字号（松手保持），
+/// 底部提供复制/分享操作。
+final class TerminalReportFullscreenViewer: UIViewController, UIScrollViewDelegate {
+    private let codeBlock: RenderedCodeBlock
+    private let scrollView = UIScrollView()
+    private let canvasView: TerminalReportCanvasView
+    private var naturalSize: CGSize = .zero
+    private var initialFitScale: CGFloat = 0.05
+    private var lastViewportWidth: CGFloat = 0
+    private var lastViewportHeight: CGFloat = 0
+    private let copyButton = UIButton(type: .system)
+    private let shareButton = UIButton(type: .system)
+    private let saveButton = UIButton(type: .system)
+
+    init(codeBlock: RenderedCodeBlock) {
+        self.codeBlock = codeBlock
+        self.canvasView = TerminalReportCanvasView(codeBlock: codeBlock)
+        super.init(nibName: nil, bundle: nil)
+        modalPresentationStyle = .fullScreen
+        modalTransitionStyle = .crossDissolve
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        view.backgroundColor = UIColor(red: 29 / 255, green: 29 / 255, blue: 29 / 255, alpha: 1)
+
+        scrollView.delegate = self
+        scrollView.alwaysBounceVertical = false
+        // 报告比屏幕宽时必须能横向平移。原来关着，一旦初始比例算大了一点，
+        // 右边内容就既看不见也滑不到，只能靠双指缩放。
+        scrollView.alwaysBounceHorizontal = true
+        scrollView.showsHorizontalScrollIndicator = true
+        scrollView.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(scrollView)
+
+        let naturalWidth = DetailCodeBlockLayout.terminalNaturalCodeWidth(for: codeBlock.text)
+        let naturalHeight = DetailCodeBlockLayout.terminalTextHeight(for: codeBlock.text)
+        naturalSize = CGSize(width: naturalWidth, height: naturalHeight)
+        scrollView.addSubview(canvasView)
+
+        let closeButton = UIButton(type: .system)
+        closeButton.setTitle("完成", for: .normal)
+        closeButton.setTitleColor(.white, for: .normal)
+        closeButton.titleLabel?.font = .systemFont(ofSize: 16, weight: .medium)
+        closeButton.backgroundColor = UIColor.black.withAlphaComponent(0.55)
+        closeButton.layer.cornerRadius = 14
+        closeButton.translatesAutoresizingMaskIntoConstraints = false
+        closeButton.addTarget(self, action: #selector(closeTapped), for: .touchUpInside)
+        view.addSubview(closeButton)
+
+        func configureAction(_ button: UIButton, _ title: String, _ action: Selector) {
+            button.setTitle(title, for: .normal)
+            button.setTitleColor(.white, for: .normal)
+            button.titleLabel?.font = .systemFont(ofSize: 15, weight: .medium)
+            button.backgroundColor = UIColor.black.withAlphaComponent(0.55)
+            button.layer.cornerRadius = 14
+            button.translatesAutoresizingMaskIntoConstraints = false
+            button.addTarget(self, action: action, for: .touchUpInside)
+            view.addSubview(button)
+        }
+        // 与回程路由报告图一致：右下角仅一个分享入口，菜单内含复制/分享/保存。
+        configureAction(shareButton, "分享", #selector(showActionMenu))
+
+        let doubleTap = UITapGestureRecognizer(target: self, action: #selector(doubleTapped))
+        doubleTap.numberOfTapsRequired = 2
+        scrollView.addGestureRecognizer(doubleTap)
+
+        // 单指长距离下滑直接关闭（与图片查看器交互一致）。
+        let swipeDown = UISwipeGestureRecognizer(target: self, action: #selector(swipeDownDismissed))
+        swipeDown.direction = .down
+        swipeDown.delaysTouchesBegan = false
+        view.addGestureRecognizer(swipeDown)
+
+        // 误删后按钮全部无约束堆在 (0,0)：左上角露出"存"字、scrollView 零帧无法拖缩放。
+        NSLayoutConstraint.activate([
+            scrollView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            scrollView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            scrollView.topAnchor.constraint(equalTo: view.topAnchor),
+            scrollView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+            closeButton.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 12),
+            closeButton.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
+            closeButton.widthAnchor.constraint(equalToConstant: 64),
+            closeButton.heightAnchor.constraint(equalToConstant: 32),
+            shareButton.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
+            shareButton.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -16),
+            shareButton.heightAnchor.constraint(equalToConstant: 32),
+            shareButton.widthAnchor.constraint(equalToConstant: 72)
+        ])
+    }
+
+    @objc
+    private func showActionMenu() {
+        let alert = UIAlertController(title: nil, message: nil, preferredStyle: .actionSheet)
+        alert.addAction(UIAlertAction(title: "复制全文", style: .default) { [weak self] _ in
+            guard let self else { return }
+            UIPasteboard.general.string = self.codeBlock.text
+        })
+        alert.addAction(UIAlertAction(title: "分享", style: .default) { [weak self] _ in
+            guard let self else { return }
+            let activityVC = UIActivityViewController(activityItems: [self.terminalImage()], applicationActivities: nil)
+            self.present(activityVC, animated: true)
+        })
+        alert.addAction(UIAlertAction(title: "保存到相册", style: .default) { [weak self] _ in
+            guard let self else { return }
+            UIImageWriteToSavedPhotosAlbum(self.terminalImage(), self, #selector(self.image(_:didFinishSavingWithError:contextInfo:)), nil)
+        })
+        alert.addAction(UIAlertAction(title: "取消", style: .cancel))
+        if let popover = alert.popoverPresentationController {
+            popover.sourceView = shareButton
+            popover.sourceRect = shareButton.bounds
+        }
+        present(alert, animated: true)
+    }
+
+    @objc
+    private func swipeDownDismissed() {
+        dismiss(animated: true)
+    }
+
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        guard naturalSize.width > 0, naturalSize.height > 0 else { return }
+        // 原来这里用 hasAppliedInitialLayout 只算一次。首帧 view.bounds 还没定稿
+        // （模态转场、安全区、转屏）时算出来的比例会永久留在屏幕上，表现就是
+        // 报告左右都被裁掉、又滑不动。改成视口尺寸一变就重算，
+        // 视口没变则不动，避免跟用户手动的双指缩放抢方向盘。
+        let viewport = view.bounds.size
+        guard abs(viewport.width - lastViewportWidth) > 0.5
+            || abs(viewport.height - lastViewportHeight) > 0.5 else { return }
+        lastViewportWidth = viewport.width
+        lastViewportHeight = viewport.height
+
+        // 初始整份缩放（宽与高都装进一屏）并居中。
+        let fitScale = min(
+            viewport.width / max(naturalSize.width, 1),
+            (viewport.height - 120) / max(naturalSize.height, 1),
+            1
+        )
+        initialFitScale = max(fitScale, 0.05)
+        scrollView.minimumZoomScale = 1
+        scrollView.maximumZoomScale = 1 / initialFitScale
+        scrollView.zoomScale = 1
+        applyDisplayScale(initialFitScale)
+        centerCanvas()
+
+        AppLog.info(
+            .rendering,
+            "终端全屏几何: 自然=\(Int(naturalSize.width))x\(Int(naturalSize.height)) 视口=\(Int(viewport.width))x\(Int(viewport.height)) fitScale=\(String(format: "%.3f", initialFitScale)) 内容=\(Int(scrollView.contentSize.width))x\(Int(scrollView.contentSize.height)) 内边距=\(Int(scrollView.contentInset.left))/\(Int(scrollView.contentInset.right))"
+        )
+    }
+
+    private func applyDisplayScale(_ scale: CGFloat) {
+        let clamped = max(min(scale, 1), initialFitScale)
+        canvasView.displayScale = clamped
+        let scaledSize = CGSize(width: naturalSize.width * clamped, height: naturalSize.height * clamped)
+        canvasView.frame = CGRect(origin: .zero, size: scaledSize)
+        scrollView.contentSize = scaledSize
+    }
+
+    /// 内容小于视口时水平垂直居中。
+    private func centerCanvas() {
+        let contentSize = scrollView.contentSize
+        let boundsSize = scrollView.bounds.size
+        let horizontalInset = max((boundsSize.width - contentSize.width) / 2, 0)
+        let verticalInset = max((boundsSize.height - contentSize.height) / 2, 0)
+        scrollView.contentInset = UIEdgeInsets(
+            top: verticalInset,
+            left: horizontalInset,
+            bottom: verticalInset,
+            right: horizontalInset
+        )
+    }
+
+    func viewForZooming(in scrollView: UIScrollView) -> UIView? {
+        canvasView
+    }
+
+    func scrollViewDidZoom(_ scrollView: UIScrollView) {
+        // 缩放直接驱动绘制比例：文字按目标字号重绘，不产生栅格模糊；松手保持当前比例。
+        applyDisplayScale(initialFitScale * scrollView.zoomScale)
+        centerCanvas()
+    }
+
+    @objc
+    private func closeTapped() {
+        dismiss(animated: true)
+    }
+
+    @objc
+    private func copyTapped() {
+        UIPasteboard.general.string = codeBlock.text
+        copyButton.setTitle("已复制", for: .normal)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { [weak copyButton] in
+            copyButton?.setTitle("复制", for: .normal)
+        }
+    }
+
+    @objc
+    private func shareTapped() {
+        let activityVC = UIActivityViewController(activityItems: [terminalImage()], applicationActivities: nil)
+        present(activityVC, animated: true)
+    }
+
+    /// 把整份终端报告渲染成图片（与报告图的保存/分享方式一致）。
+    private func terminalImage() -> UIImage {
+        let renderScale = UIScreen.main.scale
+        let size = CGSize(
+            width: naturalSize.width * canvasView.displayScale,
+            height: naturalSize.height * canvasView.displayScale
+        )
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = renderScale
+        format.opaque = true
+        let renderer = UIGraphicsImageRenderer(size: size, format: format)
+        return renderer.image { _ in
+            canvasView.drawHierarchy(in: CGRect(origin: .zero, size: size), afterScreenUpdates: true)
+        }
+    }
+
+    @objc
+    private func saveTapped() {
+        let image = terminalImage()
+        UIImageWriteToSavedPhotosAlbum(image, self, #selector(image(_:didFinishSavingWithError:contextInfo:)), nil)
+    }
+
+    @objc
+    private func image(_ image: UIImage, didFinishSavingWithError error: Error?, contextInfo: UnsafeRawPointer) {
+        let title = error == nil ? "已保存到相册" : "保存失败"
+        let message = error?.localizedDescription ?? ""
+        let alert = UIAlertController(title: title, message: error == nil ? nil : message, preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: "知道了", style: .default))
+        present(alert, animated: true)
+    }
+
+    @objc
+    private func doubleTapped() {
+        // 整份缩览 ↔ 原始字号。
+        let target: CGFloat = scrollView.zoomScale > scrollView.minimumZoomScale + 0.01
+            ? scrollView.minimumZoomScale
+            : scrollView.maximumZoomScale
+        scrollView.setZoomScale(target, animated: true)
+    }
+}
+
 enum DetailCodeBlockLayout {
     static let codeFont = UIFont.monospacedSystemFont(ofSize: 13, weight: .regular)
     static let chromeHeight: CGFloat = 38
+    static let maximumContentWidth: CGFloat = 4096
     static let bottomInset: CGFloat = 12
     static let horizontalInset: CGFloat = 12
     static let chromeDotSize: CGFloat = 10
@@ -654,17 +1304,63 @@ enum DetailCodeBlockLayout {
 
     private enum Layout {
         static let minHeight: CGFloat = 64
+        /// 终端内嵌展示的最大绘制比例（相对原始字号）：不放大，最多 90%。
+        static let terminalInlineScale: CGFloat = 0.9
+        /// 自适应缩放下限。低于此比例字已经看不清，宁可留横向滑动。
+        static let terminalMinInlineScale: CGFloat = 0.2
+    }
+
+    /// 纯字符网格宽度，不含左右内边距。
+    /// 缩放只应作用于文字本身：内边距是按固定 12pt 约束加的，
+    /// 把它一起乘进比例会让画布比可绘制区窄 24×(1-scale)，右缘字符被裁掉。
+    static func terminalTextWidth(for text: String) -> CGFloat {
+        max(terminalNaturalCodeWidth(for: text) - horizontalInset * 2, 1)
+    }
+
+    /// 终端内嵌展示的自适应比例：按可用宽度缩到刚好完整放下整份报告。
+    /// 之前是写死 90%，而 IPQuality / NodeQuality 报告普遍 72 列以上，
+    /// 90% 下必然超出屏宽，用户只能左右滑才看得全 —— 改成按屏宽算。
+    static func terminalFitScale(text: String, availableWidth: CGFloat) -> CGFloat {
+        let textWidth = terminalTextWidth(for: text)
+        let usableWidth = availableWidth - horizontalInset * 2
+        guard textWidth > 0, usableWidth > 0 else { return Layout.terminalInlineScale }
+        return min(
+            Layout.terminalInlineScale,
+            max(Layout.terminalMinInlineScale, usableWidth / textWidth)
+        )
+    }
+
+    /// 缩放后 contentView 应有的宽度：文字宽 + 两侧固定内边距。
+    static func terminalInlineContentWidth(text: String, availableWidth: CGFloat) -> CGFloat {
+        let scale = terminalFitScale(text: text, availableWidth: availableWidth)
+        return min(
+            terminalTextWidth(for: text) * scale + horizontalInset * 2,
+            maximumContentWidth
+        )
     }
 
     static func measure(codeBlock: RenderedCodeBlock, constrainedSize: CGSize) -> CGSize {
         let width = resolvedWidth(constrainedSize.width)
+        if codeBlock.style == .terminal {
+            // 高度必须用和视图里同一套自适应比例，否则算出的行高与实际绘制
+            // 不一致，纵向会被截断或留一大块空白。
+            let scale = terminalFitScale(text: codeBlock.text, availableWidth: width)
+            let height = contentTopInset(for: .terminal)
+                + terminalTextHeight(for: codeBlock.text) * scale
+                + bottomInset
+            return CGSize(width: width, height: ceil(max(Layout.minHeight, height)))
+        }
         let lineCount = max(codeBlock.text.components(separatedBy: .newlines).count, 1)
         let textHeight = CGFloat(lineCount) * max(codeFont.lineHeight, 1)
         let height = max(
             Layout.minHeight,
-            chromeHeight + textHeight + bottomInset
+            contentTopInset(for: codeBlock.style) + textHeight + bottomInset
         )
         return CGSize(width: width, height: ceil(height))
+    }
+
+    static func contentTopInset(for style: RenderedCodeBlockStyle) -> CGFloat {
+        style == .terminal ? 10 : chromeHeight
     }
 
     static func naturalCodeWidth(for text: String) -> CGFloat {
@@ -677,7 +1373,56 @@ enum DetailCodeBlockLayout {
     }
 
     static func contentWidth(for text: String, viewportWidth: CGFloat) -> CGFloat {
-        max(naturalCodeWidth(for: text), resolvedWidth(viewportWidth))
+        min(max(naturalCodeWidth(for: text), resolvedWidth(viewportWidth)), maximumContentWidth)
+    }
+
+    static func contentWidth(for codeBlock: RenderedCodeBlock, viewportWidth: CGFloat) -> CGFloat {
+        guard codeBlock.style == .terminal else {
+            return contentWidth(for: codeBlock.text, viewportWidth: viewportWidth)
+        }
+        // 终端画布按字符网格自绘，宽度必须和 layoutSubviews 里写入的
+        // 自适应缩放结果一致，否则首帧用未缩放宽度、下一帧再收缩会抖动。
+        return terminalInlineContentWidth(
+            text: codeBlock.text,
+            availableWidth: resolvedWidth(viewportWidth)
+        )
+    }
+
+    static let terminalCellWidth = ceil(("0" as NSString).size(withAttributes: [.font: codeFont]).width)
+    static let terminalLineHeight = ceil(codeFont.lineHeight)
+
+    static func terminalTextHeight(for text: String) -> CGFloat {
+        let lineCount = max(text.components(separatedBy: .newlines).count, 1)
+        return CGFloat(lineCount) * terminalLineHeight
+    }
+
+    static func terminalNaturalCodeWidth(for text: String) -> CGFloat {
+        let widestLine = text
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .map { line in line.reduce(0) { $0 + terminalColumnCount(for: $1) } }
+            .max() ?? 0
+        return max(CGFloat(widestLine) * terminalCellWidth + horizontalInset * 2, horizontalInset * 2)
+    }
+
+    static func terminalColumnCount(for character: Character) -> Int {
+        guard character != "\t" else { return 4 }
+        return character.unicodeScalars.contains(where: { scalar in
+            switch scalar.value {
+            case 0x1100...0x115F,
+                 0x2329...0x232A,
+                 0x2E80...0xA4CF,
+                 0xAC00...0xD7A3,
+                 0xF900...0xFAFF,
+                 0xFE10...0xFE19,
+                 0xFE30...0xFE6F,
+                 0xFF00...0xFF60,
+                 0xFFE0...0xFFE6,
+                 0x1F300...0x1FAFF:
+                return true
+            default:
+                return false
+            }
+        }) ? 2 : 1
     }
 
     private static func resolvedWidth(_ width: CGFloat) -> CGFloat {
@@ -685,6 +1430,46 @@ enum DetailCodeBlockLayout {
             return fallbackViewportWidth
         }
         return width
+    }
+}
+
+private enum TerminalPalette {
+    static func color(index: Int) -> UIColor {
+        let value = max(0, min(index, 255))
+        let baseColors: [(CGFloat, CGFloat, CGFloat)] = [
+            (46, 52, 54), (204, 0, 0), (78, 154, 6), (196, 160, 0),
+            (52, 101, 164), (117, 80, 123), (6, 152, 154), (211, 215, 207),
+            (85, 87, 83), (239, 41, 41), (138, 226, 52), (252, 233, 79),
+            (114, 159, 207), (173, 127, 168), (52, 226, 226), (238, 238, 236)
+        ]
+        if value < baseColors.count {
+            let color = baseColors[value]
+            return UIColor(red: color.0 / 255, green: color.1 / 255, blue: color.2 / 255, alpha: 1)
+        }
+        if value >= 232 {
+            let gray = CGFloat(8 + (value - 232) * 10) / 255
+            return UIColor(white: gray, alpha: 1)
+        }
+        let cubeIndex = value - 16
+        let levels: [CGFloat] = [0, 95, 135, 175, 215, 255]
+        let red = levels[cubeIndex / 36]
+        let green = levels[(cubeIndex % 36) / 6]
+        let blue = levels[cubeIndex % 6]
+        return UIColor(red: red / 255, green: green / 255, blue: blue / 255, alpha: 1)
+    }
+
+    static func font(isBold: Bool, isItalic: Bool, size: CGFloat? = nil) -> UIFont {
+        let base = UIFont.monospacedSystemFont(
+            ofSize: size ?? DetailCodeBlockLayout.codeFont.pointSize,
+            weight: isBold ? .bold : .regular
+        )
+        guard isItalic,
+              let descriptor = base.fontDescriptor.withSymbolicTraits(
+                base.fontDescriptor.symbolicTraits.union(.traitItalic)
+              ) else {
+            return base
+        }
+        return UIFont(descriptor: descriptor, size: base.pointSize)
     }
 }
 

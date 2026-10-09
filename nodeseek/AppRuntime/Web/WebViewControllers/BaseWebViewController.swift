@@ -9,6 +9,7 @@ import WebKit
 class BaseWebViewController: UIViewController, WKNavigationDelegate, WKUIDelegate {
     let initialURL: URL
     let automaticallyLoadsPage: Bool
+    let allowsPageZoom: Bool
     let webViewContext: NodeSeekWebViewContext
     let webView: WKWebView
     let loadingIndicator = UIActivityIndicatorView(style: .medium)
@@ -29,15 +30,18 @@ class BaseWebViewController: UIViewController, WKNavigationDelegate, WKUIDelegat
         initialURL: URL,
         pageTitle: String,
         automaticallyLoadsPage: Bool = true,
+        allowsPageZoom: Bool = false,
         additionalUserScripts: [WKUserScript] = [],
         cookieSession: NodeSeekCookieSessionManaging? = nil
     ) {
         self.initialURL = initialURL
         self.pageTitle = pageTitle
         self.automaticallyLoadsPage = automaticallyLoadsPage
+        self.allowsPageZoom = allowsPageZoom
 
         let webViewContext = NodeSeekWebViewContext(
             additionalUserScripts: additionalUserScripts,
+            allowsPageZoom: allowsPageZoom,
             cookieSession: cookieSession
         )
         self.webViewContext = webViewContext

@@ -28,10 +28,14 @@ enum HTMLPayloadInspector {
         let normalized = normalizedHTML(html)
         return normalized.contains("just a moment")
             || normalized.contains("window._cf_chl_opt")
-            || normalized.contains("/cdn-cgi/challenge-platform/")
-            || normalized.contains("challenge-platform")
             || normalized.contains("cf_chl")
             || normalized.contains("enable javascript and cookies to continue")
+        // 故意不再匹配裸的 "challenge-platform" 和 "/cdn-cgi/challenge-platform/"：
+        // NodeSeek 每个正常页面都自带 precursor 脚本
+        // （实测 210KB 的用户空间页第 114556 字节处就是这两个串），
+        // 把它们当拦截标记会把正常页判成 Cloudflare 挑战页，
+        // 进而让隐藏 WebView 的动作页缓存反复失效、整页重载。
+        // 真正的拦截页必然自己声明 _cf_chl_opt / cf_chl / "Just a moment"。
     }
 
     private static func normalizedPrefix(from data: Data) -> String? {

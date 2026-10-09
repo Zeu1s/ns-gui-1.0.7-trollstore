@@ -36,7 +36,7 @@ extension DTCoreTextHTMLContentRenderer {
 
     func normalizeBaseTextAttributes(in attributed: NSMutableAttributedString) {
         let fullRange = NSRange(location: 0, length: attributed.length)
-        let bodyColor = UIColor.label
+        let bodyColor = AppTypography.primaryTextColor
 
         let bodyFont = AppTypography.commentBodyFont()
         attributed.enumerateAttribute(.font, in: fullRange) { value, range, _ in
@@ -157,10 +157,10 @@ extension DTCoreTextHTMLContentRenderer {
     func normalizedTextColor(from color: UIColor) -> UIColor {
         guard let components = rgbComponents(from: color) else { return color }
         if isNearGray(components, target: 17) {
-            return .label
+            return AppTypography.primaryTextColor
         }
         if isNearGray(components, target: 85) {
-            return .secondaryLabel
+            return AppTypography.secondaryTextColor
         }
         return color
     }

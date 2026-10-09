@@ -45,6 +45,7 @@ class PostListViewController: UIViewController {
     var currentSortMode: PostListSortMode = .replyTime
     var showsBottomNavigation = true
     var onUnreadBadgeChange: ((Bool) -> Void)?
+    var onUnreadBadgeCountChange: ((Int) -> Void)?
     var sortToggleWidthConstraint: NSLayoutConstraint?
     private var sortToggleTrailingConstraint: NSLayoutConstraint?
     private var sortToggleCollapseWorkItem: DispatchWorkItem?
@@ -734,12 +735,22 @@ class PostListViewController: UIViewController {
     }
 
     func applyNotificationUnreadBadge(isVisible: Bool) {
+        applyNotificationUnreadBadge(unreadCount: isVisible ? 1 : 0)
+    }
+
+    func applyNotificationUnreadBadge(unreadCount: Int) {
+        let count = max(0, unreadCount)
+        let isVisible = count > 0
         compactTopButtonUnreadBadgeView.isHidden = !isVisible
-        compactTopButton.accessibilityValue = isVisible ? "有未读通知" : nil
+        compactTopButton.accessibilityValue = isVisible ? "\(count) 条未读通知" : nil
         if showsBottomNavigation {
-            bottomNavigationView.setUnreadMessagesVisible(isVisible)
+            bottomNavigationView.setUnreadMessageCount(count)
         } else {
-            onUnreadBadgeChange?(isVisible)
+            if let onUnreadBadgeCountChange {
+                onUnreadBadgeCountChange(count)
+            } else {
+                onUnreadBadgeChange?(isVisible)
+            }
         }
     }
 
@@ -784,8 +795,8 @@ class PostListViewController: UIViewController {
         sideMenuViewController.onCheckInTapped = { [weak self] in
             self?.presenter.didTapCheckIn()
         }
-        sideMenuViewController.onNotificationTapped = { [weak self] url in
-            self?.presenter.didTapNotification(url: url)
+        sideMenuViewController.onLotteryTapped = { [weak self] in
+            self?.presenter.didTapLottery()
         }
         sideMenuViewController.onRecentVisitedTapped = { [weak self] in
             self?.presenter.didTapRecentVisited()

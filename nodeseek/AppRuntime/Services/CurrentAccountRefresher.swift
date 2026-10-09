@@ -78,6 +78,7 @@ extension Notification.Name {
     static let nodeSeekLoginSessionDidClose = Notification.Name("nodeSeekLoginSessionDidClose")
     static let nodeSeekNotificationReadStateDidChange = Notification.Name("nodeSeekNotificationReadStateDidChange")
     static let nodeSeekNotificationUnreadCountDidUpdate = Notification.Name("nodeSeekNotificationUnreadCountDidUpdate")
+    static let nodeSeekNotificationCacheDidUpdate = Notification.Name("nodeSeekNotificationCacheDidUpdate")
 }
 
 private extension Optional where Wrapped == AccountResponse {

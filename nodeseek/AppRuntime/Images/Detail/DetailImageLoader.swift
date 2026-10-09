@@ -33,6 +33,14 @@ final class DetailImageLoader {
     private var inlineImageCache: [DetailInlineImageCacheKey: DetailInlineImageResult] = [:]
     private var inlineImageCallbacks: [DetailInlineImageCacheKey: [InlineImageCompletion]] = [:]
 
+    /// 缓存上限：原来只在设置页手动清缓存时才回收，浏览图片多的帖子会一直涨
+    /// （`decodedPayloadCache` 存的是整份解码后 payload）。这里按最近使用顺序淘汰。
+    private static let maximumDecodedPayloadCacheCount = 120
+    private static let maximumInlineImageCacheCount = 200
+    /// 记录插入顺序（近似 LRU：命中时不重排，够用且无需额外加锁复杂度）。
+    private var decodedPayloadInsertionOrder: [URL] = []
+    private var inlineImageInsertionOrder: [DetailInlineImageCacheKey] = []
+
     // MARK: - Initialization
 
     /// 使用默认缓存目录和全局图片 data loader。
@@ -174,8 +182,26 @@ final class DetailImageLoader {
             decodedPayloadCallbacks.removeAll()
             inlineImageCache.removeAll()
             inlineImageCallbacks.removeAll()
+            decodedPayloadInsertionOrder.removeAll()
+            inlineImageInsertionOrder.removeAll()
         }
         try thumbnailLoader.clearCache()
+    }
+
+    /// 按插入顺序淘汰超出上限的条目。必须在 stateQueue 上调用。
+    private func evictDecodedPayloadCacheIfNeeded() {
+        while decodedPayloadInsertionOrder.count > Self.maximumDecodedPayloadCacheCount {
+            let oldest = decodedPayloadInsertionOrder.removeFirst()
+            decodedPayloadCache.removeValue(forKey: oldest)
+        }
+    }
+
+    /// 按插入顺序淘汰超出上限的条目。必须在 stateQueue 上调用。
+    private func evictInlineImageCacheIfNeeded() {
+        while inlineImageInsertionOrder.count > Self.maximumInlineImageCacheCount {
+            let oldest = inlineImageInsertionOrder.removeFirst()
+            inlineImageCache.removeValue(forKey: oldest)
+        }
     }
 
     /// 返回详情图 thumbnail 磁盘缓存大小，单位为 byte。
@@ -231,7 +257,11 @@ final class DetailImageLoader {
             )
             let callbacks = self.stateQueue.sync {
                 if payload.isFallback == false {
+                    if self.inlineImageCache[key] == nil {
+                        self.inlineImageInsertionOrder.append(key)
+                    }
                     self.inlineImageCache[key] = result
+                    self.evictInlineImageCacheIfNeeded()
                 }
                 return DetailImageCallbackQueue.take(for: key, from: &self.inlineImageCallbacks)
             }
@@ -309,7 +339,11 @@ final class DetailImageLoader {
     private func completeDecodedPayload(for url: URL, payload: DetailDecodedImagePayload) {
         let callbacks: [DecodedPayloadCompletion] = stateQueue.sync {
             if payload.isFallback == false {
+                if decodedPayloadCache[url] == nil {
+                    decodedPayloadInsertionOrder.append(url)
+                }
                 decodedPayloadCache[url] = payload
+                evictDecodedPayloadCacheIfNeeded()
             }
             return DetailImageCallbackQueue.take(for: url, from: &decodedPayloadCallbacks)
         }

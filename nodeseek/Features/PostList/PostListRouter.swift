@@ -72,6 +72,10 @@ class PostListRouter: PostListRouterProtocol {
         show(CheckInViewController())
     }
 
+    func navigateToLottery(lotteryURL: URL) {
+        show(NodeSeekWebViewController(url: lotteryURL))
+    }
+
     func navigateToNotification(notificationURL: URL) {
         show(NotificationViewController())
     }

@@ -15,7 +15,7 @@ final class PostListSideMenuViewController: UIViewController {
     var onAccountProfileTapped: ((URL) -> Void)?
     var onNewDiscussionTapped: (() -> Void)?
     var onCheckInTapped: (() -> Void)?
-    var onNotificationTapped: ((URL) -> Void)?
+    var onLotteryTapped: (() -> Void)?
     var onRecentVisitedTapped: (() -> Void)?
     var onUserDiscussionsTapped: (() -> Void)?
     var onUserCommentsTapped: (() -> Void)?
@@ -23,12 +23,7 @@ final class PostListSideMenuViewController: UIViewController {
     var onSearchTapped: (() -> Void)?
     var onSettingsTapped: (() -> Void)?
     private let accountController: PostListSideMenuAccountController
-    private let notificationClient: NodeSeekNotificationClientProtocol
     private let avatarLoader = AvatarImageLoader.shared
-    private var notificationURL = NodeSeekSite.baseURL.appendingPathComponent("notification")
-    private var notificationUnreadCount: NodeSeekNotificationUnreadCount?
-    private var notificationUnreadRefreshTask: Task<Void, Never>?
-    private var notificationUnreadCountObserver: NSObjectProtocol?
     private var extensionEntriesHeightConstraint: NSLayoutConstraint?
     private var menuStackTopConstraint: NSLayoutConstraint?
 
@@ -167,9 +162,9 @@ final class PostListSideMenuViewController: UIViewController {
         return button
     }()
 
-    private let notificationButton: UIButton = {
-        let button = PostListSideMenuViewController.makeMenuButton(title: "通知", systemImageName: "bell")
-        button.accessibilityIdentifier = "post-list-side-menu-notification-button"
+    private let lotteryButton: UIButton = {
+        let button = PostListSideMenuViewController.makeMenuButton(title: "抽奖", systemImageName: "gift")
+        button.accessibilityIdentifier = "post-list-side-menu-lottery-button"
         return button
     }()
 
@@ -187,10 +182,8 @@ final class PostListSideMenuViewController: UIViewController {
     init(
         currentAccountStore: CurrentAccountStore = .shared,
         accountRefresher: (any CurrentAccountRefreshing)? = nil,
-        refreshMaxAge: TimeInterval = 60,
-        notificationClient: NodeSeekNotificationClientProtocol? = nil
+        refreshMaxAge: TimeInterval = 60
     ) {
-        self.notificationClient = notificationClient ?? NodeSeekNotificationClient()
         self.accountController = PostListSideMenuAccountController(
             currentAccountStore: currentAccountStore,
             accountRefresher: accountRefresher,
@@ -203,18 +196,10 @@ final class PostListSideMenuViewController: UIViewController {
         fatalError("init(coder:) has not been implemented")
     }
 
-    deinit {
-        if let notificationUnreadCountObserver {
-            NotificationCenter.default.removeObserver(notificationUnreadCountObserver)
-        }
-        notificationUnreadRefreshTask?.cancel()
-    }
-
     override func viewDidLoad() {
         super.viewDidLoad()
         setupUI()
         configureAccountController()
-        observeNotificationUnreadCount()
         accountController.start()
     }
 
@@ -268,7 +253,6 @@ final class PostListSideMenuViewController: UIViewController {
 
     func show(animated: Bool) {
         accountController.refreshIfNeeded()
-        refreshNotificationUnreadCount()
         setVisible(true, animated: animated)
     }
 
@@ -308,11 +292,6 @@ final class PostListSideMenuViewController: UIViewController {
         accountHeaderButton.accessibilityLabel = account.isLoggedIn ? "账号信息" : "登录账号"
         accountHeaderButton.isEnabled = !account.isLoggedIn || account.profileURL != nil
         setExtensionEntriesVisible(account.isLoggedIn)
-        notificationURL = account.notification?.url ?? NodeSeekSite.baseURL.appendingPathComponent("notification")
-        if account.isLoggedIn == false {
-            notificationUnreadCount = .zero
-        }
-        applyNotificationColor()
 
         if account.isLoggedIn {
             ImageLoad.url(account.avatarURL)
@@ -322,42 +301,6 @@ final class PostListSideMenuViewController: UIViewController {
             avatarLoader.cancel(on: avatarImageView)
             avatarImageView.image = Self.defaultAvatarImage
             avatarImageView.tintColor = .tertiaryLabel
-        }
-    }
-
-    private func refreshNotificationUnreadCount() {
-        guard isViewLoaded, view.window != nil else { return }
-        notificationUnreadRefreshTask?.cancel()
-        notificationUnreadRefreshTask = Task { [weak self] in
-            guard let self else { return }
-            do {
-                let unreadCount = try await notificationClient.loadUnreadCount()
-                guard Task.isCancelled == false else { return }
-                notificationUnreadCount = unreadCount
-                applyNotificationColor()
-            } catch {
-                guard Task.isCancelled == false else { return }
-                notificationUnreadCount = nil
-                applyNotificationColor()
-                AppLog.debug(.account, "侧边栏通知未读数加载失败: \(error.localizedDescription)")
-            }
-        }
-    }
-
-    private func observeNotificationUnreadCount() {
-        guard notificationUnreadCountObserver == nil else { return }
-        notificationUnreadCountObserver = NotificationCenter.default.addObserver(
-            forName: .nodeSeekNotificationUnreadCountDidUpdate,
-            object: nil,
-            queue: .main
-        ) { [weak self] notification in
-            guard let unreadCount = NodeSeekNotificationUnreadCountEvent.unreadCount(from: notification) else { return }
-            Task { @MainActor [weak self] in
-                guard let self else { return }
-                notificationUnreadRefreshTask?.cancel()
-                notificationUnreadCount = unreadCount
-                applyNotificationColor()
-            }
         }
     }
 
@@ -381,7 +324,7 @@ final class PostListSideMenuViewController: UIViewController {
         settingsButton.addTarget(self, action: #selector(settingsButtonTapped), for: .touchUpInside)
         newDiscussionButton.addTarget(self, action: #selector(newDiscussionButtonTapped), for: .touchUpInside)
         checkInButton.addTarget(self, action: #selector(checkInButtonTapped), for: .touchUpInside)
-        notificationButton.addTarget(self, action: #selector(notificationButtonTapped), for: .touchUpInside)
+        lotteryButton.addTarget(self, action: #selector(lotteryButtonTapped), for: .touchUpInside)
         recentVisitedButton.addTarget(self, action: #selector(recentVisitedButtonTapped), for: .touchUpInside)
         searchButton.addTarget(self, action: #selector(searchButtonTapped), for: .touchUpInside)
         postsEntryButton.addTarget(self, action: #selector(postsEntryButtonTapped), for: .touchUpInside)
@@ -401,7 +344,7 @@ final class PostListSideMenuViewController: UIViewController {
         sideMenuView.addSubview(menuStackView)
         menuStackView.addArrangedSubview(newDiscussionButton)
         menuStackView.addArrangedSubview(checkInButton)
-        menuStackView.addArrangedSubview(notificationButton)
+        menuStackView.addArrangedSubview(lotteryButton)
         menuStackView.addArrangedSubview(searchButton)
         menuStackView.addArrangedSubview(recentVisitedButton)
         menuStackView.addArrangedSubview(settingsButton)
@@ -467,7 +410,7 @@ final class PostListSideMenuViewController: UIViewController {
 
             newDiscussionButton.heightAnchor.constraint(equalToConstant: 48),
             checkInButton.heightAnchor.constraint(equalToConstant: 48),
-            notificationButton.heightAnchor.constraint(equalToConstant: 48),
+            lotteryButton.heightAnchor.constraint(equalToConstant: 48),
             searchButton.heightAnchor.constraint(equalToConstant: 48),
             recentVisitedButton.heightAnchor.constraint(equalToConstant: 48),
             settingsButton.heightAnchor.constraint(equalToConstant: 48)
@@ -482,14 +425,6 @@ final class PostListSideMenuViewController: UIViewController {
         extensionEntriesHeightConstraint?.constant = isVisible ? 24 : 0
         menuStackTopConstraint?.constant = isVisible ? 12 : 14
         view.setNeedsLayout()
-    }
-
-    private func applyNotificationColor() {
-        var configuration = notificationButton.configuration
-        let iconColor: UIColor = (notificationUnreadCount?.all ?? 0) > 0 ? .systemRed : .label
-        configuration?.baseForegroundColor = .label
-        configuration?.imageColorTransformer = UIConfigurationColorTransformer { _ in iconColor }
-        notificationButton.configuration = configuration
     }
 
     @objc private func backdropTapped() {
@@ -534,9 +469,9 @@ final class PostListSideMenuViewController: UIViewController {
         }
     }
 
-    @objc private func notificationButtonTapped() {
+    @objc private func lotteryButtonTapped() {
         hide(animated: true)
-        onNotificationTapped?(notificationURL)
+        onLotteryTapped?()
     }
 
     @objc private func recentVisitedButtonTapped() {

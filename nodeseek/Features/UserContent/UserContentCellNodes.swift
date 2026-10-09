@@ -128,7 +128,7 @@ class UserContentPostCardCellNode: ASCellNode {
         iconNode.contentMode = .center
         iconNode.style.preferredSize = CGSize(width: Layout.avatarSize, height: Layout.avatarSize)
 
-        titleNode.maximumNumberOfLines = 2
+        titleNode.maximumNumberOfLines = 0
         titleNode.truncationMode = .byTruncatingTail
         titleNode.attributedText = UserContentText.title(title)
 
@@ -154,15 +154,173 @@ class UserContentPostCardCellNode: ASCellNode {
     }
 }
 
-final class UserDiscussionCellNode: UserContentPostCardCellNode {
-    init(record: UserDiscussionRecord) {
-        super.init(
-            title: record.title,
-            metadata: "主题帖  ·  #\(record.rank)",
-            systemImageName: "doc.text",
-            tintColor: .systemOrange
+final class UserDiscussionCellNode: ASCellNode {
+    private let titleNode = ASTextNode()
+
+    private let authorNode = ASTextNode()
+    private let levelDaysBadgeNode = ASButtonNode()
+    private let statisticsNode = ASTextNode()
+    private let lastReplyNode = ASTextNode()
+    private let nodeNameNode = ASTextNode()
+    private let onOpenPost: () -> Void
+    private let authorProfileURL: URL?
+    private let fallbackBadgeText: String?
+    private var userInfoObserver: NSObjectProtocol?
+
+    init(
+        record: UserDiscussionRecord,
+        post: PostSummary,
+        onOpenPost: @escaping () -> Void
+    ) {
+        self.onOpenPost = onOpenPost
+        self.authorProfileURL = post.authorProfileURL
+        self.fallbackBadgeText = Self.levelDaysText(for: record)
+        super.init()
+        automaticallyManagesSubnodes = true
+        selectionStyle = .none
+        backgroundColor = .clear
+
+        titleNode.maximumNumberOfLines = 2
+        titleNode.truncationMode = .byTruncatingTail
+        titleNode.attributedText = UserContentText.title(record.title)
+
+        let authorName = post.authorName.isEmpty ? (record.authorName ?? "未知用户") : post.authorName
+        authorNode.attributedText = Self.authorText(authorName)
+
+        let badgeText = NodeSeekUserInfoStore.shared.badgeText(for: post.authorProfileURL)
+            ?? Self.levelDaysText(for: record)
+        levelDaysBadgeNode.setAttributedTitle(
+            badgeText.map(Self.levelDaysBadgeText),
+            for: .normal
+        )
+        levelDaysBadgeNode.contentEdgeInsets = UIEdgeInsets(top: 2, left: 4, bottom: 2, right: 4)
+        levelDaysBadgeNode.backgroundColor = .systemGreen
+        levelDaysBadgeNode.cornerRadius = 4
+        levelDaysBadgeNode.isUserInteractionEnabled = false
+        levelDaysBadgeNode.isHidden = badgeText == nil
+        levelDaysBadgeNode.accessibilityLabel = badgeText
+
+        statisticsNode.attributedText = UserContentText.metadata(
+            "浏览 \(record.viewCount ?? post.viewCount)  ·  评论 \(record.replyCount ?? post.replyCount)"
+        )
+
+        let resolvedLastReply = post.lastActivityText?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let lastReplyName = record.lastReplyAuthorName?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let activityText = record.lastActivityText?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let lastReplyText: String
+        if let resolvedLastReply, resolvedLastReply.isEmpty == false {
+            lastReplyText = resolvedLastReply
+        } else {
+            let parts = [
+                lastReplyName?.isEmpty == false ? lastReplyName : "暂无",
+                activityText?.isEmpty == false ? activityText : nil
+            ].compactMap { $0 }
+            lastReplyText = parts.isEmpty ? "暂无" : parts.joined(separator: "  ·  ")
+        }
+        lastReplyNode.attributedText = UserContentText.metadata(
+            "最后回复：\(lastReplyText)"
+        )
+
+        let nodeName = (record.nodeName ?? post.nodeName)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        nodeNameNode.attributedText = UserContentText.metadata(
+            nodeName?.isEmpty == false ? "所属板块：\(nodeName!)" : "所属板块：暂未标注"
+        )
+
+    }
+
+    override func didLoad() {
+        super.didLoad()
+        let rowTapGestureRecognizer = UITapGestureRecognizer(target: self, action: #selector(openPostTapped))
+        rowTapGestureRecognizer.cancelsTouchesInView = true
+        view.addGestureRecognizer(rowTapGestureRecognizer)
+        NodeSeekUserInfoStore.shared.requestBadge(for: authorProfileURL)
+        userInfoObserver = NotificationCenter.default.addObserver(
+            forName: NodeSeekUserInfoStore.didUpdateNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.refreshLevelDaysBadge()
+        }
+    }
+
+    deinit {
+        if let userInfoObserver {
+            NotificationCenter.default.removeObserver(userInfoObserver)
+        }
+    }
+
+    private func refreshLevelDaysBadge() {
+        let badgeText = NodeSeekUserInfoStore.shared.badgeText(for: authorProfileURL) ?? fallbackBadgeText
+        levelDaysBadgeNode.setAttributedTitle(
+            badgeText.map(Self.levelDaysBadgeText),
+            for: .normal
+        )
+        levelDaysBadgeNode.isHidden = badgeText == nil
+        levelDaysBadgeNode.accessibilityLabel = badgeText
+        setNeedsLayout()
+    }
+
+    override func layoutSpecThatFits(_ constrainedSize: ASSizeRange) -> ASLayoutSpec {
+        titleNode.style.flexGrow = 1
+        titleNode.style.flexShrink = 1
+        authorNode.style.flexShrink = 1
+        levelDaysBadgeNode.style.flexShrink = 0
+        statisticsNode.style.flexShrink = 1
+        lastReplyNode.style.flexShrink = 1
+        nodeNameNode.style.flexShrink = 1
+
+        let titleRow = ASStackLayoutSpec.vertical()
+        titleRow.children = [titleNode]
+
+        let authorRow = ASStackLayoutSpec.horizontal()
+        authorRow.spacing = 8
+        authorRow.alignItems = .center
+        var authorChildren: [ASLayoutElement] = [authorNode]
+        if levelDaysBadgeNode.isHidden == false {
+            authorChildren.append(levelDaysBadgeNode)
+        }
+        authorChildren.append(statisticsNode)
+        authorRow.children = authorChildren
+
+        let stack = ASStackLayoutSpec.vertical()
+        stack.spacing = 5
+        stack.children = [titleRow, authorRow, lastReplyNode, nodeNameNode]
+        return ASInsetLayoutSpec(
+            insets: UIEdgeInsets(top: 11, left: 14, bottom: 11, right: 14),
+            child: stack
         )
     }
+
+    @objc private func openPostTapped() { onOpenPost() }
+
+    private static func levelDaysText(for record: UserDiscussionRecord) -> String? {
+        let parts = [
+            record.level.map { "Lv \(min(6, max(0, $0)))" },
+            record.joinDays.map { "\($0)天" }
+        ].compactMap { $0 }
+        return parts.isEmpty ? nil : parts.joined(separator: "·")
+    }
+
+    private static func authorText(_ text: String) -> NSAttributedString {
+        NSAttributedString(
+            string: text,
+            attributes: [
+                .font: AppTypography.font(basePointSize: 13, weight: .semibold),
+                .foregroundColor: AppTypography.primaryTextColor
+            ]
+        )
+    }
+
+    private static func levelDaysBadgeText(_ text: String) -> NSAttributedString {
+        NSAttributedString(
+            string: text,
+            attributes: [
+                .font: AppTypography.commentBadgeFont(),
+                .foregroundColor: UIColor.white
+            ]
+        )
+    }
+
 }
 
 final class UserCollectionCellNode: UserContentPostCardCellNode {
@@ -209,18 +367,21 @@ final class UserCommentCellNode: ASCellNode {
         titleNode.attributedText = UserContentText.title(record.title)
         titleNode.accessibilityLabel = "打开主题：\(record.title)"
         textNode.maximumNumberOfLines = 3
-        textNode.attributedText = Self.commentText(record.text)
+        textNode.attributedText = UserContentText.commentPreview(record.displayText)
         textNode.accessibilityLabel = "打开回复 #\(record.floorID)"
         floorNode.maximumNumberOfLines = 1
         floorNode.attributedText = UserContentText.floor(record.floorID)
+        floorNode.accessibilityLabel = "打开回复 #\(record.floorID)"
     }
 
     override func didLoad() {
         super.didLoad()
         titleNode.isUserInteractionEnabled = true
         textNode.isUserInteractionEnabled = true
+        floorNode.isUserInteractionEnabled = true
         titleNode.view.addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(openPostTapped)))
         textNode.view.addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(openCommentTapped)))
+        floorNode.view.addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(openCommentTapped)))
     }
 
     override func layoutSpecThatFits(_ constrainedSize: ASSizeRange) -> ASLayoutSpec {
@@ -240,16 +401,6 @@ final class UserCommentCellNode: ASCellNode {
         )
     }
 
-    private static func commentText(_ text: String) -> NSAttributedString {
-        NSAttributedString(
-            string: text.trimmingCharacters(in: .whitespacesAndNewlines),
-            attributes: [
-                .font: UIFont.preferredFont(forTextStyle: .body),
-                .foregroundColor: UIColor.secondaryLabel
-            ]
-        )
-    }
-
     @objc private func openPostTapped() {
         onOpenPost()
     }
@@ -260,12 +411,36 @@ final class UserCommentCellNode: ASCellNode {
 }
 
 enum UserContentText {
+    static func commentPreview(_ text: String) -> NSAttributedString {
+        let attributedText = NSMutableAttributedString(
+            string: text.trimmingCharacters(in: .whitespacesAndNewlines),
+            attributes: [
+                .font: UIFont.preferredFont(forTextStyle: .body),
+                .foregroundColor: AppTypography.primaryTextColor,
+                .backgroundColor: UIColor.systemOrange.withAlphaComponent(0.12)
+            ]
+        )
+        let imageText = "用户发送图片" as NSString
+        var searchRange = NSRange(location: 0, length: attributedText.length)
+        while searchRange.length > 0 {
+            let match = (attributedText.string as NSString).range(of: imageText as String, options: [], range: searchRange)
+            guard match.location != NSNotFound else { break }
+            attributedText.addAttributes([
+                .foregroundColor: UIColor.systemOrange,
+                .underlineStyle: NSUnderlineStyle.single.rawValue
+            ], range: match)
+            let nextLocation = NSMaxRange(match)
+            searchRange = NSRange(location: nextLocation, length: attributedText.length - nextLocation)
+        }
+        return attributedText
+    }
+
     static func title(_ title: String) -> NSAttributedString {
         NSAttributedString(
             string: title,
             attributes: [
                 .font: PostListCellStyle.Typography.titleFont,
-                .foregroundColor: UIColor.label
+                .foregroundColor: AppTypography.primaryTextColor
             ]
         )
     }
@@ -275,7 +450,7 @@ enum UserContentText {
             string: text,
             attributes: [
                 .font: PostListCellStyle.Typography.metadataFont,
-                .foregroundColor: UIColor.secondaryLabel
+                .foregroundColor: AppTypography.secondaryTextColor
             ]
         )
     }

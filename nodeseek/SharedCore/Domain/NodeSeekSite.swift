@@ -28,6 +28,10 @@ enum NodeSeekSite {
         baseURL.appendingPathComponent("board")
     }
 
+    nonisolated static var lotteryURL: URL {
+        baseURL.appendingPathComponent("lucky")
+    }
+
     nonisolated static var defaultPostListURL: URL {
         var components = URLComponents(
             url: baseURL.appendingPathComponent("page-1"),

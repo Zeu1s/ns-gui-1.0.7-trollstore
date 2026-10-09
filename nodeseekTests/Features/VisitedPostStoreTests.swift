@@ -85,6 +85,29 @@ struct VisitedPostStoreTests {
         #expect(records.first?.visitedAt == Date(timeIntervalSince1970: 3))
     }
 
+    @Test func updateMetadataReplacesStoredAvatarAndStatistics() {
+        let original = record(id: "1", visitedAt: Date(timeIntervalSince1970: 1))
+        let persistence = SpyVisitedPostPersistence(records: [original])
+        let writeQueue = DispatchQueue(label: "VisitedPostStoreTests.updateMetadata")
+        let store = VisitedPostStore(persistence: persistence, limit: 3, writeQueue: writeQueue)
+        let refreshed = VisitedPostRecord(
+            postID: "1",
+            title: "标题",
+            url: URL(string: "https://www.nodeseek.com/post-1")!,
+            visitedAt: Date(timeIntervalSince1970: 1),
+            avatarURL: URL(string: "https://www.nodeseek.com/avatar/1.png"),
+            viewCount: 540,
+            replyCount: 21
+        )
+
+        store.updateMetadata([refreshed])
+
+        #expect(store.recentRecords(limit: 1) == [refreshed])
+        store.flush()
+        writeQueue.sync {}
+        #expect(persistence.persistedBatches.first?.records == [refreshed])
+    }
+
     @Test func markVisitedTrimsMemoryToLatestLimit() {
         let first = record(id: "1", visitedAt: Date(timeIntervalSince1970: 1))
         let second = record(id: "2", visitedAt: Date(timeIntervalSince1970: 2))

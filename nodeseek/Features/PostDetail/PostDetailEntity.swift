@@ -39,6 +39,7 @@ struct PostDetailHeaderContent: Equatable {
     let isOpposeClicked: Bool
     let favoriteCount: Int?
     let isFavoriteCollected: Bool
+    let vote: PostVote?
     let isFavoriteSubmitting: Bool
 
     nonisolated init(
@@ -60,6 +61,7 @@ struct PostDetailHeaderContent: Equatable {
         isOpposeClicked: Bool = false,
         favoriteCount: Int? = nil,
         isFavoriteCollected: Bool = false,
+        vote: PostVote? = nil,
         isFavoriteSubmitting: Bool = false
     ) {
         self.postID = postID
@@ -80,6 +82,7 @@ struct PostDetailHeaderContent: Equatable {
         self.isOpposeClicked = isOpposeClicked
         self.favoriteCount = favoriteCount
         self.isFavoriteCollected = isFavoriteCollected
+        self.vote = vote
         self.isFavoriteSubmitting = isFavoriteSubmitting
     }
 
@@ -121,6 +124,7 @@ struct PostDetailHeaderContent: Equatable {
             isOpposeClicked: detail.isOpposeClicked,
             favoriteCount: detail.favoriteCount,
             isFavoriteCollected: detail.isFavoriteCollected,
+            vote: detail.vote,
             isFavoriteSubmitting: false
         )
     }
@@ -145,6 +149,7 @@ struct PostDetailHeaderContent: Equatable {
             isOpposeClicked: isOpposeClicked,
             favoriteCount: favoriteCount,
             isFavoriteCollected: isFavoriteCollected,
+            vote: vote,
             isFavoriteSubmitting: isSubmitting
         )
     }
@@ -169,6 +174,7 @@ struct PostDetailHeaderContent: Equatable {
             isOpposeClicked: isOpposeClicked,
             favoriteCount: count,
             isFavoriteCollected: isCollected,
+            vote: vote,
             isFavoriteSubmitting: isFavoriteSubmitting
         )
     }
@@ -193,6 +199,7 @@ struct PostDetailHeaderContent: Equatable {
             isOpposeClicked: isOpposeClicked,
             favoriteCount: favoriteCount,
             isFavoriteCollected: isFavoriteCollected,
+            vote: vote,
             isFavoriteSubmitting: isFavoriteSubmitting
         )
     }
@@ -217,6 +224,7 @@ struct PostDetailHeaderContent: Equatable {
             isOpposeClicked: isOpposeClicked,
             favoriteCount: favoriteCount,
             isFavoriteCollected: isFavoriteCollected,
+            vote: vote,
             isFavoriteSubmitting: isFavoriteSubmitting
         )
     }
@@ -241,6 +249,7 @@ struct PostDetailHeaderContent: Equatable {
             isOpposeClicked: isClicked,
             favoriteCount: favoriteCount,
             isFavoriteCollected: isFavoriteCollected,
+            vote: vote,
             isFavoriteSubmitting: isFavoriteSubmitting
         )
     }

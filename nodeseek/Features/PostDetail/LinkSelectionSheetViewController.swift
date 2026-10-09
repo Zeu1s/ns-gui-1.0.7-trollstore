@@ -96,7 +96,7 @@ final class LinkSelectionSheetViewController: UITableViewController {
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
 
         let subtitleLabel = UILabel()
-        subtitleLabel.text = "签名档里有多个可点击链接"
+        subtitleLabel.text = "签名档里有 \(candidates.count) 个可点击链接"
         subtitleLabel.font = .preferredFont(forTextStyle: .subheadline)
         subtitleLabel.textColor = .secondaryLabel
         subtitleLabel.adjustsFontForContentSizeCategory = true

@@ -174,16 +174,23 @@ class PostDetailPresenter: PostDetailPresenterProtocol {
     private let interactor: PostDetailInteractorInput
     private let router: PostDetailRouterProtocol
     private let visitedStore: VisitedPostStoreProtocol
+    private let sourcePost: PostSummary?
     private let initialPage: Int
     private var currentPage: Int
+    private var opensLatestCommentAfterInitialLoad: Bool
     private var nextCommentPage: Int?
     private var activeCommentPageRequest: CommentPageRequest?
     private var commentPageTracker = CommentPageTracker()
     private var currentDetail: PostDetail?
     private var replyRefreshTracking: ReplyRefreshTracking?
+    /// "我的回复"直达定位：跨页加载完成后要滚动到的评论锚点。
+    private var myReplyAnchorIDToFocus: String?
+    /// 本帖"我的回复"分布：页码 → 该页我的回复锚点列表。
+    private var myReplyEntries: [Int: [String]] = [:]
     private var fallbackFavoriteCollectedState = false
     private var isSubmittingReply = false
     private var isSubmittingFavorite = false
+    private var isSubmittingVote = false
     private var isSubmittingPostLike = false
     private var isSubmittingPostChickenLeg = false
     private var isSubmittingPostOppose = false
@@ -198,13 +205,17 @@ class PostDetailPresenter: PostDetailPresenterProtocol {
         interactor: PostDetailInteractorInput,
         router: PostDetailRouterProtocol,
         initialPage: Int = 1,
-        visitedStore: VisitedPostStoreProtocol = EmptyVisitedPostStore()
+        sourcePost: PostSummary? = nil,
+        visitedStore: VisitedPostStoreProtocol = EmptyVisitedPostStore(),
+        opensLatestComment: Bool = false
     ) {
         self.interactor = interactor
         self.router = router
+        self.sourcePost = sourcePost
         self.visitedStore = visitedStore
         self.initialPage = max(1, initialPage)
         self.currentPage = self.initialPage
+        self.opensLatestCommentAfterInitialLoad = opensLatestComment
     }
     
     // MARK: - Setup
@@ -222,6 +233,11 @@ class PostDetailPresenter: PostDetailPresenterProtocol {
         interactor.loadPostDetail(page: currentPage)
     }
 
+    func cancelPendingLoad() {
+        activeCommentPageRequest = nil
+        interactor.cancelPendingLoad()
+    }
+
     func refreshInitialPage() {
         // currentPage 会随着加载更多变化；右上角刷新要回到进入详情时的页码。
         view?.showLoading()
@@ -229,6 +245,7 @@ class PostDetailPresenter: PostDetailPresenterProtocol {
         nextCommentPage = nil
         commentPageTracker.reset()
         currentDetail = nil
+        isSubmittingVote = false
         currentPage = initialPage
         interactor.loadPostDetail(page: currentPage)
     }
@@ -298,6 +315,22 @@ class PostDetailPresenter: PostDetailPresenterProtocol {
         interactor.loadPostDetail(page: pageToLoad)
     }
 
+    func didRequestLatestComment() {
+        guard let detail = currentDetail else {
+            opensLatestCommentAfterInitialLoad = true
+            return
+        }
+        guard activeCommentPageRequest == nil else { return }
+        let latestPage = detail.pagination?.items.map(\.page).max() ?? detail.page
+        guard latestPage > currentPage else {
+            view?.scrollToLatestComment()
+            return
+        }
+        activeCommentPageRequest = .append(page: latestPage)
+        view?.showLoadingMoreComments()
+        interactor.loadPostDetail(page: latestPage)
+    }
+
     func didTapSendReply(content: String) {
         let startedAt = Date()
         AppLog.info(.postDetail, "Presenter 收到发送回复: contentLength=\(content.count), isSubmittingReply=\(isSubmittingReply), currentPage=\(currentPage), isLastPage=\(currentDetail?.isLastPage == true)")
@@ -317,9 +350,37 @@ class PostDetailPresenter: PostDetailPresenterProtocol {
         AppLog.info(.postDetail, "Presenter 设置回复提交状态=true 前: elapsedMs=\(AppLog.elapsedMilliseconds(since: startedAt))")
         view?.setReplySubmitting(true)
         AppLog.info(.postDetail, "Presenter 设置回复提交状态=true 后，准备调用 interactor: normalizedLength=\(normalizedContent.count), elapsedMs=\(AppLog.elapsedMilliseconds(since: startedAt))")
+        view?.snapshotReadingPosition()
         interactor.submitReply(content: normalizedContent)
     }
 
+    func didTapVote(optionIDs: [String]) {
+        guard isSubmittingVote == false,
+              let detail = currentDetail,
+              let vote = detail.vote else {
+            return
+        }
+        guard vote.canSubmit, vote.isClosed == false else {
+            view?.showToast(message: "当前投票不可提交")
+            return
+        }
+        let allowedIDs = Set(vote.options.map(\.id))
+        let values = Array(Set(optionIDs)).filter { allowedIDs.contains($0) }
+        guard values.isEmpty == false else {
+            view?.showToast(message: "请先选择投票选项")
+            return
+        }
+        if vote.allowsMultipleSelection == false, values.count > 1 {
+            view?.showToast(message: "该投票仅支持单选")
+            return
+        }
+
+        isSubmittingVote = true
+        let submittingDetail = detail.updatingVote(vote.updatingSubmitting(true))
+        currentDetail = submittingDetail
+        view?.updatePostBody(detail: submittingDetail)
+        interactor.submitVote(optionIDs: values)
+    }
     func didTapFavorite() {
         guard isSubmittingFavorite == false else { return }
         isSubmittingFavorite = true
@@ -342,6 +403,7 @@ class PostDetailPresenter: PostDetailPresenterProtocol {
         }
         guard submittingCommentLikeIDs.contains(comment.id) == false else { return }
         submittingCommentLikeIDs.insert(comment.id)
+        applyCommentReactionOptimistic(commentID: comment.id, kind: .like)
         view?.showToast(message: ReactionKind.like.pendingToast)
         interactor.addCommentLike(commentID: comment.id)
     }
@@ -353,6 +415,7 @@ class PostDetailPresenter: PostDetailPresenterProtocol {
         }
         guard submittingCommentChickenLegIDs.contains(comment.id) == false else { return }
         submittingCommentChickenLegIDs.insert(comment.id)
+        applyCommentReactionOptimistic(commentID: comment.id, kind: .chickenLeg)
         view?.showToast(message: ReactionKind.chickenLeg.pendingToast)
         interactor.addCommentChickenLeg(commentID: comment.id)
     }
@@ -364,6 +427,7 @@ class PostDetailPresenter: PostDetailPresenterProtocol {
         }
         guard submittingCommentOpposeIDs.contains(comment.id) == false else { return }
         submittingCommentOpposeIDs.insert(comment.id)
+        applyCommentReactionOptimistic(commentID: comment.id, kind: .oppose)
         view?.showToast(message: ReactionKind.oppose.pendingToast)
         interactor.addCommentOppose(commentID: comment.id)
     }
@@ -375,6 +439,7 @@ class PostDetailPresenter: PostDetailPresenterProtocol {
         }
         guard isSubmittingPostLike == false else { return }
         isSubmittingPostLike = true
+        applyPostReactionOptimistic(kind: .like)
         view?.showToast(message: ReactionKind.like.pendingToast)
         interactor.addPostLike()
     }
@@ -386,6 +451,7 @@ class PostDetailPresenter: PostDetailPresenterProtocol {
         }
         guard isSubmittingPostChickenLeg == false else { return }
         isSubmittingPostChickenLeg = true
+        applyPostReactionOptimistic(kind: .chickenLeg)
         view?.showToast(message: ReactionKind.chickenLeg.pendingToast)
         interactor.addPostChickenLeg()
     }
@@ -397,6 +463,7 @@ class PostDetailPresenter: PostDetailPresenterProtocol {
         }
         guard isSubmittingPostOppose == false else { return }
         isSubmittingPostOppose = true
+        applyPostReactionOptimistic(kind: .oppose)
         view?.showToast(message: ReactionKind.oppose.pendingToast)
         interactor.addPostOppose()
     }
@@ -408,6 +475,17 @@ class PostDetailPresenter: PostDetailPresenterProtocol {
     private func markDetailVisited(_ detail: PostDetail) {
         let page = max(1, detail.page)
         let url = NodeSeekSite.postURL(id: detail.id, page: page)
+        let sourceStatistics = sourcePost?.id == detail.id ? sourcePost : nil
+        let storedStatistics = visitedStore.record(forPostID: detail.id)
+        let resolvedReplyCount = max(
+            sourceStatistics?.replyCount ?? 0,
+            storedStatistics?.replyCount ?? 0,
+            detail.comments.count
+        )
+        let resolvedViewCount = max(
+            sourceStatistics?.viewCount ?? 0,
+            storedStatistics?.viewCount ?? 0
+        )
 
         let post = PostSummary(
             id: detail.id,
@@ -415,8 +493,8 @@ class PostDetailPresenter: PostDetailPresenterProtocol {
             url: url,
             authorName: detail.authorName,
             nodeName: nil,
-            replyCount: detail.comments.count,
-            viewCount: 0,
+            replyCount: resolvedReplyCount,
+            viewCount: resolvedViewCount,
             lastActivityText: detail.metadataText,
             avatarURL: detail.avatarURL
         )
@@ -470,6 +548,110 @@ class PostDetailPresenter: PostDetailPresenterProtocol {
 
     private func reactionNextCount(current: Int?, serverCount: Int?) -> Int {
         serverCount ?? max(1, (current ?? 0) + 1)
+    }
+
+    /// 乐观更新：点击后立即把点击态与本地估算计数上屏（不含 toast），
+    /// 成功时被服务器精确值覆盖，失败时按 kind 回滚。
+    private func applyPostReactionOptimistic(kind: ReactionKind) {
+        guard let currentDetail else { return }
+        let nextDetail: PostDetail
+        switch kind {
+        case .like:
+            nextDetail = currentDetail.updatingPostLikeState(
+                count: reactionNextCount(current: currentDetail.likeCount, serverCount: nil),
+                isClicked: true
+            )
+        case .chickenLeg:
+            nextDetail = currentDetail.updatingPostChickenLegState(
+                count: reactionNextCount(current: currentDetail.chickenLegCount, serverCount: nil),
+                isClicked: true
+            )
+        case .oppose:
+            nextDetail = currentDetail.updatingPostOpposeState(
+                count: reactionNextCount(current: currentDetail.opposeCount, serverCount: nil),
+                isClicked: true
+            )
+        }
+        self.currentDetail = nextDetail
+        view?.updatePostBody(detail: nextDetail)
+    }
+
+    private func rollbackPostReaction(kind: ReactionKind) {
+        guard let currentDetail else { return }
+        let nextDetail: PostDetail
+        switch kind {
+        case .like:
+            nextDetail = currentDetail.updatingPostLikeState(
+                count: max(0, (currentDetail.likeCount ?? 1) - 1),
+                isClicked: false
+            )
+        case .chickenLeg:
+            nextDetail = currentDetail.updatingPostChickenLegState(
+                count: max(0, (currentDetail.chickenLegCount ?? 1) - 1),
+                isClicked: false
+            )
+        case .oppose:
+            nextDetail = currentDetail.updatingPostOpposeState(
+                count: max(0, (currentDetail.opposeCount ?? 1) - 1),
+                isClicked: false
+            )
+        }
+        self.currentDetail = nextDetail
+        view?.updatePostBody(detail: nextDetail)
+    }
+
+    private func applyCommentReactionOptimistic(commentID: String, kind: ReactionKind) {
+        guard let currentDetail,
+              let comment = currentDetail.comments.first(where: { $0.id == commentID }) else {
+            return
+        }
+        switch kind {
+        case .like:
+            let nextCount = reactionNextCount(current: comment.likeCount, serverCount: nil)
+            view?.updateCommentLike(commentID: commentID, count: nextCount, isClicked: true)
+            self.currentDetail = currentDetail.updatingCommentLikeState(
+                commentID: commentID, count: nextCount, isClicked: true
+            )
+        case .chickenLeg:
+            let nextCount = reactionNextCount(current: comment.chickenLegCount, serverCount: nil)
+            view?.updateCommentChickenLeg(commentID: commentID, count: nextCount, isClicked: true)
+            self.currentDetail = currentDetail.updatingCommentChickenLegState(
+                commentID: commentID, count: nextCount, isClicked: true
+            )
+        case .oppose:
+            let nextCount = reactionNextCount(current: comment.opposeCount, serverCount: nil)
+            view?.updateCommentOppose(commentID: commentID, count: nextCount, isClicked: true)
+            self.currentDetail = currentDetail.updatingCommentOpposeState(
+                commentID: commentID, count: nextCount, isClicked: true
+            )
+        }
+    }
+
+    private func rollbackCommentReaction(commentID: String, kind: ReactionKind) {
+        guard let currentDetail,
+              let comment = currentDetail.comments.first(where: { $0.id == commentID }) else {
+            return
+        }
+        switch kind {
+        case .like:
+            let previous = max(0, (comment.likeCount ?? 1) - 1)
+            view?.updateCommentLike(commentID: commentID, count: previous, isClicked: false)
+            self.currentDetail = currentDetail.updatingCommentLikeState(
+                commentID: commentID, count: previous, isClicked: false
+            )
+        case .chickenLeg:
+            let previous = max(0, (comment.chickenLegCount ?? 1) - 1)
+            view?.updateCommentChickenLeg(commentID: commentID, count: previous, isClicked: false)
+            self.currentDetail = currentDetail.updatingCommentChickenLegState(
+                commentID: commentID, count: previous, isClicked: false
+            )
+        case .oppose:
+            let previous = max(0, (comment.opposeCount ?? 1) - 1)
+            view?.updateCommentOppose(commentID: commentID, count: previous, isClicked: false)
+            self.currentDetail = currentDetail.updatingCommentOpposeState(
+                commentID: commentID, count: previous, isClicked: false
+            )
+        }
     }
 
     private func applyPostReactionSuccess(response: CommentUpvoteResponse, kind: ReactionKind) {
@@ -588,6 +770,7 @@ private extension PostDetail {
             favoriteCount: favoriteCount,
             isFavoriteCollected: isFavoriteCollected,
             isRestricted: isRestricted,
+            vote: vote,
             comments: nextComments,
             page: page,
             pagination: pagination,
@@ -599,6 +782,37 @@ private extension PostDetail {
 // MARK: - Interactor Output
 extension PostDetailPresenter: PostDetailInteractorOutput {
     
+    func didLoadPostVote(postID: String, vote: PostVote) {
+        guard isSubmittingVote == false,
+              let detail = currentDetail,
+              detail.id == postID else {
+            return
+        }
+        let updatedDetail = detail.updatingVote(vote)
+        guard updatedDetail != detail else { return }
+        currentDetail = updatedDetail
+        view?.updatePostBody(detail: updatedDetail)
+    }
+
+    func didSubmitPostVote(_ response: PostVoteSubmissionResponse) {
+        isSubmittingVote = false
+        guard let detail = currentDetail else { return }
+        let updatedDetail = detail.updatingVote(response.vote.updatingSubmitting(false))
+        currentDetail = updatedDetail
+        view?.updatePostBody(detail: updatedDetail)
+        let message = response.message?.trimmingCharacters(in: .whitespacesAndNewlines)
+        view?.showToast(message: message?.isEmpty == false ? message! : "投票成功")
+    }
+
+    func didFailSubmitPostVote(error: String) {
+        isSubmittingVote = false
+        if let detail = currentDetail, let vote = detail.vote {
+            let updatedDetail = detail.updatingVote(vote.updatingSubmitting(false))
+            currentDetail = updatedDetail
+            view?.updatePostBody(detail: updatedDetail)
+        }
+        view?.showError(message: error)
+    }
     func didLoadPostDetail(_ response: PostDetailResponse) {
         favoriteRollbackDetail = nil
         favoriteRollbackCollectedState = nil
@@ -634,6 +848,64 @@ extension PostDetailPresenter: PostDetailInteractorOutput {
             AppLog.info(.postDetail, "详情评论到底更新无新评论: page=\(loadedPage), count=\(response.detail.comments.count)")
             view?.showToast(message: "暂无新评论")
         }
+        if opensLatestCommentAfterInitialLoad, commentRequest == nil {
+            opensLatestCommentAfterInitialLoad = false
+            didRequestLatestComment()
+        } else if commentRequest?.requestedPage == loadedPage,
+                  handling.logReason != "append",
+                  handling.logReason != "reply",
+                  loadedPage == currentDetail?.pagination?.items.map(\.page).max() {
+            // 排除 "append"：那是向下滚到页尾自动续的一页。用户刚看到第 11 楼，
+            // 结果因为这一页正好是最后一页就被动画滚到全帖最底部，
+            // 表现就是"加载完下一层楼位置乱跳"。
+            // 再排除 "reply"：回帖后的刷新由 restoreReadingPosition 负责回到原位。
+            // 真正"去最新一层"的入口是上面 opensLatestCommentAfterInitialLoad 那条。
+            view?.scrollToLatestComment()
+        }
+        Task { [weak self] in
+            guard let self else { return }
+            let username = await Self.currentDisplayName()
+            guard let username, username.isEmpty == false else { return }
+            // 收集"我的回复"在本帖的分布（每页各自登记，供导航栏入口直达定位）。
+            let detail = handling.renderedDetail
+            let mineAnchors = detail.comments.compactMap { comment -> String? in
+                guard comment.authorName == username,
+                      let anchorID = comment.anchorID?.trimmingCharacters(in: .whitespacesAndNewlines),
+                      anchorID.isEmpty == false else {
+                    return nil
+                }
+                return anchorID
+            }
+            await MainActor.run {
+                guard self.currentDetail?.id == detail.id else { return }
+                if mineAnchors.isEmpty == false {
+                    self.myReplyEntries[detail.page] = mineAnchors
+                }
+                let pages = Array(self.myReplyEntries.keys).sorted()
+                self.view?.updateMyReplies(
+                    pages: pages,
+                    latestAnchorID: self.myReplyEntries.values.flatMap { $0 }.last
+                )
+            }
+        }
+    }
+
+    nonisolated private static func currentDisplayName() async -> String? {
+        await CurrentAccountStore.shared.snapshot()?.account.displayName
+    }
+
+    func didTapMyReply(page: Int, anchorID: String?) {
+        let targetPage = max(1, page)
+        let resolvedAnchor = anchorID ?? myReplyEntries[targetPage]?.last
+        myReplyAnchorIDToFocus = resolvedAnchor
+        if targetPage == currentPage {
+            if let resolvedAnchor, resolvedAnchor.isEmpty == false {
+                view?.focusComment(anchorID: resolvedAnchor)
+            }
+            return
+        }
+        activeCommentPageRequest = .replyRefresh(page: targetPage)
+        interactor.loadPostDetail(page: targetPage)
     }
 
     private func handleCommentPageResponse(
@@ -713,10 +985,19 @@ extension PostDetailPresenter: PostDetailInteractorOutput {
                 replaceResult = CommentPageReplaceResult(detail: detail, usedFallback: true)
                 view?.render(detail: detail)
             }
-            if let anchorID = replyTargetAnchorID(from: targetComment) {
+            // "我的回复"直达优先；回帖后不再自动定位新评论 —— 那一步会把人从
+            // 正在看的位置拽走（多页长帖上表现为整页换掉、回到顶部），
+            // 改成刷新完回到回帖前记下的位置。
+            if let anchorID = myReplyAnchorIDToFocus, anchorID.isEmpty == false {
+                myReplyAnchorIDToFocus = nil
                 view?.focusComment(anchorID: anchorID)
+            } else {
+                view?.restoreReadingPosition()
             }
-            AppLog.info(.postDetail, "回复后详情评论刷新并定位完成: page=\(loadedPage), count=\(detail.comments.count)")
+            AppLog.info(
+                .postDetail,
+                "回复后详情评论刷新完成: page=\(loadedPage), count=\(detail.comments.count), 新评论锚点=\(replyTargetAnchorID(from: targetComment) ?? "无")"
+            )
             return CommentPageResponseHandling(
                 renderedDetail: replaceResult.detail,
                 shouldReplaceLoadedPages: replaceResult.usedFallback,
@@ -771,9 +1052,13 @@ extension PostDetailPresenter: PostDetailInteractorOutput {
         if case .replyRefresh = failedRequest {
             replyRefreshTracking = nil
             return
-        } else {
-            view?.showError(message: error)
         }
+        if error.contains("不存在") {
+            // 已删除/私有化/无效页码：重试无意义，直接给返回。
+            view?.showPostUnavailable(message: error)
+            return
+        }
+        view?.showError(message: error)
     }
 
     func didCancelLoadPostDetail() {
@@ -798,18 +1083,17 @@ extension PostDetailPresenter: PostDetailInteractorOutput {
         view?.finishReplySubmission()
 
         let responseMessage = response.message?.trimmingCharacters(in: .whitespacesAndNewlines)
-        if let destinationPage = replyDestinationPage() {
-            let toastMessage: String
-            if let responseMessage, responseMessage.isEmpty == false {
-                toastMessage = responseMessage
-            } else {
-                toastMessage = "评论已发布"
-            }
-            view?.showToast(message: toastMessage)
-            scheduleReplyRefreshAfterSubmission(destinationPage: destinationPage)
+        // 原来这里会跳到"新评论所在的那一页"并定位过去。多页长帖上这一步等于
+        // 把整页内容换掉，滚动位置随之丢到顶部，看起来就是"回帖后跳到 0 楼"。
+        // 改成只刷新当前页，刷新完由 view 还原回帖前的位置。
+        let toastMessage: String
+        if let responseMessage, responseMessage.isEmpty == false {
+            toastMessage = responseMessage
         } else {
-            view?.showToast(message: "评论已发布，可到最后一页查看")
+            toastMessage = "评论已发布"
         }
+        view?.showToast(message: toastMessage)
+        scheduleReplyRefreshAfterSubmission(destinationPage: max(1, currentPage))
     }
 
     func didFailSubmitReply(error: String) {
@@ -841,14 +1125,6 @@ extension PostDetailPresenter: PostDetailInteractorOutput {
             AppLog.info(.postDetail, "回复提交成功后开始刷新当前页: page=\(page)")
             self.interactor.loadPostDetail(page: page)
         }
-    }
-
-    private func replyDestinationPage() -> Int? {
-        guard let currentDetail else { return nil }
-        if currentDetail.isLastPage {
-            return max(currentPage, currentDetail.page)
-        }
-        return currentDetail.pagination?.items.map(\.page).max()
     }
 
     private func replyTargetComment(
@@ -913,6 +1189,9 @@ extension PostDetailPresenter: PostDetailInteractorOutput {
 
     func didFailAddPostLike(error: String) {
         isSubmittingPostLike = false
+        if error.contains(ReactionKind.like.alreadyActionSuffix) == false {
+            rollbackPostReaction(kind: .like)
+        }
         handleReactionFailure(error: error, kind: .like)
     }
 
@@ -923,6 +1202,9 @@ extension PostDetailPresenter: PostDetailInteractorOutput {
 
     func didFailAddCommentLike(commentID: String, error: String) {
         submittingCommentLikeIDs.remove(commentID)
+        if error.contains(ReactionKind.like.alreadyActionSuffix) == false {
+            rollbackCommentReaction(commentID: commentID, kind: .like)
+        }
         handleReactionFailure(error: error, kind: .like)
     }
 
@@ -933,6 +1215,9 @@ extension PostDetailPresenter: PostDetailInteractorOutput {
 
     func didFailAddPostChickenLeg(error: String) {
         isSubmittingPostChickenLeg = false
+        if error.contains(ReactionKind.chickenLeg.alreadyActionSuffix) == false {
+            rollbackPostReaction(kind: .chickenLeg)
+        }
         handleReactionFailure(error: error, kind: .chickenLeg)
     }
 
@@ -943,6 +1228,9 @@ extension PostDetailPresenter: PostDetailInteractorOutput {
 
     func didFailAddCommentChickenLeg(commentID: String, error: String) {
         submittingCommentChickenLegIDs.remove(commentID)
+        if error.contains(ReactionKind.chickenLeg.alreadyActionSuffix) == false {
+            rollbackCommentReaction(commentID: commentID, kind: .chickenLeg)
+        }
         handleReactionFailure(error: error, kind: .chickenLeg)
     }
 
@@ -953,6 +1241,9 @@ extension PostDetailPresenter: PostDetailInteractorOutput {
 
     func didFailAddPostOppose(error: String) {
         isSubmittingPostOppose = false
+        if error.contains(ReactionKind.oppose.alreadyActionSuffix) == false {
+            rollbackPostReaction(kind: .oppose)
+        }
         handleReactionFailure(error: error, kind: .oppose)
     }
 
@@ -963,6 +1254,9 @@ extension PostDetailPresenter: PostDetailInteractorOutput {
 
     func didFailAddCommentOppose(commentID: String, error: String) {
         submittingCommentOpposeIDs.remove(commentID)
+        if error.contains(ReactionKind.oppose.alreadyActionSuffix) == false {
+            rollbackCommentReaction(commentID: commentID, kind: .oppose)
+        }
         handleReactionFailure(error: error, kind: .oppose)
     }
 }

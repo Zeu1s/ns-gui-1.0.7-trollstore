@@ -26,4 +26,17 @@ struct NodeSeekWebViewControllerTests {
 
         #expect(NodeSeekWebViewController.nativePostRoute(for: url, baseURL: baseURL) == nil)
     }
+
+    @Test func supportsPageZoomWhenRequested() throws {
+        let url = try #require(URL(string: "https://www.nodeseek.com/setting#security"))
+        let viewController = NodeSeekWebViewController(
+            url: url,
+            automaticallyLoadsPage: false,
+            allowsPageZoom: true
+        )
+
+        viewController.loadViewIfNeeded()
+
+        #expect(viewController.webView.scrollView.pinchGestureRecognizer?.isEnabled == true)
+    }
 }

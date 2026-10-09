@@ -221,7 +221,12 @@ extension DTCoreTextHTMLContentRenderer {
             blocks.append(.table(table))
         } else if isPreElement(node), let codeBlock = codeBlock(from: node) {
             blocks.append(.codeBlock(codeBlock))
-            blocks.append(contentsOf: promotableImageBlocks(in: codeBlock.text).map(RenderedContentBlock.image))
+            let reportURLs = Set(checkPlaceReportURLs(in: codeBlock.text).map {
+                $0.absoluteString.lowercased()
+            })
+            blocks.append(contentsOf: promotableImageBlocks(in: codeBlock.text)
+                .filter { reportURLs.contains($0.url.absoluteString.lowercased()) == false }
+                .map(RenderedContentBlock.image))
         }
     }
 
@@ -490,7 +495,8 @@ extension DTCoreTextHTMLContentRenderer {
 
     func codeBlock(from preNode: XMLElement) -> RenderedCodeBlock? {
         let rawText: String?
-        if let codeNode = preNode.at_css("code") {
+        let codeNode = preNode.at_css("code")
+        if let codeNode {
             rawText = codeText(from: codeNode)
         } else {
             rawText = fallbackPreText(from: preNode)
@@ -500,6 +506,13 @@ extension DTCoreTextHTMLContentRenderer {
               text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
         else {
             return nil
+        }
+        // ANSI 终端块（language-ansi 或站点控制符编码）：保留颜色段交给终端画布，
+        // 与网页端的黑底彩色输出保持一致。
+        let isANSICode = codeNode?["class"]?.split(separator: " ").contains("language-ansi") == true
+            || text.contains(Self.ansiControlTokenMarker)
+        if isANSICode {
+            return terminalCodeBlock(fromANSIText: restoredANSIControlText(text))
         }
         return RenderedCodeBlock(text: text)
     }
@@ -516,8 +529,93 @@ extension DTCoreTextHTMLContentRenderer {
         return plainCodeText(fromHTML: html)
     }
 
+    /// 站点 SSR 把 ANSI 控制字符编码成空 span（如 data-ansicode="27" 表示 ESC）。
+    /// 先替换成占位 token 走完实体解码，再用 restoredANSIControlText 换回控制符，
+    /// 否则下方通用去标签逻辑会把它一并剥掉，终端颜色段全部丢失。
+    static let ansiControlTokenMarker = "\u{E000}NSANSI"
+    private static let ansiControlTokenTerminator = "\u{E001}"
+    private static let ansiControlSpanRegex = try! NSRegularExpression(
+        pattern: #"<span[^>]*\bdata-ansicode="([0-9]+)"[^>]*>\s*</span>"#
+    )
+    private static let ansiControlTokenRegex = try! NSRegularExpression(
+        pattern: "\u{E000}NSANSI([0-9]+)\u{E001}"
+    )
+
+    /// 把 plainCodeText 保留的 ANSI 控制符占位 token 还原成真实控制字符。
+    func restoredANSIControlText(_ text: String) -> String {
+        guard text.contains(Self.ansiControlTokenMarker) else { return text }
+        let nsText = text as NSString
+        let fullRange = NSRange(location: 0, length: nsText.length)
+        var result = ""
+        var cursor = 0
+        for match in Self.ansiControlTokenRegex.matches(in: text, options: [], range: fullRange) {
+            let gap = NSRange(location: cursor, length: match.range.location - cursor)
+            result += nsText.substring(with: gap)
+            if let range = Range(match.range(at: 1), in: text),
+               let code = UInt32(text[range]),
+               let scalar = Unicode.Scalar(code) {
+                result += String(Character(scalar))
+            }
+            cursor = match.range.location + match.range.length
+        }
+        result += nsText.substring(from: cursor)
+        return result
+    }
+
+    private static let numericEntityRegex = try! NSRegularExpression(pattern: "&#([0-9]+|x[0-9A-Fa-f]+);")
+    private static let namedCodeEntityReplacements: [String: String] = [
+        "&lt;": "<",
+        "&gt;": ">",
+        "&quot;": "\"",
+        "&apos;": "'",
+        "&nbsp;": " "
+    ]
+
+    /// 代码文本专用的实体解码：纯字符串替换，不走 WebKit。
+    /// WebKit 的 HTML 解析会把连续空格折叠成一个，而终端报告的列对齐
+    /// 全靠多空格 padding，被折叠后每行错位程度不同（测评帖纵向错位的根源）。
+    func decodedCodeHTMLEntities(in text: String) -> String {
+        guard text.contains("&") else { return text }
+        var result = text
+        for (entity, replacement) in Self.namedCodeEntityReplacements {
+            result = result.replacingOccurrences(of: entity, with: replacement)
+        }
+        // &amp; 放在最后，避免把 &amp;lt; 二次解码成 <。
+        result = result.replacingOccurrences(of: "&amp;", with: "&")
+
+        let nsResult = result as NSString
+        let fullRange = NSRange(location: 0, length: nsResult.length)
+        let matches = Self.numericEntityRegex.matches(in: result, options: [], range: fullRange)
+        guard matches.isEmpty == false else { return result }
+
+        var rebuilt = ""
+        var cursor = 0
+        for match in matches {
+            rebuilt += nsResult.substring(with: NSRange(location: cursor, length: match.range.location - cursor))
+            let digits = nsResult.substring(with: match.range(at: 1))
+            let scalarValue: UInt32?
+            if digits.hasPrefix("x") || digits.hasPrefix("X") {
+                scalarValue = UInt32(digits.dropFirst(), radix: 16)
+            } else {
+                scalarValue = UInt32(digits)
+            }
+            if let scalarValue, let scalar = Unicode.Scalar(scalarValue) {
+                rebuilt += String(Character(scalar))
+            }
+            cursor = match.range.location + match.range.length
+        }
+        rebuilt += nsResult.substring(from: cursor)
+        return rebuilt
+    }
+
     func plainCodeText(fromHTML html: String) -> String {
-        let withoutChrome = html
+        let tokenized = Self.ansiControlSpanRegex.stringByReplacingMatches(
+            in: html,
+            options: [],
+            range: NSRange(html.startIndex..., in: html),
+            withTemplate: "\(Self.ansiControlTokenMarker)$1\(Self.ansiControlTokenTerminator)"
+        )
+        let withoutChrome = tokenized
             .replacingOccurrences(
                 of: "(?is)<(script|style|button|svg)\\b[^>]*>.*?</\\1>",
                 with: "",
@@ -533,11 +631,11 @@ extension DTCoreTextHTMLContentRenderer {
             with: "",
             options: .regularExpression
         )
-        return decodedHTMLEntities(in: stripped)
+        return decodedCodeHTMLEntities(in: stripped)
     }
 
     func normalizedCodeText(_ text: String) -> String {
-        decodedHTMLEntities(in: text)
+        decodedCodeHTMLEntities(in: text)
             .replacingOccurrences(of: "\r\n", with: "\n")
             .replacingOccurrences(of: "\r", with: "\n")
             .trimmingCharacters(in: .newlines)

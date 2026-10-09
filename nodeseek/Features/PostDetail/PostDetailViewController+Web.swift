@@ -17,19 +17,7 @@ extension PostDetailViewController {
             return
         }
 
-        if isNodeSeekHost(targetURL) {
-            let webViewController = NodeSeekWebViewController(url: targetURL)
-            if let navigationController {
-                navigationController.pushViewController(webViewController, animated: true)
-            } else {
-                let navigationWrapper = UINavigationController(rootViewController: webViewController)
-                present(navigationWrapper, animated: true)
-            }
-            return
-        }
-
-        let safariViewController = SFSafariViewController(url: targetURL)
-        present(safariViewController, animated: true)
+        openHTTPURLInSelectedBrowser(targetURL)
     }
 
     func shareCurrentPost(sourceItem: UIBarButtonItem?) {
@@ -97,8 +85,9 @@ extension PostDetailViewController {
             let webViewController = NodeSeekWebViewController(url: url)
             showDetailDestination(webViewController)
         case .safari(let url):
-            present(SFSafariViewController(url: url), animated: true)
+            openHTTPURLInSelectedBrowser(url)
         case .externalApp(let url):
+            AppLog.info(.runtime, "请求打开外部应用: \(url.absoluteString)")
             UIApplication.shared.open(url, options: [:]) { [weak self] success in
                 guard success == false else { return }
                 DispatchQueue.main.async {
@@ -108,14 +97,49 @@ extension PostDetailViewController {
         }
     }
 
-    func handleSignatureLinkCandidatesTap(_ candidates: [DetailLinkCandidate]) {
-        let uniqueCandidates = Self.uniqueLinkCandidates(candidates)
-        guard uniqueCandidates.count > 1 else {
-            if let url = uniqueCandidates.first?.url {
-                handleContentLinkTap(url)
-            }
+    private func openHTTPURLInSelectedBrowser(_ url: URL) {
+        guard let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https" else {
+            AppLog.warning(.runtime, "浏览器打开请求被忽略，非 HTTP(S) 链接: \(url.absoluteString)")
             return
         }
+
+        let mode = BrowserOpenMode.current
+        AppLog.info(.runtime, "使用 \(mode.title) 打开链接: \(url.absoluteString)")
+        switch mode {
+        case .inAppSafari:
+            present(SFSafariViewController(url: url), animated: true)
+        case .safari:
+            UIApplication.shared.open(url, options: [:]) { [weak self] success in
+                guard success == false else { return }
+                DispatchQueue.main.async {
+                    self?.showError(message: "无法使用 Safari 打开这个链接。")
+                }
+            }
+        case .chrome:
+            guard var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
+                showError(message: "当前链接无效，暂时无法使用 Chrome 打开。")
+                return
+            }
+            components.scheme = scheme == "https" ? "googlechromes" : "googlechrome"
+            guard let chromeURL = components.url else {
+                showError(message: "当前链接无效，暂时无法使用 Chrome 打开。")
+                return
+            }
+            UIApplication.shared.open(chromeURL, options: [:]) { [weak self] success in
+                guard success == false else { return }
+                DispatchQueue.main.async {
+                    guard let self else { return }
+                    AppLog.warning(.runtime, "未检测到 Chrome，回退 Safari: \(url.absoluteString)")
+                    self.showToast(message: "未检测到 Chrome，已使用 Safari 打开")
+                    self.present(SFSafariViewController(url: url), animated: true)
+                }
+            }
+        }
+    }
+
+    func handleSignatureLinkCandidatesTap(_ candidates: [DetailLinkCandidate]) {
+        let uniqueCandidates = Self.uniqueLinkCandidates(candidates)
+        guard uniqueCandidates.isEmpty == false else { return }
 
         let sheet = LinkSelectionSheetViewController(
             candidates: uniqueCandidates,
@@ -184,7 +208,7 @@ extension PostDetailViewController {
     private func indexPathForLoadedComment(_ comment: Comment) -> IndexPath? {
         guard let commentIndex = comments.firstIndex(where: { $0.id == comment.id }),
               let row = detailRows.firstIndex(where: {
-                  if case .comment(let index) = $0 {
+                  if case .comment(let index, _) = $0 {
                       return index == commentIndex
                   }
                   return false
@@ -310,13 +334,27 @@ extension PostDetailViewController {
     }
 
     func openUserInfo(profileURL: URL) {
-        let viewController: UIViewController
         if let userID = NodeSeekUserIDResolver.uid(from: profileURL) {
-            viewController = ProfileTabViewController(userID: userID)
-        } else {
-            viewController = NodeSeekWebViewController(url: profileURL)
+            AppLog.info(.runtime, "打开原生用户资料，userID=\(userID), url=\(profileURL.absoluteString)")
+            showDetailDestination(ProfileTabViewController(userID: userID))
+            return
         }
-        showDetailDestination(viewController)
+        guard let username = NodeSeekMemberProfileResolver.memberUsername(from: profileURL) else {
+            AppLog.warning(.runtime, "用户资料链接未解析到用户，不再打开网页资料页: \(profileURL.absoluteString)")
+            showToast(message: "无法打开该用户资料")
+            return
+        }
+        AppLog.info(.runtime, "解析站内用户名 user=\(username), url=\(profileURL.absoluteString)")
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            do {
+                let userID = try await NodeSeekMemberProfileResolver.resolveUserID(username: username)
+                self.showDetailDestination(ProfileTabViewController(userID: userID))
+            } catch {
+                AppLog.warning(.runtime, "解析用户名失败: \(error.localizedDescription)")
+                self.showToast(message: "无法打开该用户资料")
+            }
+        }
     }
 
     func consumeInitialAnchorIfNeeded() {
@@ -329,7 +367,11 @@ extension PostDetailViewController {
 
     func scrollToCurrentPageAnchor(_ anchorID: String) {
         guard displayMode == .content else { return }
-        guard let indexPath = indexPathForCurrentPageAnchor(anchorID) else { return }
+        guard let indexPath = indexPathForCurrentPageAnchor(anchorID) else {
+            AppLog.debug(.postDetail, "锚点未落在本页: anchor=\(anchorID), rows=\(detailRows.count)")
+            return
+        }
+        AppLog.debug(.postDetail, "锚点滚动: anchor=\(anchorID), row=\(indexPath.row)")
 
         #if DEBUG
         testHighlightedAnchorID = normalizedAnchorText(anchorID)
@@ -355,7 +397,7 @@ extension PostDetailViewController {
             normalizedAnchorText(comment.anchorID) == normalizedAnchorID
                 || normalizedAnchorText(comment.floorText) == normalizedAnchorID
         }), let row = detailRows.firstIndex(where: {
-            if case .comment(let index) = $0 {
+            if case .comment(let index, _) = $0 {
                 return index == commentIndex
             }
             return false

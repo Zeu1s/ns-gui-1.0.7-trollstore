@@ -18,9 +18,11 @@ final class MainTabContainerViewController: UIViewController {
     private var stacks: [PostListBottomNavigationItem: UINavigationController] = [:]
     private var currentItem: PostListBottomNavigationItem = .home
     private weak var visibleStack: UINavigationController?
-    private var unreadBadgeVisible = false
+    private var unreadMessageCount = 0
     private var displayScaleObserver: NSObjectProtocol?
+    private var sessionCloseObserver: NSObjectProtocol?
     private var bottomNavigationHeightConstraint: NSLayoutConstraint?
+    private var hasReleasedNotificationPrefetch = false
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -57,6 +59,7 @@ final class MainTabContainerViewController: UIViewController {
 
         select(.home)
         observeDisplayScaleChanges()
+        observeLoginSessionClosure()
     }
 
     override func viewSafeAreaInsetsDidChange() {
@@ -67,12 +70,37 @@ final class MainTabContainerViewController: UIViewController {
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
         recoverVisibleContent(in: stack(for: currentItem))
+        releaseNotificationPrefetchAfterInitialHomeRequestIfNeeded()
     }
 
     deinit {
         if let displayScaleObserver {
             NotificationCenter.default.removeObserver(displayScaleObserver)
         }
+        if let sessionCloseObserver {
+            NotificationCenter.default.removeObserver(sessionCloseObserver)
+        }
+    }
+
+    /// 退出登录后再没有任何数据源会去刷新角标（预取器未登录直接跳过），
+    /// 而 `select(_:)` 每次切页都把 `unreadMessageCount` 重新画回底栏，
+    /// 于是上一个账号的数字在这个进程里永远亮着。会话关闭时一次性清零。
+    private func observeLoginSessionClosure() {
+        guard sessionCloseObserver == nil else { return }
+        sessionCloseObserver = NotificationCenter.default.addObserver(
+            forName: .nodeSeekLoginSessionDidClose,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.clearUnreadBadgesForClosedSession()
+        }
+    }
+
+    private func clearUnreadBadgesForClosedSession() {
+        unreadMessageCount = 0
+        bottomNavigationView.setUnreadMessageCount(0)
+        UIApplication.shared.applicationIconBadgeNumber = 0
+        AppLog.info(.account, "会话已关闭，底栏与桌面图标角标清零")
     }
 
     private func observeDisplayScaleChanges() {
@@ -85,27 +113,48 @@ final class MainTabContainerViewController: UIViewController {
         }
     }
 
+    private func releaseNotificationPrefetchAfterInitialHomeRequestIfNeeded() {
+        guard hasReleasedNotificationPrefetch == false else { return }
+        hasReleasedNotificationPrefetch = true
+        // 此时首页已建立当前板块页面并发出首屏请求；随后再取消息，避免冷启动抢占。
+        NodeSeekNotificationPrefetcher.shared.startAfterHomePreviewRequest()
+    }
+
     private func select(_ item: PostListBottomNavigationItem) {
         let reselectedCurrentItem = item == currentItem
-        let previousItem = currentItem
         let stack = stack(for: item)
         currentItem = item
         show(stack) { [weak self, weak stack] in
             guard let self, self.currentItem == item, self.visibleStack === stack else { return }
+            guard reselectedCurrentItem == false else { return }
             self.replayStreamAppearanceIfNeeded(for: item)
         }
-        if item == .history {
-            refreshHistoryListIfVisible(in: stack)
-        } else if item == .home, previousItem != .home {
-            refreshSelectedHomeCategoryIfVisible(in: stack)
+        guard reselectedCurrentItem == false else {
+            // 一级功能区内的单击只保持当前位置；双击由 doubleTapRefresh(_:) 负责刷新。
+            if item == .profile {
+                resetProfileToTop(in: stack)
+            }
+            bottomNavigationView.setSelectedItem(item)
+            bottomNavigationView.setUnreadMessageCount(unreadMessageCount)
+            return
+        }
+
+        switch item {
+        case .home:
+            // 只能复位当前帖子列表，不能触及 UIPageViewController 的横向滚动视图。
             recoverVisibleContent(in: stack)
-        } else if reselectedCurrentItem {
-            resetToTop(of: stack)
-        } else {
+            refreshSelectedHomeCategoryIfVisible(in: stack)
+        case .history:
+            refreshHistoryListIfVisible(in: stack)
+        case .search:
+            refreshSearchResultsIfVisible(in: stack)
+        case .messages:
+            refreshNotificationsIfVisible(in: stack)
+        case .profile:
             recoverVisibleContent(in: stack)
         }
         bottomNavigationView.setSelectedItem(item)
-        bottomNavigationView.setUnreadMessagesVisible(unreadBadgeVisible)
+        bottomNavigationView.setUnreadMessageCount(unreadMessageCount)
     }
 
     private var bottomNavigationHeight: CGFloat {
@@ -150,41 +199,18 @@ final class MainTabContainerViewController: UIViewController {
             return
         }
 
-        // Keep the rendered tab visible until the target hierarchy has completed layout.
-        // This avoids exposing a transient system-background frame while a tab creates its content.
         let previousStack = visibleStack
-        // Update immediately so a rapid second tab tap transitions from this pending target,
-        // rather than reviving the page that is currently fading out.
         visibleStack = stack
         stack.view.isHidden = false
-        stack.view.alpha = 0
+        stack.view.alpha = 1
         stack.view.isUserInteractionEnabled = true
         stack.view.setNeedsLayout()
         stack.view.layoutIfNeeded()
         containerView.bringSubviewToFront(stack.view)
-
-        guard let previousStack else {
-            stack.view.alpha = 1
-            DispatchQueue.main.async(execute: completion)
-            return
-        }
-
-        previousStack.view.isHidden = false
-        previousStack.view.isUserInteractionEnabled = false
-        UIView.animate(
-            withDuration: 0.18,
-            delay: 0,
-            options: [.curveEaseOut, .beginFromCurrentState, .allowUserInteraction]
-        ) {
-            stack.view.alpha = 1
-            previousStack.view.alpha = 0
-        } completion: { [weak self, weak previousStack, weak stack] _ in
-            guard let self, let stack, self.visibleStack === stack else { return }
-            previousStack?.view.alpha = 1
-            previousStack?.view.isHidden = true
-            self.visibleStack = stack
-            completion()
-        }
+        previousStack?.view.alpha = 1
+        previousStack?.view.isHidden = true
+        previousStack?.view.isUserInteractionEnabled = false
+        DispatchQueue.main.async(execute: completion)
     }
 
     private func recoverVisibleContent(in stack: UINavigationController) {
@@ -193,13 +219,13 @@ final class MainTabContainerViewController: UIViewController {
         (stack.viewControllers.first as? PostListViewController)?.recoverVisiblePageIfNeeded()
     }
 
-    private func resetToTop(of stack: UINavigationController) {
-        stack.popToRootViewController(animated: false)
-        guard let root = stack.viewControllers.first else { return }
-        let scrollViews = findScrollViews(in: root.view)
-        guard let scrollView = scrollViews.max(by: { $0.bounds.height < $1.bounds.height }) else { return }
-        let topOffset = CGPoint(x: -scrollView.adjustedContentInset.left, y: -scrollView.adjustedContentInset.top)
-        scrollView.setContentOffset(topOffset, animated: false)
+    private func resetProfileToTop(in stack: UINavigationController) {
+        guard let profile = stack.topViewController as? ProfileTabViewController else { return }
+        guard let tableView = profile.view.subviews.compactMap({ $0 as? UITableView }).first else { return }
+        tableView.setContentOffset(
+            CGPoint(x: 0, y: -tableView.adjustedContentInset.top),
+            animated: false
+        )
     }
 
     private func refreshHistoryListIfVisible(in stack: UINavigationController) {
@@ -210,19 +236,20 @@ final class MainTabContainerViewController: UIViewController {
         history.refreshFromTabSelection()
     }
 
-    /// 切回板块/tab 时，对已展示的列表重播流式输出（正在加载/刷新时由数据到达后的 setItems 负责）。
+    private func refreshSearchResultsIfVisible(in stack: UINavigationController) {
+        guard let search = stack.topViewController as? SearchViewController else { return }
+        search.refreshFromTabSelection()
+    }
+
+    private func refreshNotificationsIfVisible(in stack: UINavigationController) {
+        guard let notifications = stack.topViewController as? NotificationViewController else { return }
+        notifications.refreshFromTabSelection()
+    }
+
+    /// 切回板块/tab：列表保持原地内容不动（方案乙静默刷新），
+    /// 新数据到达时由差分更新插入并打新帖标记，不再整列表重播。
     private func replayStreamAppearanceIfNeeded(for item: PostListBottomNavigationItem) {
-        guard let root = stacks[item]?.viewControllers.first else { return }
-        switch item {
-        case .home:
-            (root as? PostListViewController)?.replayStreamAppearanceIfNeeded()
-        case .history:
-            (root as? RecentVisitedPostsViewController)?.replayStreamAppearance()
-        case .search:
-            (root as? SearchViewController)?.replayStreamAppearance()
-        case .messages, .profile:
-            break
-        }
+        _ = item
     }
 
     /// 双击底栏按钮：只刷新当前页面的内容。
@@ -251,19 +278,6 @@ final class MainTabContainerViewController: UIViewController {
         postList.refreshSelectedCategoryAfterTabReturn()
     }
 
-    private func findScrollViews(in view: UIView) -> [UIScrollView] {
-        var result: [UIScrollView] = []
-        if let scrollView = view as? UIScrollView,
-           scrollView.isScrollEnabled,
-           scrollView.bounds.height > 0 {
-            result.append(scrollView)
-        }
-        for subview in view.subviews where subview.isHidden == false {
-            result.append(contentsOf: findScrollViews(in: subview))
-        }
-        return result
-    }
-
     private func makeStack(for item: PostListBottomNavigationItem) -> UINavigationController {
         let root: UIViewController
         switch item {
@@ -271,9 +285,9 @@ final class MainTabContainerViewController: UIViewController {
             let home = PostListRouter.createModule()
             if let postList = home as? PostListViewController {
                 postList.showsBottomNavigation = false
-                postList.onUnreadBadgeChange = { [weak self] visible in
-                    self?.unreadBadgeVisible = visible
-                    self?.bottomNavigationView.setUnreadMessagesVisible(visible)
+                postList.onUnreadBadgeCountChange = { [weak self] count in
+                    self?.unreadMessageCount = count
+                    self?.bottomNavigationView.setUnreadMessageCount(count)
                 }
             }
             root = home

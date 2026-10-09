@@ -59,7 +59,7 @@ final class PostListBottomNavigationView: UIView {
     var onItemDoubleTapped: ((PostListBottomNavigationItem) -> Void)?
 
     private var buttons: [PostListBottomNavigationItem: UIButton] = [:]
-    private let messageUnreadBadge = UIView()
+    private let messageUnreadBadge = UILabel()
     private let backgroundBlurView = UIVisualEffectView(effect: nil)
     private let selectionPillView = UIView()
     private var selectedItem: PostListBottomNavigationItem = .home
@@ -69,7 +69,7 @@ final class PostListBottomNavigationView: UIView {
     private var stackTrailingConstraint: NSLayoutConstraint?
     private var stackTopConstraint: NSLayoutConstraint?
     private var stackBottomConstraint: NSLayoutConstraint?
-    private var unreadBadgeWidthConstraint: NSLayoutConstraint?
+    private var unreadBadgeMinimumWidthConstraint: NSLayoutConstraint?
     private var unreadBadgeHeightConstraint: NSLayoutConstraint?
     private var unreadBadgeCenterYConstraint: NSLayoutConstraint?
     private var unreadBadgeCenterXConstraint: NSLayoutConstraint?
@@ -96,22 +96,32 @@ final class PostListBottomNavigationView: UIView {
         updateSelectionPill(animated: false)
     }
 
+    func setUnreadMessageCount(_ count: Int) {
+        let unreadCount = max(0, count)
+        messageUnreadBadge.isHidden = unreadCount == 0
+        messageUnreadBadge.text = unreadCount > 99 ? "99+" : "\(unreadCount)"
+        buttons[.messages]?.accessibilityValue = unreadCount > 0 ? "\(unreadCount) 条未读消息" : nil
+    }
+
+    // 双击判定窗口：过长会让连续两次点击的第一次显得“不灵敏”。
+    private static let doubleTapInterval: TimeInterval = 0.28
+
     func setUnreadMessagesVisible(_ isVisible: Bool) {
-        messageUnreadBadge.isHidden = !isVisible
-        buttons[.messages]?.accessibilityValue = isVisible ? "有未读消息" : nil
+        setUnreadMessageCount(isVisible ? 1 : 0)
     }
 
     func refreshDisplayScale() {
         layer.cornerRadius = 0
         selectionPillView.layer.cornerRadius = selectionPillHeight / 2
-        messageUnreadBadge.layer.cornerRadius = AppDisplayScaleSettings.scaled(6)
+        messageUnreadBadge.layer.cornerRadius = AppDisplayScaleSettings.scaled(8)
+        messageUnreadBadge.font = .systemFont(ofSize: AppDisplayScaleSettings.scaled(10), weight: .semibold)
         stackLeadingConstraint?.constant = AppDisplayScaleSettings.scaled(8)
         stackTrailingConstraint?.constant = -AppDisplayScaleSettings.scaled(8)
         stackTopConstraint?.constant = 0
         stackBottomConstraint?.constant = -AppDisplayScaleSettings.scaled(6)
-        unreadBadgeWidthConstraint?.constant = AppDisplayScaleSettings.scaled(12)
-        unreadBadgeHeightConstraint?.constant = AppDisplayScaleSettings.scaled(12)
-        unreadBadgeCenterYConstraint?.constant = -AppDisplayScaleSettings.scaled(10)
+        unreadBadgeMinimumWidthConstraint?.constant = AppDisplayScaleSettings.scaled(16)
+        unreadBadgeHeightConstraint?.constant = AppDisplayScaleSettings.scaled(16)
+        unreadBadgeCenterYConstraint?.constant = -AppDisplayScaleSettings.scaled(11)
         unreadBadgeCenterXConstraint?.constant = AppDisplayScaleSettings.scaled(13)
         setSelectedItem(selectedItem)
     }
@@ -158,9 +168,14 @@ final class PostListBottomNavigationView: UIView {
         }
 
         messageUnreadBadge.backgroundColor = .systemRed
-        messageUnreadBadge.layer.cornerRadius = AppDisplayScaleSettings.scaled(6)
+        messageUnreadBadge.textColor = .white
+        messageUnreadBadge.font = .systemFont(ofSize: AppDisplayScaleSettings.scaled(10), weight: .semibold)
+        messageUnreadBadge.textAlignment = .center
+        messageUnreadBadge.layer.cornerRadius = AppDisplayScaleSettings.scaled(8)
+        messageUnreadBadge.clipsToBounds = true
         messageUnreadBadge.isHidden = true
         messageUnreadBadge.isUserInteractionEnabled = false
+        messageUnreadBadge.isAccessibilityElement = false
         messageUnreadBadge.accessibilityIdentifier = "post-list-bottom-navigation-unread-badge"
         messageUnreadBadge.translatesAutoresizingMaskIntoConstraints = false
         addSubview(messageUnreadBadge)
@@ -181,38 +196,51 @@ final class PostListBottomNavigationView: UIView {
             equalTo: bottomAnchor,
             constant: -AppDisplayScaleSettings.scaled(6)
         )
-        let unreadBadgeWidthConstraint = messageUnreadBadge.widthAnchor.constraint(
-            equalToConstant: AppDisplayScaleSettings.scaled(12)
+        let unreadBadgeMinimumWidthConstraint = messageUnreadBadge.widthAnchor.constraint(
+            greaterThanOrEqualToConstant: AppDisplayScaleSettings.scaled(16)
         )
         let unreadBadgeHeightConstraint = messageUnreadBadge.heightAnchor.constraint(
-            equalToConstant: AppDisplayScaleSettings.scaled(12)
+            equalToConstant: AppDisplayScaleSettings.scaled(16)
         )
-        let unreadBadgeCenterYConstraint = messageUnreadBadge.centerYAnchor.constraint(
-            equalTo: buttons[.messages]!.centerYAnchor,
-            constant: -AppDisplayScaleSettings.scaled(10)
-        )
-        let unreadBadgeCenterXConstraint = messageUnreadBadge.centerXAnchor.constraint(
-            equalTo: buttons[.messages]!.centerXAnchor,
-            constant: AppDisplayScaleSettings.scaled(13)
-        )
+        let unreadBadgeCenterYConstraint: NSLayoutConstraint?
+        let unreadBadgeCenterXConstraint: NSLayoutConstraint?
+        if let messagesButton = buttons[.messages] {
+            unreadBadgeCenterYConstraint = messageUnreadBadge.centerYAnchor.constraint(
+                equalTo: messagesButton.centerYAnchor,
+                constant: -AppDisplayScaleSettings.scaled(11)
+            )
+            unreadBadgeCenterXConstraint = messageUnreadBadge.centerXAnchor.constraint(
+                equalTo: messagesButton.centerXAnchor,
+                constant: AppDisplayScaleSettings.scaled(13)
+            )
+        } else {
+            unreadBadgeCenterYConstraint = nil
+            unreadBadgeCenterXConstraint = nil
+        }
         self.stackLeadingConstraint = stackLeadingConstraint
         self.stackTrailingConstraint = stackTrailingConstraint
         self.stackTopConstraint = stackTopConstraint
         self.stackBottomConstraint = stackBottomConstraint
-        self.unreadBadgeWidthConstraint = unreadBadgeWidthConstraint
+        self.unreadBadgeMinimumWidthConstraint = unreadBadgeMinimumWidthConstraint
         self.unreadBadgeHeightConstraint = unreadBadgeHeightConstraint
         self.unreadBadgeCenterYConstraint = unreadBadgeCenterYConstraint
         self.unreadBadgeCenterXConstraint = unreadBadgeCenterXConstraint
-        NSLayoutConstraint.activate([
+        var constraintsToActivate: [NSLayoutConstraint] = [
             stackLeadingConstraint,
             stackTrailingConstraint,
             stackTopConstraint,
             stackBottomConstraint,
-            unreadBadgeWidthConstraint,
-            unreadBadgeHeightConstraint,
-            unreadBadgeCenterYConstraint,
-            unreadBadgeCenterXConstraint
-        ])
+            unreadBadgeMinimumWidthConstraint,
+            unreadBadgeHeightConstraint
+        ]
+        if let unreadBadgeCenterYConstraint {
+            constraintsToActivate.append(unreadBadgeCenterYConstraint)
+        }
+        if let unreadBadgeCenterXConstraint {
+            constraintsToActivate.append(unreadBadgeCenterXConstraint)
+        }
+        NSLayoutConstraint.activate(constraintsToActivate)
+
         setSelectedItem(.home)
     }
 
@@ -227,8 +255,8 @@ final class PostListBottomNavigationView: UIView {
         let insetX = AppDisplayScaleSettings.scaled(2)
         let frame = CGRect(
             x: target.minX + insetX,
-            // 按底栏整体居中，避开安全区导致的上下留白不一致。
-            y: bounds.midY - selectionPillHeight / 2,
+            // 以按钮内容区为基准略微上移，使图标上方和文字下方的留白对称。
+            y: target.midY - AppDisplayScaleSettings.scaled(3) - selectionPillHeight / 2,
             width: target.width - insetX * 2,
             height: selectionPillHeight
         )
@@ -291,7 +319,7 @@ final class PostListBottomNavigationView: UIView {
             return
         }
         let now = Date().timeIntervalSinceReferenceDate
-        if lastTapItem == item, now - lastTapTime < 0.4 {
+        if lastTapItem == item, now - lastTapTime < Self.doubleTapInterval {
             lastTapItem = nil
             lastTapTime = 0
             setSelectedItem(item)

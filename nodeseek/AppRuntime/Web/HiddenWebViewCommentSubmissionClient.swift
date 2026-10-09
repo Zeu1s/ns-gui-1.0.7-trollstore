@@ -5,29 +5,13 @@
 
 import Foundation
 
-private protocol PostActionAutomationResult {
+protocol PostActionAutomationResult {
     var ok: Bool { get }
 }
 
 extension CommentAutomationResponse: PostActionAutomationResult {}
 extension PostCollectionAutomationResponse: PostActionAutomationResult {}
 extension CommentUpvoteAutomationResponse: PostActionAutomationResult {}
-
-struct WebViewPostActionPagePreparer: PostDetailActionPagePreparing {
-    private let timeoutInterval: TimeInterval
-
-    init(timeoutInterval: TimeInterval = 20) {
-        self.timeoutInterval = timeoutInterval
-    }
-
-    func prepareActionPage(pageURL: URL) {
-        HiddenWebViewPostActionPageScheduler.prepare(
-            pageURL: pageURL,
-            timeoutInterval: timeoutInterval,
-            reason: "详情页打开预热"
-        )
-    }
-}
 
 enum HiddenWebViewPostActionPageScheduler {
     private static let requestLock = HiddenWebViewRequestLock()
@@ -79,7 +63,7 @@ enum HiddenWebViewPageActionScheduler {
     }
 }
 
-private struct HiddenWebViewPostActionSubmitter {
+struct HiddenWebViewPostActionSubmitter {
     let timeoutInterval: TimeInterval
 
     func submit<Response: PostActionAutomationResult>(
@@ -324,16 +308,20 @@ func withHiddenWebViewPageActionLoader<T>(
         }
         let result = try await operation(loader)
         await requestLock.release()
-        AppLog.info(.webView, "隐藏 WebView 页面动作请求锁已释放: totalMs=\(AppLog.elapsedMilliseconds(since: startedAt))")
+        let totalMs = AppLog.elapsedMilliseconds(since: startedAt)
+        AppLogMetrics.shared.recordDuration("页面动作锁", milliseconds: totalMs)
+        AppLog.info(.webView, "隐藏 WebView 页面动作请求锁已释放: totalMs=\(totalMs)")
         return result
     } catch {
         await requestLock.release()
-        AppLog.error(.webView, "隐藏 WebView 页面动作请求锁异常释放: error=\(error.localizedDescription), totalMs=\(AppLog.elapsedMilliseconds(since: startedAt))")
+        let totalMs = AppLog.elapsedMilliseconds(since: startedAt)
+        AppLogMetrics.shared.recordDuration("页面动作锁", milliseconds: totalMs)
+        AppLog.error(.webView, "隐藏 WebView 页面动作请求锁异常释放: error=\(error.localizedDescription), totalMs=\(totalMs)")
         throw error
     }
 }
 
-private func withPostActionHiddenWebViewLoader<T>(
+func withPostActionHiddenWebViewLoader<T>(
     logMessage: String,
     operation: @MainActor (HiddenWebViewLoader) async throws -> T
 ) async throws -> T {
@@ -350,11 +338,15 @@ private func withPostActionHiddenWebViewLoader<T>(
         }
         let result = try await operation(loader)
         await requestLock.release()
-        AppLog.info(.webView, "帖子动作隐藏 WebView 请求锁已释放: totalMs=\(AppLog.elapsedMilliseconds(since: startedAt))")
+        let totalMs = AppLog.elapsedMilliseconds(since: startedAt)
+        AppLogMetrics.shared.recordDuration("帖子动作锁", milliseconds: totalMs)
+        AppLog.info(.webView, "帖子动作隐藏 WebView 请求锁已释放: totalMs=\(totalMs)")
         return result
     } catch {
         await requestLock.release()
-        AppLog.error(.webView, "帖子动作隐藏 WebView 请求锁异常释放: error=\(error.localizedDescription), totalMs=\(AppLog.elapsedMilliseconds(since: startedAt))")
+        let totalMs = AppLog.elapsedMilliseconds(since: startedAt)
+        AppLogMetrics.shared.recordDuration("帖子动作锁", milliseconds: totalMs)
+        AppLog.error(.webView, "帖子动作隐藏 WebView 请求锁异常释放: error=\(error.localizedDescription), totalMs=\(totalMs)")
         throw error
     }
 }

@@ -92,7 +92,7 @@ enum SVGImageRenderer {
     }
 }
 
-private enum SVGImageNormalizer {
+enum SVGImageNormalizer {
     static func normalizedData(from data: Data) -> Data {
         guard var svgText = String(data: data, encoding: .utf8) else {
             return data
@@ -102,6 +102,7 @@ private enum SVGImageNormalizer {
         svgText = replacingRGBAColors(in: svgText)
         svgText = replacingTemplateNumericExpressions(in: svgText)
         svgText = replacingQuotedCSSLengths(in: svgText)
+        svgText = removingTerminalReportHighlightBlocks(in: svgText)
         svgText = replacingFontRelativeLengths(in: svgText)
 
         return Data(svgText.utf8)
@@ -239,6 +240,21 @@ private enum SVGImageNormalizer {
         return normalizedText
     }
 
+    /// NodeQuality 终端报告的彩色块按字符宽度定位。移除这些装饰块后，
+    /// 即使不同系统字体的字符宽度略有差异，正文也不会显得错位。
+    private static func removingTerminalReportHighlightBlocks(in svgText: String) -> String {
+        guard svgText.contains("<g class=\"bg\"") || svgText.contains("<g class='bg'") else {
+            return svgText
+        }
+        let fullRange = NSRange(svgText.startIndex ..< svgText.endIndex, in: svgText)
+        return terminalReportBackgroundGroupRegex.stringByReplacingMatches(
+            in: svgText,
+            options: [],
+            range: fullRange,
+            withTemplate: ""
+        )
+    }
+
     private static func clampedColorComponent(_ value: Double) -> Int {
         Int(min(max(value.rounded(), 0), 255))
     }
@@ -353,6 +369,11 @@ private enum SVGImageNormalizer {
 
     private static let rgbaAttributeRegex = try! NSRegularExpression(
         pattern: #"\b(fill|stroke|stop-color)\s*=\s*(["'])rgba\(\s*(\d+(?:\.\d+)?)\s*,\s*(\d+(?:\.\d+)?)\s*,\s*(\d+(?:\.\d+)?)\s*,\s*(\d?(?:\.\d+)?)\s*\)\2"#,
+        options: [.caseInsensitive]
+    )
+
+    private static let terminalReportBackgroundGroupRegex = try! NSRegularExpression(
+        pattern: #"<g\b[^>]*\bclass\s*=\s*([\"'])\s*bg\s*\1[^>]*>[\s\S]*?</g>"#,
         options: [.caseInsensitive]
     )
 }

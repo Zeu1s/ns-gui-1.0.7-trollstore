@@ -10,7 +10,17 @@ import Foundation
 struct HTTPHTMLClient: HTMLClient {
     private let session: URLSession
 
-    init(session: URLSession = .shared) {
+    /// 不用 URLSession.shared：它的请求超时是 60 秒，被 Cloudflare 挂住时要拖满
+    /// 一分钟才进入 WebView 回退，这段时间界面只能转圈。取值对齐项目内其它网络配置。
+    /// 必须是静态成员——makeClient() 每次调用都会新建一个 HTTPHTMLClient。
+    static let defaultSession: URLSession = {
+        let configuration = URLSessionConfiguration.default
+        configuration.timeoutIntervalForRequest = 20
+        configuration.timeoutIntervalForResource = 20
+        return URLSession(configuration: configuration)
+    }()
+
+    init(session: URLSession = HTTPHTMLClient.defaultSession) {
         self.session = session
     }
 

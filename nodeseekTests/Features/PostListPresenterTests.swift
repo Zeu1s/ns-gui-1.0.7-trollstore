@@ -36,7 +36,7 @@ struct PostListPresenterTests {
         #expect(view.selectedCategory == .all)
     }
 
-    @Test func notificationUnreadBadgeRefreshesWithThrottleForegroundAndForcedReadEvent() async throws {
+    @Test func notificationUnreadBadgeRefreshesOnEveryForegroundAndForcedReadEvent() async throws {
         let view = SpyPostListView()
         let notificationInteractor = StubNotificationUnreadCountInteractor(
             unreadCount: NodeSeekNotificationUnreadCount(message: 0, atMe: 1, reply: 0, all: 1)
@@ -60,7 +60,7 @@ struct PostListPresenterTests {
         presenter.didEnterForeground()
         try await Task.sleep(nanoseconds: 100_000_000)
         loadCount = await notificationInteractor.loadUnreadCountCallCount()
-        #expect(loadCount == 1)
+        #expect(loadCount == 2)
 
         await notificationInteractor.setUnreadCount(.zero)
         presenter.didReceiveNotificationReadStateChange()
@@ -69,7 +69,7 @@ struct PostListPresenterTests {
             view.notificationUnreadBadgeStates.last == false
         }
         loadCount = await notificationInteractor.loadUnreadCountCallCount()
-        #expect(loadCount == 2)
+        #expect(loadCount == 3)
 
         now = now.addingTimeInterval(11)
         await notificationInteractor.setUnreadCount(
@@ -81,7 +81,7 @@ struct PostListPresenterTests {
             view.notificationUnreadBadgeStates.last == true
         }
         loadCount = await notificationInteractor.loadUnreadCountCallCount()
-        #expect(loadCount == 3)
+        #expect(loadCount == 4)
     }
 
     @Test func notificationUnreadCountUpdateRendersBadgeWithoutCallingInteractor() async {

@@ -40,8 +40,36 @@ struct RenderedTableBlock: Equatable {
     let rows: [Row]
 }
 
+enum RenderedCodeBlockStyle: Equatable {
+    case standard
+    case terminal
+}
+
+/// 终端行中由 xterm 或 ANSI 转义序列指定的局部样式。
+struct RenderedCodeBlockRun: Equatable {
+    let location: Int
+    let length: Int
+    let foregroundColorIndex: Int?
+    let backgroundColorIndex: Int?
+    let isBold: Bool
+    let isItalic: Bool
+    let isUnderlined: Bool
+}
+
 struct RenderedCodeBlock: Equatable {
     let text: String
+    let style: RenderedCodeBlockStyle
+    let runs: [RenderedCodeBlockRun]
+
+    init(
+        text: String,
+        style: RenderedCodeBlockStyle = .standard,
+        runs: [RenderedCodeBlockRun] = []
+    ) {
+        self.text = text
+        self.style = style
+        self.runs = runs
+    }
 }
 
 struct RenderedImageBlock: Equatable {

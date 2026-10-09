@@ -16,11 +16,16 @@ final class NotificationViewController: UIViewController {
         case error
     }
 
+    private enum NotificationTabPayload {
+        case notifications([NodeSeekNotificationRecord])
+        case messages([NodeSeekMessageConversationRecord])
+    }
+
     private let client: NodeSeekNotificationClientProtocol
     private let currentAccountStore: CurrentAccountStore
     private let tableView = UITableView(frame: .zero, style: .plain)
     private let refreshControl = UIRefreshControl()
-    private let segmentedControl = UISegmentedControl()
+    private let segmentedControl = NotificationTabSegmentedControl()
     private let errorView = UserContentErrorView(accessibilityIdentifier: "notification-error-view")
     private let loadingView = NotificationLoadingView()
     private let emptyLabel = UILabel()
@@ -35,8 +40,22 @@ final class NotificationViewController: UIViewController {
     private var loadedTabs: Set<NodeSeekNotificationTab> = []
     private var unreadCount: NodeSeekNotificationUnreadCount = .zero
     private var currentUserID: Int?
-    private var loadToken = 0
+    private var tabLoadTokens: [NodeSeekNotificationTab: Int] = [:]
+    private var loadingTabs: Set<NodeSeekNotificationTab> = []
+    private var pendingRefreshTabs: Set<NodeSeekNotificationTab> = []
+    private var refreshFeedbackTab: NodeSeekNotificationTab?
+    private var hasAppeared = false
     private var tabContentOffsets: [NodeSeekNotificationTab: CGPoint] = [:]
+    private var commentContentEnrichmentTasks: [NodeSeekNotificationTab: Task<Void, Never>] = [:]
+    private var commentContentEnrichmentTokens: [NodeSeekNotificationTab: Int] = [:]
+    private var pendingStreamRecordIDs: [NodeSeekNotificationTab: Set<Int>] = [:]
+    private var hasCompletedInitialAtMeLoad = false
+    private weak var tabSwipePanGesture: UIPanGestureRecognizer?
+    private var suppressRowSelectionUntil = Date.distantPast
+
+    private static let maxConcurrentCommentContentLoads = 2
+    private static let maximumCommentContentEnrichmentRecords = 12
+    private static let maximumStreamedNewRowCount = 12
 
     init(
         client: NodeSeekNotificationClientProtocol? = nil,
@@ -55,9 +74,50 @@ final class NotificationViewController: UIViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
         setupUI()
-        loadCurrentUserID()
-        loadUnreadCount()
-        loadSelectedTab(showLoading: true)
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(userInfoDidUpdate(_:)),
+            name: NodeSeekUserInfoStore.didUpdateNotification,
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(applicationDidBecomeActive),
+            name: UIApplication.didBecomeActiveNotification,
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(notificationCacheDidUpdate(_:)),
+            name: .nodeSeekNotificationCacheDidUpdate,
+            object: nil
+        )
+        loadInitialNotificationData()
+    }
+
+    deinit {
+        commentContentEnrichmentTasks.values.forEach { $0.cancel() }
+        NotificationCenter.default.removeObserver(self)
+    }
+
+    override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
+        guard hasAppeared else {
+            hasAppeared = true
+            return
+        }
+        NodeSeekNotificationPrefetcher.shared.refreshNow()
+    }
+
+    @objc private func userInfoDidUpdate(_ notification: Notification) {
+        guard displayMode == .content,
+              selectedTab == .atMe || selectedTab == .reply else { return }
+        tableView.reloadData()
+    }
+
+    @objc private func applicationDidBecomeActive() {
+        guard isViewLoaded, view.window != nil else { return }
+        NodeSeekNotificationPrefetcher.shared.refreshNow()
     }
 
     private func setupUI() {
@@ -69,8 +129,7 @@ final class NotificationViewController: UIViewController {
         configureEmptyLabel()
 
         errorView.onRetry = { [weak self] in
-            self?.loadUnreadCount()
-            self?.loadSelectedTab(showLoading: true)
+            self?.refreshAllNotificationData(showLoadingForSelectedTab: true)
         }
 
         let segmentedContainer = UIView()
@@ -86,11 +145,17 @@ final class NotificationViewController: UIViewController {
             segmentedContainer.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             segmentedContainer.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             segmentedContainer.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
-            segmentedContainer.heightAnchor.constraint(equalToConstant: 52),
+            segmentedContainer.heightAnchor.constraint(equalToConstant: 56),
 
-            segmentedControl.leadingAnchor.constraint(equalTo: segmentedContainer.leadingAnchor, constant: 16),
-            segmentedControl.trailingAnchor.constraint(equalTo: segmentedContainer.trailingAnchor, constant: -16),
-            segmentedControl.centerYAnchor.constraint(equalTo: segmentedContainer.centerYAnchor),
+            // 整条都算标签区：左右再留 16pt 的话，最外侧两个标签各有一条约
+            // 5 个字宽的死边，点上去没反应，这就是"点击不够灵敏"剩下的来源。
+            segmentedControl.leadingAnchor.constraint(equalTo: segmentedContainer.leadingAnchor),
+            segmentedControl.trailingAnchor.constraint(equalTo: segmentedContainer.trailingAnchor),
+            // 铺满容器而不是 centerY + 44 高：之前控件只有 44、在 56 的容器里居中，
+            // 上下各留 6pt 死区，而且父视图 clipsToBounds 会把子项 point(inside:)
+            // 外扩的 10pt 命中区挡在父边界外，等于那个外扩从来没生效过。
+            segmentedControl.topAnchor.constraint(equalTo: segmentedContainer.topAnchor),
+            segmentedControl.bottomAnchor.constraint(equalTo: segmentedContainer.bottomAnchor),
 
             tableView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             tableView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
@@ -117,7 +182,7 @@ final class NotificationViewController: UIViewController {
         self.browserButton = browserButton
 
         let markAllButton = UIBarButtonItem(
-            image: UIImage(systemName: "envelope.open"),
+            title: "全部已读",
             style: .plain,
             target: self,
             action: #selector(markAllReadTapped)
@@ -131,11 +196,10 @@ final class NotificationViewController: UIViewController {
 
     private func configureSegmentedControl() {
         segmentedControl.translatesAutoresizingMaskIntoConstraints = false
-        for (index, tab) in NodeSeekNotificationTab.allCases.enumerated() {
-            segmentedControl.insertSegment(withTitle: tab.title, at: index, animated: false)
+        segmentedControl.selectedTab = selectedTab
+        segmentedControl.onSelectionChanged = { [weak self] tab in
+            self?.selectTab(tab)
         }
-        segmentedControl.selectedSegmentIndex = selectedTab.rawValue
-        segmentedControl.addTarget(self, action: #selector(tabChanged), for: .valueChanged)
         updateSegmentTitles()
     }
 
@@ -154,15 +218,14 @@ final class NotificationViewController: UIViewController {
     }
 
     private func configureTabSwipeGestures() {
-        let swipeLeft = UISwipeGestureRecognizer(target: self, action: #selector(tabSwipeRecognized(_:)))
-        swipeLeft.direction = .left
-        swipeLeft.cancelsTouchesInView = false
-        tableView.addGestureRecognizer(swipeLeft)
-
-        let swipeRight = UISwipeGestureRecognizer(target: self, action: #selector(tabSwipeRecognized(_:)))
-        swipeRight.direction = .right
-        swipeRight.cancelsTouchesInView = false
-        tableView.addGestureRecognizer(swipeRight)
+        let pan = UIPanGestureRecognizer(target: self, action: #selector(tabPanRecognized(_:)))
+        pan.maximumNumberOfTouches = 1
+        pan.cancelsTouchesInView = true
+        pan.delaysTouchesBegan = true
+        pan.delegate = self
+        tableView.addGestureRecognizer(pan)
+        tableView.panGestureRecognizer.require(toFail: pan)
+        tabSwipePanGesture = pan
     }
 
     private func configureEmptyLabel() {
@@ -173,14 +236,40 @@ final class NotificationViewController: UIViewController {
         emptyLabel.numberOfLines = 0
     }
 
-    private func loadCurrentUserID() {
+    private func loadInitialNotificationData() {
         Task { [weak self] in
             guard let self else { return }
             currentUserID = await currentAccountStore.snapshot()?.account.nodeSeekUID
-            if selectedTab == .message {
+            restoreCachedNotificationDataIfAvailable()
+            if loadedTabs.contains(selectedTab) {
+                displayMode = .content
+                applyDisplayState()
                 tableView.reloadData()
+                updateSegmentTitles()
+                updateMarkAllButton()
+                loadUnreadCount(publishUpdate: true)
+                // 缓存秒开路径同样立即补全被@/回复内容，不等网络刷新完成，
+                // 否则网络缓慢时可见行长时间没有正文预览。
+                if selectedTab == .atMe || selectedTab == .reply {
+                    enrichMissingCommentContent(for: selectedTab)
+                }
+                refreshAllNotificationData()
+                return
             }
+            // 缓存尚未写入时，用户已主动打开消息页，应立即请求当前 @我 首屏；
+            // 全局预取仍在后台补齐回复主题和私信，避免为了去重牺牲首次点击速度。
+            NodeSeekNotificationPrefetcher.shared.resumeAfterForegroundActivationIfReady()
+            loadUnreadCount(publishUpdate: true)
+            loadSelectedTab(showLoading: true)
         }
+    }
+
+    @objc private func notificationCacheDidUpdate(_ notification: Notification) {
+        guard let ownerID = NodeSeekNotificationCacheEvent.ownerID(from: notification),
+              ownerID == currentUserID else {
+            return
+        }
+        applyPrefetchedCacheIfAvailable()
     }
 
     private func loadUnreadCount(
@@ -202,11 +291,15 @@ final class NotificationViewController: UIViewController {
     ) async {
         do {
             let loadedUnreadCount = try await client.loadUnreadCount()
-            unreadCount = loadedUnreadCount
+            unreadCount = reconciledUnreadCount(from: loadedUnreadCount)
+            unreadCount = NodeSeekNotificationMemoryCache.shared.store(
+                unreadCount: unreadCount,
+                ownerID: currentUserID
+            ) ?? unreadCount
             updateSegmentTitles()
             updateMarkAllButton()
             if publishUpdate {
-                NodeSeekNotificationUnreadCountEvent.post(loadedUnreadCount)
+                NodeSeekNotificationUnreadCountEvent.post(unreadCount)
             }
         } catch {
             if postReadStateChangeOnFailure {
@@ -224,11 +317,22 @@ final class NotificationViewController: UIViewController {
         )
     }
 
-    private func loadSelectedTab(showLoading: Bool, retryAttempt: Int = 0) {
-        let tab = selectedTab
-        loadToken += 1
-        let token = loadToken
-        if showLoading, loadedTabs.contains(tab) == false {
+    private func loadSelectedTab(showLoading: Bool) {
+        loadTab(selectedTab, showLoading: showLoading)
+    }
+
+    private func loadTab(
+        _ tab: NodeSeekNotificationTab,
+        showLoading: Bool,
+        retryAttempt: Int = 0
+    ) {
+        guard loadingTabs.contains(tab) == false else { return }
+        cancelCommentContentEnrichment(for: tab)
+        loadingTabs.insert(tab)
+        let token = tabLoadTokens[tab, default: 0] + 1
+        tabLoadTokens[tab] = token
+        let wasLoaded = loadedTabs.contains(tab)
+        if showLoading, tab == selectedTab, wasLoaded == false {
             displayMode = .loading
             applyDisplayState()
         }
@@ -236,42 +340,612 @@ final class NotificationViewController: UIViewController {
         Task { [weak self] in
             guard let self else { return }
             do {
-                switch tab {
-                case .atMe:
-                    atMeRecords = try await client.loadAtMe()
-                case .reply:
-                    replyRecords = try await client.loadReplies()
-                case .message:
-                    messageRecords = try await client.loadMessageConversations()
-                }
-                loadedTabs.insert(tab)
-                finishLoading(tab: tab, token: token)
+                let payload = try await loadPayload(for: tab)
+                applyLoadedPayload(payload, to: tab, token: token)
             } catch {
+                loadingTabs.remove(tab)
                 if retryAttempt == 0, Self.isTemporaryServerError(error) {
                     try? await Task.sleep(nanoseconds: 700_000_000)
                     guard Task.isCancelled == false else { return }
-                    self.loadSelectedTab(showLoading: false, retryAttempt: 1)
+                    self.loadTab(tab, showLoading: false, retryAttempt: 1)
                     return
                 }
                 showError(error.localizedDescription, tab: tab, token: token)
+                completeInitialAtMeLoadIfNeeded(tab: tab)
+                performPendingRefreshIfNeeded(for: tab)
             }
         }
     }
 
-    private func finishLoading(tab: NodeSeekNotificationTab, token: Int) {
-        refreshControl.endRefreshing()
-        guard token == loadToken, tab == selectedTab else { return }
+    private func loadPayload(for tab: NodeSeekNotificationTab) async throws -> NotificationTabPayload {
+        switch tab {
+        case .atMe:
+            return .notifications(try await client.loadAtMe())
+        case .reply:
+            return .notifications(try await client.loadReplies())
+        case .message:
+            async let loadedRecords = client.loadMessageConversations()
+            async let accountSnapshot = currentAccountStore.snapshot()
+            let records = try await loadedRecords
+            let snapshot = await accountSnapshot
+            let resolvedCurrentUserID = snapshot?.account.nodeSeekUID ?? currentUserID
+            currentUserID = resolvedCurrentUserID
+            cacheCurrentNotificationData()
+            return .messages(
+                NodeSeekMessageConversationRecord.latestConversations(
+                    from: records,
+                    currentUserID: resolvedCurrentUserID
+                )
+            )
+        }
+    }
+
+    private func applyLoadedPayload(
+        _ payload: NotificationTabPayload,
+        to tab: NodeSeekNotificationTab,
+        token: Int
+    ) {
+        guard tabLoadTokens[tab] == token else { return }
+        loadingTabs.remove(tab)
+        let wasLoaded = loadedTabs.contains(tab)
+
+        let newRecordIDs: [Int]
+        switch payload {
+        case .notifications(let records):
+            let previousRecords = notificationRecords(for: tab)
+            let mergedRecords = mergeNotificationRecords(records, for: tab, preserving: previousRecords)
+            newRecordIDs = wasLoaded ? newlyArrivedIDs(in: mergedRecords, comparedWith: previousRecords) : []
+            setNotificationRecords(mergedRecords, for: tab)
+            NodeSeekNotificationMemoryCache.shared.store(
+                records: mergedRecords,
+                for: tab,
+                ownerID: currentUserID
+            )
+        case .messages(let records):
+            let mergedRecords = mergeMessageRecords(records, preserving: messageRecords)
+            newRecordIDs = wasLoaded ? newlyArrivedMessageIDs(in: mergedRecords, comparedWith: messageRecords) : []
+            messageRecords = mergedRecords
+            NodeSeekNotificationMemoryCache.shared.store(
+                messageRecords: mergedRecords,
+                ownerID: currentUserID
+            )
+        }
+
+        loadedTabs.insert(tab)
+        reconcileUnreadCountUsingLoadedRecords()
+        if newRecordIDs.isEmpty == false {
+            queueIncomingStream(for: newRecordIDs, tab: tab)
+            loadUnreadCount(publishUpdate: true)
+        }
+        if tab == .atMe || tab == .reply {
+            enrichMissingCommentContent(for: tab)
+        }
+        let hasPendingRefresh = pendingRefreshTabs.contains(tab)
+        let shouldReplayContentAppearance = wasLoaded == false
+            || refreshFeedbackTab == tab
+            || refreshControl.isRefreshing
+        finishLoading(
+            tab: tab,
+            restoresContentOffset: wasLoaded == false,
+            endsRefreshFeedback: hasPendingRefresh == false,
+            shouldReplayContentAppearance: shouldReplayContentAppearance
+        )
+        completeInitialAtMeLoadIfNeeded(tab: tab)
+        performPendingRefreshIfNeeded(for: tab)
+    }
+
+    private func finishLoading(
+        tab: NodeSeekNotificationTab,
+        restoresContentOffset: Bool,
+        endsRefreshFeedback: Bool,
+        shouldReplayContentAppearance: Bool
+    ) {
+        guard tab == selectedTab else { return }
+        if endsRefreshFeedback {
+            refreshControl.endRefreshing()
+            refreshFeedbackTab = nil
+        }
         displayMode = .content
         errorView.isHidden = true
         applyDisplayState()
-        tableView.reloadData()
-        restoreContentOffset(for: tab)
+        UIView.performWithoutAnimation {
+            resetVisibleStreamAppearance()
+            tableView.reloadData()
+            tableView.layoutIfNeeded()
+        }
+        if restoresContentOffset {
+            restoreContentOffset(for: tab)
+        }
+        updateMarkAllButton()
+        presentVisibleContentAppearance(forceReplay: shouldReplayContentAppearance)
+        scheduleVisibleRecordsAsRead()
+    }
+
+    private func prefetchInactiveTabs(forceRefresh: Bool = false) {
+        for tab in NodeSeekNotificationTab.allCases
+            where tab != selectedTab && (forceRefresh || loadedTabs.contains(tab) == false)
+        {
+            requestRefresh(for: tab, showLoading: false)
+        }
+    }
+
+    /// 首屏先完成 @我 的首轮请求，避免与三个通知接口并发时延后最先可见的内容。
+    private func completeInitialAtMeLoadIfNeeded(tab: NodeSeekNotificationTab) {
+        guard tab == .atMe, hasCompletedInitialAtMeLoad == false else { return }
+        hasCompletedInitialAtMeLoad = true
+        prefetchInactiveTabs(forceRefresh: true)
+    }
+
+    private func refreshAllNotificationData(showLoadingForSelectedTab: Bool = false) {
+        loadUnreadCount(publishUpdate: true)
+        guard hasCompletedInitialAtMeLoad else {
+            loadTab(.atMe, showLoading: showLoadingForSelectedTab && selectedTab == .atMe)
+            return
+        }
+        for tab in NodeSeekNotificationTab.allCases {
+            requestRefresh(for: tab, showLoading: showLoadingForSelectedTab && tab == selectedTab)
+        }
+    }
+
+    private func restoreCachedNotificationDataIfAvailable() {
+        guard loadedTabs.isEmpty,
+              let snapshot = NodeSeekNotificationMemoryCache.shared.snapshot(for: currentUserID) else {
+            return
+        }
+
+        if let atMeRecords = snapshot.atMeRecords {
+            self.atMeRecords = atMeRecords
+            loadedTabs.insert(.atMe)
+        }
+        if let replyRecords = snapshot.replyRecords {
+            self.replyRecords = replyRecords
+            loadedTabs.insert(.reply)
+        }
+        if let messageRecords = snapshot.messageRecords {
+            self.messageRecords = messageRecords
+            loadedTabs.insert(.message)
+        }
+        if let unreadCount = snapshot.unreadCount {
+            self.unreadCount = unreadCount
+        }
+        hasCompletedInitialAtMeLoad = loadedTabs.contains(.atMe)
+
+        updateSegmentTitles()
+        updateMarkAllButton()
+        guard loadedTabs.contains(selectedTab) else { return }
+        displayMode = .content
+        applyDisplayState()
+        UIView.performWithoutAnimation {
+            resetVisibleStreamAppearance()
+            tableView.reloadData()
+            tableView.layoutIfNeeded()
+        }
+    }
+
+    private func applyPrefetchedCacheIfAvailable() {
+        guard let snapshot = NodeSeekNotificationMemoryCache.shared.snapshot(for: currentUserID) else {
+            return
+        }
+
+        var selectedTabChanged = false
+
+        if let incomingRecords = snapshot.atMeRecords {
+            let previousRecords = atMeRecords
+            let mergedRecords = mergeNotificationRecords(incomingRecords, for: .atMe, preserving: previousRecords)
+            if mergedRecords != previousRecords {
+                if loadedTabs.contains(.atMe) {
+                    queueIncomingStream(
+                        for: newlyArrivedIDs(in: mergedRecords, comparedWith: previousRecords)
+                            + newlyResolvedContentIDs(in: mergedRecords, comparedWith: previousRecords),
+                        tab: .atMe
+                    )
+                }
+                atMeRecords = mergedRecords
+                selectedTabChanged = selectedTab == .atMe
+            }
+            loadedTabs.insert(.atMe)
+            hasCompletedInitialAtMeLoad = true
+            if selectedTab == .atMe {
+                enrichMissingCommentContent(for: .atMe)
+            }
+        }
+
+        if let incomingRecords = snapshot.replyRecords {
+            let previousRecords = replyRecords
+            let mergedRecords = mergeNotificationRecords(incomingRecords, for: .reply, preserving: previousRecords)
+            if mergedRecords != previousRecords {
+                if loadedTabs.contains(.reply) {
+                    queueIncomingStream(
+                        for: newlyArrivedIDs(in: mergedRecords, comparedWith: previousRecords)
+                            + newlyResolvedContentIDs(in: mergedRecords, comparedWith: previousRecords),
+                        tab: .reply
+                    )
+                }
+                replyRecords = mergedRecords
+                selectedTabChanged = selectedTab == .reply
+            }
+            loadedTabs.insert(.reply)
+            if selectedTab == .reply {
+                enrichMissingCommentContent(for: .reply)
+            }
+        }
+
+        if let incomingRecords = snapshot.messageRecords {
+            let previousRecords = messageRecords
+            let mergedRecords = mergeMessageRecords(incomingRecords, preserving: previousRecords)
+            if mergedRecords != previousRecords {
+                if loadedTabs.contains(.message) {
+                    queueIncomingStream(
+                        for: newlyArrivedMessageIDs(in: mergedRecords, comparedWith: previousRecords),
+                        tab: .message
+                    )
+                }
+                messageRecords = mergedRecords
+                selectedTabChanged = selectedTab == .message
+            }
+            loadedTabs.insert(.message)
+        }
+
+        if let incomingUnreadCount = snapshot.unreadCount {
+            unreadCount = incomingUnreadCount
+        }
+        reconcileUnreadCountUsingLoadedRecords()
+
+        guard selectedTabChanged || (displayMode != .content && loadedTabs.contains(selectedTab)) else {
+            return
+        }
+        displayMode = .content
+        applyDisplayState()
+        UIView.performWithoutAnimation {
+            resetVisibleStreamAppearance()
+            tableView.reloadData()
+            tableView.layoutIfNeeded()
+        }
+        presentVisibleContentAppearance()
+        scheduleVisibleRecordsAsRead()
+    }
+
+    private func notificationRecords(for tab: NodeSeekNotificationTab) -> [NodeSeekNotificationRecord] {
+        switch tab {
+        case .atMe:
+            return atMeRecords
+        case .reply:
+            return replyRecords
+        case .message:
+            return []
+        }
+    }
+
+    private func setNotificationRecords(_ records: [NodeSeekNotificationRecord], for tab: NodeSeekNotificationTab) {
+        switch tab {
+        case .atMe:
+            atMeRecords = records
+        case .reply:
+            replyRecords = records
+        case .message:
+            break
+        }
+    }
+
+    private func mergeNotificationRecords(
+        _ incomingRecords: [NodeSeekNotificationRecord],
+        for tab: NodeSeekNotificationTab,
+        preserving existingRecords: [NodeSeekNotificationRecord]
+    ) -> [NodeSeekNotificationRecord] {
+        let existingByID = Dictionary(uniqueKeysWithValues: existingRecords.map { ($0.id, $0) })
+        // 已读集合只取一次：逐条调用 isViewed 会为每条记录重复反序列化 UserDefaults 并重建 Set。
+        let persistedViewed = NodeSeekNotificationReadStateStore.shared.viewedIdentifiers(
+            for: tab,
+            ownerID: currentUserID
+        )
+        return incomingRecords.map { incomingRecord in
+            guard let existingRecord = existingByID[incomingRecord.id] else {
+                var record = incomingRecord
+                if persistedViewed.contains(record.id) {
+                    record.markViewed()
+                }
+                return record
+            }
+            var mergedRecord = incomingRecord
+            if mergedRecord.content?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false {
+                mergedRecord.content = existingRecord.content
+                mergedRecord.resolvedCommentPage = existingRecord.resolvedCommentPage
+            }
+            if existingRecord.isViewed || persistedViewed.contains(incomingRecord.id) {
+                mergedRecord.viewed = 1
+            }
+            return mergedRecord
+        }
+    }
+
+    private func mergeMessageRecords(
+        _ incomingRecords: [NodeSeekMessageConversationRecord],
+        preserving existingRecords: [NodeSeekMessageConversationRecord]
+    ) -> [NodeSeekMessageConversationRecord] {
+        let existingByID = Dictionary(uniqueKeysWithValues: existingRecords.map { ($0.maxID, $0) })
+        let persistedViewed = NodeSeekNotificationReadStateStore.shared.viewedIdentifiers(
+            for: .message,
+            ownerID: currentUserID
+        )
+        return incomingRecords.map { incomingRecord in
+            guard let existingRecord = existingByID[incomingRecord.maxID], existingRecord.isViewed else {
+                var record = incomingRecord
+                if persistedViewed.contains(record.maxID) {
+                    record.markViewed()
+                }
+                return record
+            }
+            var mergedRecord = incomingRecord
+            mergedRecord.viewed = 1
+            return mergedRecord
+        }
+    }
+
+    /// 未读数修正只保留内存缓存那一处实现（`badgeReadyUnreadCount`，取小语义）。
+    ///
+    /// 这里原先另写了一份"用本地列表覆盖服务器值"的版本，规则和缓存层不一致：
+    /// 同一个数先被覆盖、又被取小处理两次，本地记录一旦比服务器新（例如某页未拉全、
+    /// 或本地已读账本还没并进来）就会把服务器的小数字抬上去，亮出假角标。
+    /// 缓存层在 `cacheCurrentNotificationData()` 里始终持有最新的三份列表，
+    /// 是唯一可信的本地来源。
+    private func reconciledUnreadCount(from remoteCount: NodeSeekNotificationUnreadCount) -> NodeSeekNotificationUnreadCount {
+        NodeSeekNotificationMemoryCache.shared.badgeReadyUnreadCount(remoteCount, ownerID: currentUserID)
+    }
+
+    private func reconcileUnreadCountUsingLoadedRecords() {
+        unreadCount = reconciledUnreadCount(from: unreadCount)
+        cacheCurrentNotificationData()
+        updateSegmentTitles()
         updateMarkAllButton()
     }
 
+    private func newlyArrivedIDs(
+        in incomingRecords: [NodeSeekNotificationRecord],
+        comparedWith existingRecords: [NodeSeekNotificationRecord]
+    ) -> [Int] {
+        let existingIDs = Set(existingRecords.map(\.id))
+        return incomingRecords.map(\.id).filter { existingIDs.contains($0) == false }
+    }
+
+    private func newlyResolvedContentIDs(
+        in incomingRecords: [NodeSeekNotificationRecord],
+        comparedWith existingRecords: [NodeSeekNotificationRecord]
+    ) -> [Int] {
+        let existingByID = Dictionary(uniqueKeysWithValues: existingRecords.map { ($0.id, $0) })
+        return incomingRecords.compactMap { record in
+            guard let existingRecord = existingByID[record.id],
+                  existingRecord.content?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false,
+                  record.content?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false else {
+                return nil
+            }
+            return record.id
+        }
+    }
+
+    private func newlyArrivedMessageIDs(
+        in incomingRecords: [NodeSeekMessageConversationRecord],
+        comparedWith existingRecords: [NodeSeekMessageConversationRecord]
+    ) -> [Int] {
+        let existingIDs = Set(existingRecords.map(\.maxID))
+        return incomingRecords.map(\.maxID).filter { existingIDs.contains($0) == false }
+    }
+
+    private func queueIncomingStream(for recordIDs: [Int], tab: NodeSeekNotificationTab) {
+        let limitedIDs = recordIDs.prefix(Self.maximumStreamedNewRowCount)
+        guard limitedIDs.isEmpty == false else { return }
+        pendingStreamRecordIDs[tab, default: []].formUnion(limitedIDs)
+    }
+
+    private func streamVisibleIncomingRowsIfNeeded() {
+        guard displayMode == .content,
+              pendingStreamRecordIDs[selectedTab]?.isEmpty == false else {
+            return
+        }
+        let visibleRows = (tableView.indexPathsForVisibleRows ?? []).sorted { $0.row < $1.row }
+        for (sequence, indexPath) in visibleRows.enumerated() {
+            guard let cell = tableView.cellForRow(at: indexPath) else { continue }
+            streamIncomingRowIfNeeded(cell, at: indexPath, sequence: sequence)
+        }
+    }
+
+    /// 切换一级 Tab 或主动刷新时只动画当前可见行，不先清空 table，避免旧版本的闪屏。
+    private func presentVisibleContentAppearance(forceReplay: Bool = false) {
+        guard displayMode == .content else { return }
+        if forceReplay {
+            pendingStreamRecordIDs[selectedTab] = []
+            replayVisibleContentAppearance()
+            return
+        }
+        streamVisibleIncomingRowsIfNeeded()
+    }
+
+    private func replayVisibleContentAppearance() {
+        guard displayMode == .content else { return }
+        let cells = tableView.visibleCells.sorted { $0.frame.minY < $1.frame.minY }
+        for (index, cell) in cells.enumerated() {
+            cell.layer.removeAllAnimations()
+            cell.alpha = 0
+            cell.transform = CGAffineTransform(translationX: 0, y: 12)
+            UIView.animate(
+                withDuration: 0.30,
+                delay: Double(min(index, 8)) * 0.035,
+                options: [.curveEaseOut, .beginFromCurrentState, .allowUserInteraction]
+            ) {
+                cell.alpha = 1
+                cell.transform = .identity
+            }
+        }
+    }
+
+    private func streamIncomingRowIfNeeded(
+        _ cell: UITableViewCell,
+        at indexPath: IndexPath,
+        sequence: Int
+    ) {
+        guard let recordID = recordID(at: indexPath, for: selectedTab),
+              pendingStreamRecordIDs[selectedTab]?.remove(recordID) != nil else {
+            return
+        }
+        cell.layer.removeAllAnimations()
+        cell.alpha = 0
+        cell.transform = CGAffineTransform(translationX: 0, y: 16)
+        UIView.animate(
+            withDuration: 0.34,
+            delay: Double(min(sequence, 6)) * 0.055,
+            options: [.curveEaseOut, .beginFromCurrentState, .allowUserInteraction]
+        ) {
+            cell.alpha = 1
+            cell.transform = .identity
+        }
+    }
+
+    private func resetVisibleStreamAppearance() {
+        for cell in tableView.visibleCells {
+            cell.layer.removeAllAnimations()
+            cell.alpha = 1
+            cell.transform = .identity
+        }
+    }
+
+    private func recordID(at indexPath: IndexPath, for tab: NodeSeekNotificationTab) -> Int? {
+        switch tab {
+        case .atMe:
+            guard atMeRecords.indices.contains(indexPath.row) else { return nil }
+            return atMeRecords[indexPath.row].id
+        case .reply:
+            guard replyRecords.indices.contains(indexPath.row) else { return nil }
+            return replyRecords[indexPath.row].id
+        case .message:
+            guard messageRecords.indices.contains(indexPath.row) else { return nil }
+            return messageRecords[indexPath.row].maxID
+        }
+    }
+
+    private func enrichMissingCommentContent(for tab: NodeSeekNotificationTab) {
+        let candidates: [NodeSeekNotificationRecord]
+        switch tab {
+        case .atMe:
+            candidates = atMeRecords
+        case .reply:
+            candidates = replyRecords
+        case .message:
+            return
+        }
+        let missingContent = Array(candidates.filter {
+            $0.postID > 0 && ($0.content?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false)
+        }.prefix(Self.maximumCommentContentEnrichmentRecords))
+        guard missingContent.isEmpty == false else {
+            cancelCommentContentEnrichment(for: tab)
+            return
+        }
+
+        cancelCommentContentEnrichment(for: tab)
+        let token = commentContentEnrichmentTokens[tab, default: 0]
+        let maximumConcurrentLoads = Self.maxConcurrentCommentContentLoads
+        commentContentEnrichmentTasks[tab] = Task { [weak self, missingContent, maximumConcurrentLoads] in
+            await withTaskGroup(of: (Int, NodeSeekNotificationContentResolver.ResolvedContent?).self) { group in
+                var nextIndex = 0
+                let initialTaskCount = min(maximumConcurrentLoads, missingContent.count)
+
+                for _ in 0..<initialTaskCount {
+                    let record = missingContent[nextIndex]
+                    nextIndex += 1
+                    group.addTask {
+                        let content = await NodeSeekNotificationContentResolver.shared.resolveContent(for: record)
+                        return (record.id, content)
+                    }
+                }
+
+                while let (recordID, result) = await group.next() {
+                    guard Task.isCancelled == false else {
+                        group.cancelAll()
+                        return
+                    }
+
+                    if let result,
+                       result.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false {
+                        await self?.applyResolvedCommentContent(
+                            result,
+                            forRecordID: recordID,
+                            to: tab,
+                            token: token
+                        )
+                    }
+
+                    guard nextIndex < missingContent.count else { continue }
+                    let record = missingContent[nextIndex]
+                    nextIndex += 1
+                    group.addTask {
+                        let content = await NodeSeekNotificationContentResolver.shared.resolveContent(for: record)
+                        return (record.id, content)
+                    }
+                }
+            }
+            await self?.finishCommentContentEnrichment(for: tab, token: token)
+        }
+    }
+
+    private func applyResolvedCommentContent(
+        _ result: NodeSeekNotificationContentResolver.ResolvedContent,
+        forRecordID recordID: Int,
+        to tab: NodeSeekNotificationTab,
+        token: Int
+    ) {
+        guard commentContentEnrichmentTokens[tab] == token else { return }
+
+        let changedRow: IndexPath?
+        switch tab {
+        case .atMe:
+            guard let index = atMeRecords.firstIndex(where: { $0.id == recordID }),
+                  atMeRecords[index].content?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false else {
+                return
+            }
+            atMeRecords[index].content = result.content
+            atMeRecords[index].resolvedCommentPage = result.page
+            NodeSeekNotificationMemoryCache.shared.store(
+                records: atMeRecords,
+                for: .atMe,
+                ownerID: currentUserID
+            )
+            changedRow = IndexPath(row: index, section: 0)
+        case .reply:
+            guard let index = replyRecords.firstIndex(where: { $0.id == recordID }),
+                  replyRecords[index].content?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false else {
+                return
+            }
+            replyRecords[index].content = result.content
+            replyRecords[index].resolvedCommentPage = result.page
+            NodeSeekNotificationMemoryCache.shared.store(
+                records: replyRecords,
+                for: .reply,
+                ownerID: currentUserID
+            )
+            changedRow = IndexPath(row: index, section: 0)
+        case .message:
+            return
+        }
+
+        guard selectedTab == tab,
+              displayMode == .content,
+              let changedRow,
+              changedRow.row < currentRecordCount else { return }
+        tableView.reloadRows(at: [changedRow], with: .none)
+    }
+
+    private func cancelCommentContentEnrichment(for tab: NodeSeekNotificationTab) {
+        commentContentEnrichmentTokens[tab, default: 0] += 1
+        commentContentEnrichmentTasks[tab]?.cancel()
+        commentContentEnrichmentTasks[tab] = nil
+    }
+
+    private func finishCommentContentEnrichment(for tab: NodeSeekNotificationTab, token: Int) {
+        guard commentContentEnrichmentTokens[tab] == token else { return }
+        commentContentEnrichmentTasks[tab] = nil
+    }
+
     private func showError(_ message: String, tab: NodeSeekNotificationTab, token: Int) {
+        guard tabLoadTokens[tab] == token, tab == selectedTab else { return }
         refreshControl.endRefreshing()
-        guard token == loadToken, tab == selectedTab else { return }
         if loadedTabs.contains(tab) {
             // Keep prior tab data visible when the service has a brief 503 outage.
             displayMode = .content
@@ -285,8 +959,7 @@ final class NotificationViewController: UIViewController {
     }
 
     private static func isTemporaryServerError(_ error: Error) -> Bool {
-        let message = error.localizedDescription.lowercased()
-        return message.contains("503") || message.contains("service unavailable")
+        TemporaryServerErrorClassifier.isServiceUnavailable(error)
     }
 
     private func applyDisplayState() {
@@ -323,32 +996,18 @@ final class NotificationViewController: UIViewController {
     }
 
     private func updateSegmentTitles() {
-        for tab in NodeSeekNotificationTab.allCases {
-            let count = unreadCount.count(for: tab)
-            let title = count > 0 ? "\(tab.title) \(count)" : tab.title
-            segmentedControl.setTitle(title, forSegmentAt: tab.rawValue)
-        }
+        segmentedControl.setUnreadCount(unreadCount)
     }
 
     private func updateMarkAllButton() {
-        markAllButton?.isEnabled = currentUnreadCount > 0
+        markAllButton?.isEnabled = hasUnreadNotifications
     }
 
-    private var currentUnreadCount: Int {
-        let count = unreadCount.count(for: selectedTab)
-        if count > 0 { return count }
-        return currentUnreadRecordCount
-    }
-
-    private var currentUnreadRecordCount: Int {
-        switch selectedTab {
-        case .atMe:
-            return atMeRecords.filter { !$0.isViewed }.count
-        case .reply:
-            return replyRecords.filter { !$0.isViewed }.count
-        case .message:
-            return messageRecords.filter { !$0.isViewed }.count
-        }
+    private var hasUnreadNotifications: Bool {
+        unreadCount.all > 0
+            || atMeRecords.contains(where: { !$0.isViewed })
+            || replyRecords.contains(where: { !$0.isViewed })
+            || messageRecords.contains(where: { !$0.isViewed })
     }
 
     private var currentRecordCount: Int {
@@ -362,32 +1021,90 @@ final class NotificationViewController: UIViewController {
         }
     }
 
-    @objc private func tabChanged() {
-        guard let tab = NodeSeekNotificationTab(rawValue: segmentedControl.selectedSegmentIndex),
-              tab != selectedTab else {
+    @objc private func tabPanRecognized(_ recognizer: UIPanGestureRecognizer) {
+        switch recognizer.state {
+        case .began, .changed:
+            suppressRowSelectionUntil = Date().addingTimeInterval(0.35)
+            let translation = recognizer.translation(in: tableView)
+            let limitedTranslation = max(-24, min(24, translation.x * 0.16))
+            tableView.transform = CGAffineTransform(translationX: limitedTranslation, y: 0)
+            return
+        case .ended:
+            break
+        case .cancelled, .failed, .possible:
+            suppressRowSelectionUntil = Date().addingTimeInterval(0.2)
+            return
+        @unknown default:
             return
         }
-        selectTab(tab)
+
+        let translation = recognizer.translation(in: tableView)
+        let velocity = recognizer.velocity(in: tableView)
+        let requiredDistance = min(tableView.bounds.width * 0.20, 72)
+        guard abs(translation.x) >= requiredDistance || abs(velocity.x) >= 700 else {
+            restoreTabSwipePosition()
+            return
+        }
+        suppressRowSelectionUntil = Date().addingTimeInterval(0.35)
+        let offset = translation.x < 0 ? 1 : -1
+        let nextIndex = selectedTab.rawValue + offset
+        guard let nextTab = NodeSeekNotificationTab(rawValue: nextIndex) else {
+            restoreTabSwipePosition()
+            return
+        }
+        animateTabSwipeTransition(to: nextTab, translationX: translation.x)
     }
 
-    @objc private func tabSwipeRecognized(_ recognizer: UISwipeGestureRecognizer) {
-        let offset = recognizer.direction == .left ? 1 : -1
-        let nextIndex = selectedTab.rawValue + offset
-        guard let nextTab = NodeSeekNotificationTab(rawValue: nextIndex) else { return }
-        selectTab(nextTab)
+    private func restoreTabSwipePosition() {
+        UIView.animate(
+            withDuration: 0.22,
+            delay: 0,
+            usingSpringWithDamping: 0.72,
+            initialSpringVelocity: 0,
+            options: [.beginFromCurrentState, .allowUserInteraction]
+        ) {
+            self.tableView.transform = .identity
+        }
+    }
+
+    private func animateTabSwipeTransition(to tab: NodeSeekNotificationTab, translationX: CGFloat) {
+        let direction: CGFloat = translationX < 0 ? -1 : 1
+        UIView.animate(
+            withDuration: 0.10,
+            delay: 0,
+            options: [.curveEaseOut, .beginFromCurrentState, .allowUserInteraction]
+        ) {
+            self.tableView.transform = CGAffineTransform(translationX: direction * 12, y: 0)
+        } completion: { [weak self] _ in
+            guard let self else { return }
+            UIView.animate(
+                withDuration: 0.20,
+                delay: 0,
+                usingSpringWithDamping: 0.82,
+                initialSpringVelocity: 0,
+                options: [.beginFromCurrentState, .allowUserInteraction]
+            ) {
+                self.tableView.transform = .identity
+            } completion: { _ in
+                self.selectTab(tab)
+            }
+        }
     }
 
     private func selectTab(_ tab: NodeSeekNotificationTab) {
         guard tab != selectedTab else { return }
         tabContentOffsets[selectedTab] = tableView.contentOffset
         selectedTab = tab
-        segmentedControl.selectedSegmentIndex = tab.rawValue
+        segmentedControl.selectedTab = tab
         updateMarkAllButton()
         if loadedTabs.contains(tab) {
+            // 已加载 tab 立即本地呈现：无整表重建、无动画重播、无强制布局，
+            // 消除“点击后要等一下才响应”的感知。网络刷新静默后台进行。
             displayMode = .content
             applyDisplayState()
-            tableView.reloadData()
             restoreContentOffset(for: tab)
+            scheduleVisibleRecordsAsRead()
+            requestRefresh(for: tab, showLoading: false)
         } else {
             loadSelectedTab(showLoading: true)
         }
@@ -400,14 +1117,118 @@ final class NotificationViewController: UIViewController {
     }
 
     @objc private func refreshTriggered() {
-        loadUnreadCount()
-        loadSelectedTab(showLoading: false)
+        refreshCurrentNotificationData()
     }
 
     /// 双击消息 tab：重新拉取当前板块（@我/回复主题/私信）。
     func refreshFromDoubleTap() {
-        loadUnreadCount()
-        loadSelectedTab(showLoading: false)
+        showRefreshFeedback(for: selectedTab)
+        refreshCurrentNotificationData()
+    }
+
+    /// 从其它一级功能区切回消息时刷新当前子标签；已有缓存先直接展示。
+    func refreshFromTabSelection() {
+        presentVisibleContentAppearance(forceReplay: true)
+        refreshCurrentNotificationData()
+    }
+
+    private func refreshCurrentNotificationData() {
+        loadUnreadCount(publishUpdate: true)
+        requestRefresh(for: selectedTab, showLoading: false)
+    }
+
+    /// 只有用户实际停留在某个分栏并看见列表后才提交已读。预取、缓存写入和后台刷新都不会调用这里。
+    private func scheduleVisibleRecordsAsRead() {
+        let tab = selectedTab
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.20) { [weak self] in
+            guard let self,
+                  self.selectedTab == tab,
+                  self.view.window != nil,
+                  self.displayMode == .content else {
+                return
+            }
+            self.markVisibleRecordsAsRead(in: tab)
+        }
+    }
+
+    private func markVisibleRecordsAsRead(in tab: NodeSeekNotificationTab) {
+        let visibleRows = (tableView.indexPathsForVisibleRows ?? []).map(\.row)
+        guard visibleRows.isEmpty == false else { return }
+
+        // 递减量必须取这些记录各自真实的未读数之和，而不是"标记了几条"。
+        // 一个私信会话可能带 4 条未读，按条数减 1 会让本地计数与列表状态脱节，
+        // 下一轮取小修正又会把服务器那个偏大的数字放回来，角标就对不上了。
+        var ids: [Int] = []
+        var consumedUnreadCount = 0
+        switch tab {
+        case .atMe:
+            for row in visibleRows {
+                guard atMeRecords.indices.contains(row), atMeRecords[row].isViewed == false else { continue }
+                consumedUnreadCount += atMeRecords[row].displayUnreadCount
+                atMeRecords[row].markViewed()
+                ids.append(atMeRecords[row].id)
+            }
+        case .reply:
+            for row in visibleRows {
+                guard replyRecords.indices.contains(row), replyRecords[row].isViewed == false else { continue }
+                consumedUnreadCount += replyRecords[row].displayUnreadCount
+                replyRecords[row].markViewed()
+                ids.append(replyRecords[row].id)
+            }
+        case .message:
+            for row in visibleRows {
+                guard messageRecords.indices.contains(row), messageRecords[row].isViewed == false else { continue }
+                consumedUnreadCount += messageRecords[row].displayUnreadCount
+                messageRecords[row].markViewed()
+                ids.append(messageRecords[row].maxID)
+            }
+        }
+        guard ids.isEmpty == false else { return }
+
+        NodeSeekNotificationReadStateStore.shared.markViewed(ids: ids, tab: tab, ownerID: currentUserID)
+        unreadCount.decrement(for: tab, by: consumedUnreadCount)
+        cacheCurrentNotificationData()
+        updateSegmentTitles()
+        updateMarkAllButton()
+        tableView.reloadData()
+        // 底栏角标此前只能等下一次 60 秒定时器或服务器回包，用户已经读完
+        // 还一直亮着。本地计数刚改完、且已同步写进内存缓存，立刻广播一次。
+        NodeSeekNotificationUnreadCountEvent.post(unreadCount)
+
+        Task { [weak self, ids, tab] in
+            guard let self else { return }
+            do {
+                try await client.markViewed(ids: ids, tab: tab)
+                refreshUnreadCountAfterReadStateChange()
+            } catch {
+                // 用户已实际读到内容，网络稍后恢复时继续由本地已读账本保持一致。
+                AppLog.debug(.account, "通知已读同步延后: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    private func requestRefresh(for tab: NodeSeekNotificationTab, showLoading: Bool) {
+        guard loadingTabs.contains(tab) == false else {
+            pendingRefreshTabs.insert(tab)
+            return
+        }
+        loadTab(tab, showLoading: showLoading)
+    }
+
+    private func performPendingRefreshIfNeeded(for tab: NodeSeekNotificationTab) {
+        guard pendingRefreshTabs.remove(tab) != nil else { return }
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.requestRefresh(for: tab, showLoading: false)
+        }
+    }
+
+    private func showRefreshFeedback(for tab: NodeSeekNotificationTab) {
+        guard refreshControl.isRefreshing == false else { return }
+        refreshFeedbackTab = tab
+        refreshControl.beginRefreshing()
+        let topOffset = -tableView.adjustedContentInset.top - max(refreshControl.bounds.height, 44)
+        tableView.setContentOffset(CGPoint(x: 0, y: topOffset), animated: true)
     }
 
     @objc private func openInBrowserTapped() {
@@ -415,60 +1236,71 @@ final class NotificationViewController: UIViewController {
     }
 
     @objc private func markAllReadTapped() {
-        let tab = selectedTab
+        guard hasUnreadNotifications else { return }
         let previousUnreadCount = unreadCount
         let previousAtMeRecords = atMeRecords
         let previousReplyRecords = replyRecords
         let previousMessageRecords = messageRecords
 
-        markAllLocally(tab: tab)
+        markAllButton?.isEnabled = false
         Task { [weak self] in
             guard let self else { return }
             do {
-                try await client.markAllViewed(tab: tab)
+                for tab in NodeSeekNotificationTab.allCases {
+                    try await client.markAllViewed(tab: tab)
+                }
+                markAllLocally()
                 refreshUnreadCountAfterReadStateChange()
             } catch {
                 unreadCount = previousUnreadCount
                 atMeRecords = previousAtMeRecords
                 replyRecords = previousReplyRecords
                 messageRecords = previousMessageRecords
+                cacheCurrentNotificationData()
                 updateSegmentTitles()
                 updateMarkAllButton()
-                if selectedTab == tab {
-                    tableView.reloadData()
-                }
+                tableView.reloadData()
                 showErrorMessage(error.localizedDescription)
             }
         }
     }
 
-    private func markAllLocally(tab: NodeSeekNotificationTab) {
-        switch tab {
-        case .atMe:
-            atMeRecords = atMeRecords.map { record in
-                var updated = record
-                updated.markViewed()
-                return updated
-            }
-        case .reply:
-            replyRecords = replyRecords.map { record in
-                var updated = record
-                updated.markViewed()
-                return updated
-            }
-        case .message:
-            messageRecords = messageRecords.map { record in
-                var updated = record
-                updated.markViewed()
-                return updated
-            }
+    private func markAllLocally() {
+        atMeRecords = atMeRecords.map { record in
+            var updated = record
+            updated.markViewed()
+            return updated
         }
-        unreadCount.setCount(0, for: tab)
+        replyRecords = replyRecords.map { record in
+            var updated = record
+            updated.markViewed()
+            return updated
+        }
+        messageRecords = messageRecords.map { record in
+            var updated = record
+            updated.markViewed()
+            return updated
+        }
+        NodeSeekNotificationReadStateStore.shared.markViewed(
+            ids: atMeRecords.map(\.id),
+            tab: .atMe,
+            ownerID: currentUserID
+        )
+        NodeSeekNotificationReadStateStore.shared.markViewed(
+            ids: replyRecords.map(\.id),
+            tab: .reply,
+            ownerID: currentUserID
+        )
+        NodeSeekNotificationReadStateStore.shared.markViewed(
+            ids: messageRecords.map(\.maxID),
+            tab: .message,
+            ownerID: currentUserID
+        )
+        unreadCount = .zero
+        cacheCurrentNotificationData()
         updateSegmentTitles()
         updateMarkAllButton()
-        if selectedTab == tab {
-            tableView.reloadData()
-        }
+        tableView.reloadData()
     }
 
     private func markRead(
@@ -488,6 +1320,7 @@ final class NotificationViewController: UIViewController {
                 if rollbackOnFailure {
                     unmarkRecordLocally(id: id, tab: tab)
                     unreadCount = previousUnreadCount
+                    cacheCurrentNotificationData()
                     updateSegmentTitles()
                     updateMarkAllButton()
                     if selectedTab == tab {
@@ -505,28 +1338,36 @@ final class NotificationViewController: UIViewController {
 
     @discardableResult
     private func markRecordLocally(id: Int, tab: NodeSeekNotificationTab) -> Bool {
+        // 与 markVisibleRecordsAsRead 同理：递减量取该记录真实的未读数，
+        // 而不是固定减 1，否则一个多未读的私信会话会留下对不上的残数。
+        var consumedUnreadCount = 0
         switch tab {
         case .atMe:
             guard let index = atMeRecords.firstIndex(where: { $0.id == id }),
                   atMeRecords[index].isViewed == false else {
                 return false
             }
+            consumedUnreadCount = atMeRecords[index].displayUnreadCount
             atMeRecords[index].markViewed()
         case .reply:
             guard let index = replyRecords.firstIndex(where: { $0.id == id }),
                   replyRecords[index].isViewed == false else {
                 return false
             }
+            consumedUnreadCount = replyRecords[index].displayUnreadCount
             replyRecords[index].markViewed()
         case .message:
             guard let index = messageRecords.firstIndex(where: { $0.maxID == id }),
                   messageRecords[index].isViewed == false else {
                 return false
             }
+            consumedUnreadCount = messageRecords[index].displayUnreadCount
             messageRecords[index].markViewed()
         }
 
-        unreadCount.decrement(for: tab)
+        unreadCount.decrement(for: tab, by: consumedUnreadCount)
+        NodeSeekNotificationReadStateStore.shared.markViewed(ids: [id], tab: tab, ownerID: currentUserID)
+        cacheCurrentNotificationData()
         updateSegmentTitles()
         updateMarkAllButton()
         if selectedTab == tab {
@@ -547,15 +1388,32 @@ final class NotificationViewController: UIViewController {
             guard let index = messageRecords.firstIndex(where: { $0.maxID == id }) else { return }
             messageRecords[index].viewed = 0
         }
+        NodeSeekNotificationReadStateStore.shared.removeViewed(ids: [id], tab: tab, ownerID: currentUserID)
+        cacheCurrentNotificationData()
     }
 
-    private func openNotificationRecord(_ record: NodeSeekNotificationRecord, tab: NodeSeekNotificationTab) {
+    private func openNotificationPost(_ record: NodeSeekNotificationRecord, tab: NodeSeekNotificationTab) {
         if record.isViewed == false {
             markRead(id: record.id, tab: tab, rollbackOnFailure: false, showFailure: false)
         }
         let detailViewController = PostDetailRouter.createModule(
             post: record.postSummary,
-            page: record.commentPage,
+            page: 1
+        )
+        navigationController?.pushViewController(detailViewController, animated: true)
+    }
+
+    private func openNotificationReply(_ record: NodeSeekNotificationRecord, tab: NodeSeekNotificationTab) {
+        AppLog.info(
+            .account,
+            "消息跳转楼层: tab=\(tab.title), postID=\(record.postID), floor=\(record.floorID), page=\(record.targetCommentPage), anchor=\(record.anchorID)"
+        )
+        if record.isViewed == false {
+            markRead(id: record.id, tab: tab, rollbackOnFailure: false, showFailure: false)
+        }
+        let detailViewController = PostDetailRouter.createModule(
+            post: record.postSummary,
+            page: record.targetCommentPage,
             initialAnchorID: record.anchorID
         )
         navigationController?.pushViewController(detailViewController, animated: true)
@@ -625,6 +1483,21 @@ final class NotificationViewController: UIViewController {
             await currentAccountStore.markStale()
         }
     }
+
+    private func cacheCurrentNotificationData() {
+        // 三份列表一次落盘：逐份写会让磁盘做三轮 decode + encode，
+        // 而这里的调用点很密集（每次标记已读、滚动停顿、下拉刷新都会进来）。
+        NodeSeekNotificationMemoryCache.shared.storeAll(
+            atMeRecords: loadedTabs.contains(.atMe) ? atMeRecords : nil,
+            replyRecords: loadedTabs.contains(.reply) ? replyRecords : nil,
+            messageRecords: loadedTabs.contains(.message) ? messageRecords : nil,
+            ownerID: currentUserID
+        )
+        NodeSeekNotificationMemoryCache.shared.store(
+            unreadCount: unreadCount,
+            ownerID: currentUserID
+        )
+    }
 }
 
 extension NotificationViewController: UITableViewDataSource {
@@ -649,8 +1522,11 @@ extension NotificationViewController: UITableViewDataSource {
                 onMarkReadTapped: { [weak self] in
                     self?.markRead(id: record.id, tab: .atMe, rollbackOnFailure: true, showFailure: true)
                 },
-                onContentTapped: { [weak self] in
-                    self?.openNotificationRecord(record, tab: .atMe)
+                onTitleTapped: { [weak self] in
+                    self?.openNotificationPost(record, tab: .atMe)
+                },
+                onReplyTapped: { [weak self] in
+                    self?.openNotificationReply(record, tab: .atMe)
                 }
             )
             return cell
@@ -668,8 +1544,11 @@ extension NotificationViewController: UITableViewDataSource {
                 onMarkReadTapped: { [weak self] in
                     self?.markRead(id: record.id, tab: .reply, rollbackOnFailure: true, showFailure: true)
                 },
-                onContentTapped: { [weak self] in
-                    self?.openNotificationRecord(record, tab: .reply)
+                onTitleTapped: { [weak self] in
+                    self?.openNotificationPost(record, tab: .reply)
+                },
+                onReplyTapped: { [weak self] in
+                    self?.openNotificationReply(record, tab: .reply)
                 }
             )
             return cell
@@ -689,17 +1568,33 @@ extension NotificationViewController: UITableViewDataSource {
     }
 }
 
+extension NotificationViewController: UIGestureRecognizerDelegate {
+    func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+        guard gestureRecognizer === tabSwipePanGesture,
+              let panGestureRecognizer = gestureRecognizer as? UIPanGestureRecognizer else {
+            return true
+        }
+
+        let velocity = panGestureRecognizer.velocity(in: tableView)
+        return abs(velocity.x) > max(abs(velocity.y) * 1.25, 55)
+    }
+}
+
 extension NotificationViewController: UITableViewDelegate {
+    func tableView(_ tableView: UITableView, willDisplay cell: UITableViewCell, forRowAt indexPath: IndexPath) {
+        streamIncomingRowIfNeeded(cell, at: indexPath, sequence: 0)
+    }
+
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         tableView.deselectRow(at: indexPath, animated: true)
-        guard displayMode == .content else { return }
+        guard displayMode == .content, Date() >= suppressRowSelectionUntil else { return }
         switch selectedTab {
         case .atMe:
             guard atMeRecords.indices.contains(indexPath.row) else { return }
-            openNotificationRecord(atMeRecords[indexPath.row], tab: .atMe)
+            openNotificationReply(atMeRecords[indexPath.row], tab: .atMe)
         case .reply:
             guard replyRecords.indices.contains(indexPath.row) else { return }
-            openNotificationRecord(replyRecords[indexPath.row], tab: .reply)
+            openNotificationReply(replyRecords[indexPath.row], tab: .reply)
         case .message:
             guard messageRecords.indices.contains(indexPath.row) else { return }
             openMessageConversation(messageRecords[indexPath.row])
@@ -743,5 +1638,121 @@ private final class NotificationLoadingView: UIView {
 
     func stopAnimating() {
         indicator.stopAnimating()
+    }
+}
+
+/// UISegmentedControl 不支持给标题中的数字单独设色；通知分栏使用轻量自定义控件，
+/// 保持系统分段交互，同时让未读数始终为红色且 0 不占位。
+private final class NotificationTabSegmentedControl: UIView {
+    var selectedTab: NodeSeekNotificationTab = .atMe {
+        didSet { updateSelectionAppearance() }
+    }
+    var onSelectionChanged: ((NodeSeekNotificationTab) -> Void)?
+
+    private var titleLabels: [NodeSeekNotificationTab: UILabel] = [:]
+    private var countLabels: [NodeSeekNotificationTab: UILabel] = [:]
+    private var buttons: [NodeSeekNotificationTab: UIControl] = [:]
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        backgroundColor = .secondarySystemBackground
+        layer.cornerRadius = 8
+        layer.cornerCurve = .continuous
+        clipsToBounds = true
+
+        let stack = UIStackView()
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        stack.axis = .horizontal
+        stack.alignment = .fill
+        stack.distribution = .fillEqually
+        stack.spacing = 0
+        addSubview(stack)
+
+        for tab in NodeSeekNotificationTab.allCases {
+            let item = makeItem(for: tab)
+            stack.addArrangedSubview(item)
+            buttons[tab] = item
+        }
+        NSLayoutConstraint.activate([
+            stack.leadingAnchor.constraint(equalTo: leadingAnchor),
+            stack.trailingAnchor.constraint(equalTo: trailingAnchor),
+            stack.topAnchor.constraint(equalTo: topAnchor),
+            stack.bottomAnchor.constraint(equalTo: bottomAnchor),
+            heightAnchor.constraint(greaterThanOrEqualToConstant: 44)
+        ])
+        updateSelectionAppearance()
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func setUnreadCount(_ unreadCount: NodeSeekNotificationUnreadCount) {
+        for tab in NodeSeekNotificationTab.allCases {
+            let value = unreadCount.count(for: tab)
+            countLabels[tab]?.text = value > 0 ? "\(value)" : nil
+            countLabels[tab]?.isHidden = value == 0
+            buttons[tab]?.accessibilityLabel = value > 0 ? "\(tab.title)，\(value) 条未读" : tab.title
+        }
+    }
+
+    private func makeItem(for tab: NodeSeekNotificationTab) -> UIControl {
+        let control = UIControl()
+        control.translatesAutoresizingMaskIntoConstraints = false
+        control.tag = tab.rawValue
+        control.layer.cornerRadius = 6
+        control.layer.cornerCurve = .continuous
+        control.addTarget(self, action: #selector(tabTapped(_:)), for: .touchUpInside)
+
+        let title = UILabel()
+        title.text = tab.title
+        title.font = .preferredFont(forTextStyle: .subheadline)
+        title.adjustsFontForContentSizeCategory = true
+        title.setContentHuggingPriority(.required, for: .horizontal)
+        titleLabels[tab] = title
+
+        let count = UILabel()
+        count.font = .preferredFont(forTextStyle: .caption1)
+        count.textColor = .systemRed
+        count.adjustsFontForContentSizeCategory = true
+        count.setContentHuggingPriority(.required, for: .horizontal)
+        count.isHidden = true
+        countLabels[tab] = count
+
+        let content = UIStackView(arrangedSubviews: [title, count])
+        content.translatesAutoresizingMaskIntoConstraints = false
+        // UIStackView 是 UIView，hitTest 会把它自己返回出去。这个 content 只按
+        // 内容撑开、居中在标签里，于是它那一小块把触摸全吃掉，外层 UIControl 的
+        // .touchUpInside 根本收不到 —— 表现就是"只有固定一小点能点"。
+        // 标签本身要负责整块区域，这里必须让触摸穿过去。
+        content.isUserInteractionEnabled = false
+        content.axis = .horizontal
+        content.alignment = .center
+        content.spacing = 3
+        control.addSubview(content)
+        NSLayoutConstraint.activate([
+            content.centerXAnchor.constraint(equalTo: control.centerXAnchor),
+            content.centerYAnchor.constraint(equalTo: control.centerYAnchor),
+            content.leadingAnchor.constraint(greaterThanOrEqualTo: control.leadingAnchor, constant: 6),
+            content.trailingAnchor.constraint(lessThanOrEqualTo: control.trailingAnchor, constant: -6)
+        ])
+        return control
+    }
+
+    private func updateSelectionAppearance() {
+        for tab in NodeSeekNotificationTab.allCases {
+            let selected = tab == selectedTab
+            buttons[tab]?.backgroundColor = selected ? .systemBackground : .clear
+            titleLabels[tab]?.textColor = selected ? .label : .secondaryLabel
+            titleLabels[tab]?.font = selected
+                ? .preferredFont(forTextStyle: .headline)
+                : .preferredFont(forTextStyle: .subheadline)
+        }
+    }
+
+    @objc private func tabTapped(_ sender: UIControl) {
+        guard let tab = NodeSeekNotificationTab(rawValue: sender.tag), tab != selectedTab else { return }
+        selectedTab = tab
+        onSelectionChanged?(tab)
     }
 }

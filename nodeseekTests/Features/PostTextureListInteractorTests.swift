@@ -71,6 +71,32 @@ struct PostTextureListInteractorTests {
         #expect(delegate.loadedFirstPageCategories == [.all])
     }
 
+    @Test func reloadKeepsVisiblePostsUntilRefreshSucceeds() {
+        let interactor = SpyPostTextureListHostInteractor()
+        let view = SpyPostTextureListHostView()
+        let presenter = PostTextureListHostPresenter(
+            category: .all,
+            interactor: interactor,
+            visitedStore: EmptyVisitedPostStore()
+        )
+        presenter.setView(view)
+        let post = PostSummary(
+            id: "1",
+            title: "标题",
+            url: URL(string: "https://www.nodeseek.com/post-1-1")!,
+            authorName: "mist",
+            nodeName: "Dev",
+            replyCount: 0,
+            lastActivityText: "刚刚"
+        )
+
+        presenter.didLoadPosts([post], category: .all, sortMode: .replyTime)
+        presenter.reloadFirstPage()
+
+        #expect(interactor.firstPageLoadCount == 1)
+        #expect(view.items.count == 1)
+        #expect(view.items.first?.post.id == "1")
+    }
     @Test func failedInitialLoadNotifiesHostDelegate() {
         let interactor = SpyPostTextureListHostInteractor()
         let view = SpyPostTextureListHostView()
@@ -112,9 +138,12 @@ private final class SpyPostTextureListHostInteractorOutput: PostTextureListHostI
 
 @MainActor
 private final class SpyPostTextureListHostInteractor: PostTextureListHostInteractorInput {
+    private(set) var firstPageLoadCount = 0
     weak var presenter: PostTextureListHostInteractorOutput?
 
-    func loadPosts(category: PostListCategoryItem, sortMode: PostListSortMode) {}
+    func loadPosts(category: PostListCategoryItem, sortMode: PostListSortMode) {
+        firstPageLoadCount += 1
+    }
 
     func loadMorePosts(page: Int, category: PostListCategoryItem, sortMode: PostListSortMode) {}
 }
@@ -139,7 +168,10 @@ private final class SpyPostTextureListHostPresenterDelegate: PostTextureListHost
 
 @MainActor
 private final class SpyPostTextureListHostView: PostTextureListHostViewProtocol {
-    func setItems(_ items: [PostListItem]) {}
+    private(set) var items: [PostListItem] = []
+    func setItems(_ items: [PostListItem]) {
+        self.items = items
+    }
     func showLoadingSkeleton() {}
     func hideLoadingSkeleton() {}
     func showFirstPageError(message: String) {}

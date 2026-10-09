@@ -21,9 +21,16 @@ private final class SearchHistoryRecordButton: UIButton {
 }
 
 final class SearchViewController: UIViewController {
-    private struct SearchRequest: Equatable {
+    private struct SearchRequest: Hashable {
         let query: String
         let category: PostListCategory
+    }
+
+    /// 同一份 (查询, 页码) 只允许有一个在飞。站点搜索实测限"每隔 2 秒可以操作一次"，
+    /// 重复发一次就必然吃一个 429，而 429 会让这一页彻底拿不到数据。
+    private struct SearchRequestPage: Hashable {
+        let request: SearchRequest
+        let page: Int
     }
 
     private let service: NodeSeekService
@@ -47,6 +54,10 @@ final class SearchViewController: UIViewController {
     private var isLoadingMore = false
     private var formTopConstraint: NSLayoutConstraint?
     private var loadTask: Task<Void, Never>?
+    private var inFlightSearchRequests: Set<SearchRequestPage> = []
+    private var lastSearchRequestStartedAt: Date?
+    /// 站点 429 正文实测为 {"success":false,"message":"每隔2秒可以操作一次"}。
+    private static let minimumSearchInterval: TimeInterval = 2.2
 
     private lazy var resultsBackGestureRecognizer: UIScreenEdgePanGestureRecognizer = {
         let recognizer = UIScreenEdgePanGestureRecognizer(
@@ -207,6 +218,9 @@ final class SearchViewController: UIViewController {
         searchHistoryStore: SearchHistoryStore = SearchHistoryStore(),
         searchPreferenceStore: SearchPreferenceStore = SearchPreferenceStore()
     ) {
+        // 站内 /search 已被站点 302 到 Google 搜索：HTTP 主路径注定空手而归，
+        // 直接用 WebView 水合抓取（Google 结果页含 JS 渲染内容，WebView 拿得最全），
+        // 与 Seekly 的"WebView 为主"策略对齐，体感更快且不再空结果。
         self.service = service
         self.sessionStore = sessionStore
         self.visitedStore = visitedStore ?? VisitedPostStore.shared
@@ -216,7 +230,9 @@ final class SearchViewController: UIViewController {
     }
 
     static func makeDefaultService() -> NodeSeekService {
-        NodeSeekService(htmlClient: HTMLLoadingStrategyFactory.makeDefaultClient())
+        // 搜索页专用：站内 /search 302 到 Google 结果页，HTTP 主路径无意义，
+        // 直接走 WebView 水合抓取（JS 渲染内容拿得最全、一步到位）。
+        NodeSeekService(htmlClient: HiddenWebViewHTMLClient())
     }
 
     required init?(coder: NSCoder) {
@@ -239,7 +255,15 @@ final class SearchViewController: UIViewController {
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
         navigationController?.setNavigationBarHidden(false, animated: animated)
-        navigationController?.interactivePopGestureRecognizer?.isEnabled = false
+    }
+
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        guard let navigationController,
+              navigationController.topViewController === self else {
+            return
+        }
+        navigationController.interactivePopGestureRecognizer?.isEnabled = false
     }
 
     override func viewWillDisappear(_ animated: Bool) {
@@ -249,6 +273,12 @@ final class SearchViewController: UIViewController {
 
     /// 双击搜索 tab：有已搜索内容时重新拉取第一页，否则无操作。
     func refreshFromDoubleTap() {
+        guard activeRequest != nil else { return }
+        reloadFirstPageForActiveRequest(isRefresh: true)
+    }
+
+    /// 从其它一级功能区切回搜索时，保留当前关键词并静默刷新结果。
+    func refreshFromTabSelection() {
         guard activeRequest != nil else { return }
         reloadFirstPageForActiveRequest(isRefresh: true)
     }
@@ -264,6 +294,9 @@ final class SearchViewController: UIViewController {
         keywordTextField.delegate = self
         listView.delegate = self
         searchButton.addTarget(self, action: #selector(searchButtonTapped), for: .touchUpInside)
+        // UITextField 自带的 × 只清文本框自己。之前没人监听文本变化，
+        // 于是关键词清空了、下面一整屏搜索结果还留在原地。
+        keywordTextField.addTarget(self, action: #selector(keywordTextChanged(_:)), for: .editingChanged)
         clearRecentSearchesButton.addTarget(self, action: #selector(clearRecentSearchesButtonTapped), for: .touchUpInside)
 
         view.addSubview(formContainerView)
@@ -378,6 +411,15 @@ final class SearchViewController: UIViewController {
         returnToSearchMain()
     }
 
+    /// 关键词被清空（点 × 或手动删干净）时，结果列表跟着一起清并退回搜索首页。
+    /// returnToSearchMain 自己会把文本框置 nil，再触发一次 editingChanged，
+    /// 靠里面的 hasSearched 判定挡住递归。
+    @objc private func keywordTextChanged(_ textField: UITextField) {
+        let trimmed = (textField.text ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.isEmpty, hasSearched else { return }
+        returnToSearchMain()
+    }
+
     func returnToSearchMain() {
         guard hasSearched else { return }
 
@@ -471,6 +513,10 @@ final class SearchViewController: UIViewController {
         guard let request = activeRequest else { return }
         guard !isLoadingFirstPage else { return }
         guard !isLoadingMore else { return }
+        // 下拉、双击底栏、切回本页都会走到这里。只看 isLoadingFirstPage 的话，
+        // 刷新态的重新加载不置位那个标记，于是同一个查询会并发发出两份第 1 页，
+        // 后一份必然被站点限流打成 429（真机日志实测两次相差 883 毫秒）。
+        guard !isRefreshing else { return }
         loadTask?.cancel()
         if isRefresh {
             isRefreshing = true
@@ -501,8 +547,24 @@ final class SearchViewController: UIViewController {
     }
 
     private func load(page: Int, request: SearchRequest, isLoadMore: Bool, isRefresh: Bool) {
+        let key = SearchRequestPage(request: request, page: page)
+        guard inFlightSearchRequests.contains(key) == false else {
+            AppLog.info(.postList, "搜索去重：同一页已在飞，跳过 page=\(page), query=\(request.query)")
+            return
+        }
+        inFlightSearchRequests.insert(key)
         loadTask = Task { [weak self] in
             guard let self else { return }
+            defer { self.inFlightSearchRequests.remove(key) }
+            // 挨太近的两次搜索必然吃 429，等过限流窗口再发，而不是丢掉这一页。
+            if let lastSearchRequestStartedAt = self.lastSearchRequestStartedAt {
+                let delay = Self.minimumSearchInterval - Date().timeIntervalSince(lastSearchRequestStartedAt)
+                if delay > 0 {
+                    AppLog.info(.postList, "搜索按站点限速等待: page=\(page), delayMs=\(Int(delay * 1000))")
+                    try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+                }
+            }
+            self.lastSearchRequestStartedAt = Date()
             do {
                 let posts = try await self.loadPosts(page: page, request: request)
                 await MainActor.run {

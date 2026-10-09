@@ -97,7 +97,14 @@ enum CommentComposerContentBuilder {
     }
 
     private static func quoteText(for comment: Comment, postURL: URL) -> String {
-        var lines = ["> \(replyPrefix(for: comment, postURL: postURL)) 发布于\(comment.createdAtTitleText ?? comment.createdAtText ?? "")"]
+        var header = "> "
+            + replyPrefix(for: comment, postURL: postURL)
+            + " 发布于" + (comment.createdAtTitleText ?? comment.createdAtText ?? "")
+        // 站点引用被编辑过的楼层时会带上"，编辑于…"，跟它保持一致。
+        if let editedAt = comment.editedAtText {
+            header += "，编辑于" + editedAt
+        }
+        var lines = [header]
         if let firstParagraph = firstQuotedParagraph(from: comment.contentHTML), !firstParagraph.isEmpty {
             lines.append("> \(firstParagraph)")
         }
