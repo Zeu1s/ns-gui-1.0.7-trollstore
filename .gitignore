@@ -42,3 +42,6 @@ fastlane/metadata/
 fastlane/screenshots/
 .put.json
 _put.json
+
+.claude/
+build-ipa/
