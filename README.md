@@ -4,6 +4,31 @@
 ![iOS](https://img.shields.io/badge/iOS-15%2B-000000?logo=apple&logoColor=white)
 ![License](https://img.shields.io/github/license/Zeu1s/ns-gui-1.0.7-trollstore)
 
+## English
+
+**NodeSeek iOS** is an unofficial native iOS client for the NodeSeek forum, written in Swift
+with UIKit. It renders a server-side-rendered, HTML-only website as a native app: post lists,
+thread detail, replies, private messages, voting, image viewing and image upload to the site's
+own host. There is no API — everything is parsed from the rendered DOM, so the whole project
+doubles as a worked example of **HTML/XPath → native model → UIKit** on iOS.
+
+Two parts of this repository are useful outside this app:
+
+- **[Zeu1s/trollstore-ipa](https://github.com/Zeu1s/trollstore-ipa)** — the build pipeline was
+  extracted into a standalone, MIT-licensed GitHub Action. It turns any Xcode iOS project into a
+  TrollStore-installable IPA in CI, with no Apple Developer account, no certificates and no
+  local Mac. This repository uses that action itself
+  ([`ipa-via-action.yml`](.github/workflows/ipa-via-action.yml)), so the recipe is exercised on
+  a real app rather than documented in the abstract.
+- **[`docs/reusable-components.md`](docs/reusable-components.md)** — a map of the parts that are
+  not specific to this forum: the DOM-parsing layer, Cloudflare challenge detection, WebView ↔
+  native cookie bridging, disk image caching, and the DTCoreText HTML renderer.
+
+The app itself is Chinese-language because the forum it targets is. The engineering above is
+not.
+
+---
+
 NodeSeek iOS 是一个非官方三方 iOS 客户端，使用 UIKit 构建，通过 HTML/XPath 解析提供原生浏览、帖子详情、登录态复用、回复、图片查看和 NodeImage 图片上传等能力。
 
 本项目不隶属于 NodeSeek，也不代表 NodeSeek 官方。用户登录、授权和内容访问均发生在用户自己的 NodeSeek / NodeImage 账号上下文中。
