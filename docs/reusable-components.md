@@ -17,7 +17,7 @@ signs nested Mach-O binaries before the outer bundle with `ldid`, and verifies t
 archive. No Apple Developer account, no `.p12`, no local Mac.
 
 This repository consumes its own action:
-[`ipa-via-action.yml`](../.github/workflows/ipa-via-action.yml). That is the reference call, and
+[`trollstore.yml`](../.github/workflows/trollstore.yml). That is the reference call, and
 it is exercised on a real ~6 MB app bundle on every run.
 
 The two non-obvious things it encodes:
